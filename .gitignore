@@ -3,4 +3,5 @@
 /.work/
 /.cache/
 /artifacts/
+/CMakeUserPresets.json
 *.nier

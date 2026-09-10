@@ -34,6 +34,34 @@ See [SDK details](sdk/README.md) for host requirements and the non-hermetic
 development environment. Build products, downloaded SDK packages, and private
 workspaces are untracked.
 
+## VS Code
+
+Open the repository root and enable the recommended **clangd** and **CMake
+Tools** extensions. After bootstrapping the SDK, select the **Nier pre-alpha
+(pinned SDK)** configure preset if prompted. CMake configures on open; a full
+build is not needed for code completion. You do not need to launch VS Code
+from a shell that sourced `sdk/env.sh`.
+
+The workspace uses clangd for C/C++ diagnostics and completion; Microsoft's
+duplicate IntelliSense engine is disabled, not clangd's error checking.
+`.clangd` reads the real flags, definitions, and LLVM/MLIR header paths from
+`build/prealpha/compile_commands.json`. C examples and shell-driven fixtures
+remain C even when clangd borrows a C++ build command. Special test fixtures
+still need their test-specific flags or generated headers; diagnostics for
+intentionally invalid test inputs are not suppressed.
+
+To regenerate the database manually, run **CMake: Configure**, or:
+
+```sh
+./scripts/cmake-sdk.sh --preset prealpha
+```
+
+This preset uses the standard repository-local `.sdk` layout. The small CMake
+and CTest launchers load the SDK environment before executing the stock tools,
+including version probes and test discovery. They do not change the publication
+compiler flow or your global VS Code settings. If the editor already had this
+folder open, run **Developer: Reload Window** once to pick up the workspace settings.
+
 ## Multi-file Hello World
 
 The example has `main.c`, `hello.h`, and `hello.c`. From the repository root,

@@ -1,0 +1,13 @@
+# Use the full toolchain build, not an old build/compile_commands.json or the
+# consumer-only build (which omits the publisher sources).
+CompileFlags:
+  CompilationDatabase: build/prealpha
+
+---
+# Shell-driven C fixtures/examples are not CMake targets. clangd may borrow a
+# C++ command for them; keep their actual language and Clang's default C dialect.
+If:
+  PathMatch: [.*\.c, '(examples|tests)/.*\.h']
+CompileFlags:
+  Remove: [-std=*]
+  Add: [-xc, -std=gnu17]

@@ -1,0 +1,15 @@
+{
+  "clangd.enable": true,
+  "clangd.arguments": ["--background-index"],
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "cmake.cmakePath": "${workspaceFolder}/scripts/cmake-sdk.sh",
+  "cmake.ctestPath": "${workspaceFolder}/scripts/ctest-sdk.sh",
+  "cmake.useCMakePresets": "always",
+  "cmake.configureOnOpen": true,
+  "files.associations": {
+    "include/**/*.h": "cpp",
+    "src/**/*.h": "cpp",
+    "examples/**/*.h": "c",
+    "tests/abi/**/*.h": "c"
+  }
+}

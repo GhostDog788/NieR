@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "prealpha",
+      "displayName": "Nier pre-alpha (pinned SDK)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/prealpha",
+      "environment": {
+        "NIER_SDK_ROOT": "${sourceDir}/.sdk",
+        "PATH": "$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18/bin:$env{NIER_SDK_ROOT}/host/usr/bin:$penv{PATH}",
+        "LD_LIBRARY_PATH": "$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18/lib:$env{NIER_SDK_ROOT}/host/usr/lib/x86_64-linux-gnu",
+        "CMAKE_PREFIX_PATH": "$env{NIER_SDK_ROOT}/host/usr:$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "CMAKE_C_COMPILER": "$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18/bin/clang",
+        "CMAKE_CXX_COMPILER": "$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18/bin/clang++",
+        "CMAKE_MAKE_PROGRAM": "$env{NIER_SDK_ROOT}/host/usr/bin/ninja",
+        "NIER_SDK_ROOT": "$env{NIER_SDK_ROOT}",
+        "NIER_BUILD_PUBLISHER": true,
+        "NIER_BUILD_TESTS": true
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "prealpha", "configurePreset": "prealpha", "jobs": 2 }
+  ],
+  "testPresets": [
+    {
+      "name": "prealpha",
+      "configurePreset": "prealpha",
+      "output": { "outputOnFailure": true },
+      "execution": { "jobs": 2 }
+    }
+  ]
+}
