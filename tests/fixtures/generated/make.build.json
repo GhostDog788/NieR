@@ -1,0 +1,10 @@
+{
+  "name": "generated-make",
+  "cflags": ["-O2"],
+  "build": {
+    "system": "make",
+    "source_dir": ".",
+    "output": "hello",
+    "targets": ["hello"]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "hello",
+  "sources": ["hello.c"],
+  "cflags": ["-O2"]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "scalars",
+  "sources": ["scalars.c"],
+  "cflags": ["-O2"]
+}

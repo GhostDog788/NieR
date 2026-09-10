@@ -1,0 +1,10 @@
+{
+  "name": "cmake-hello",
+  "cflags": ["-O2"],
+  "build": {
+    "system": "cmake",
+    "source_dir": ".",
+    "output": "hello",
+    "targets": ["hello"]
+  }
+}

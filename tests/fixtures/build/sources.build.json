@@ -1,0 +1,5 @@
+{
+  "name": "multi",
+  "sources": ["hello.c", "helper.c"],
+  "cflags": ["-O2"]
+}

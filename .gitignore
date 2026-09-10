@@ -1,0 +1,6 @@
+/.sdk/
+/build/
+/.work/
+/.cache/
+/artifacts/
+*.aotpkg

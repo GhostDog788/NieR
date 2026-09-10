@@ -1,0 +1,10 @@
+{
+  "name": "make-hello",
+  "cflags": ["-O2"],
+  "build": {
+    "system": "make",
+    "source_dir": ".",
+    "output": "hello",
+    "targets": ["hello"]
+  }
+}

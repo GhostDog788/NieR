@@ -1,0 +1,5 @@
+{
+  "name": "unsupported",
+  "sources": ["unsupported.c"],
+  "cflags": ["-O2"]
+}
