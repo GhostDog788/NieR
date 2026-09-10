@@ -2,7 +2,7 @@
 # Extract unmodified, SHA256-pinned Ubuntu packages into a user-owned SDK.
 set -euo pipefail
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-sdk_root=${AOT_SDK_ROOT:-$repo_root/.sdk}
+sdk_root=${NIER_SDK_ROOT:-$repo_root/.sdk}
 mirror=${SDK_UBUNTU_MIRROR:-https://archive.ubuntu.com/ubuntu}
 lock="$repo_root/sdk/packages.lock"
 for command in curl sha256sum dpkg-deb flock realpath; do
@@ -13,7 +13,7 @@ done
 sdk_root=$(realpath -m -- "$sdk_root")
 case "$sdk_root" in
   /|/usr|/usr/local|"$repo_root"|"${HOME:-/nonexistent}")
-    echo 'AOT_SDK_ROOT must identify a dedicated SDK directory.' >&2; exit 1 ;;
+    echo 'NIER_SDK_ROOT must identify a dedicated SDK directory.' >&2; exit 1 ;;
 esac
 mkdir -p -- "$sdk_root/downloads" "$sdk_root/receipts" "$sdk_root/host" "$sdk_root/sysroots"
 sdk_root=$(cd -- "$sdk_root" && pwd -P)
@@ -21,8 +21,7 @@ exec 9>"$sdk_root/bootstrap.lock"
 flock 9
 lock_digest=$(sha256sum "$lock" | cut -d ' ' -f 1)
 if [[ -f $sdk_root/sdk-lock.sha256 ]] && [[ $(< "$sdk_root/sdk-lock.sha256") != "$lock_digest" ]]; then
-  echo 'The package lock changed. Use a new dedicated AOT_SDK_ROOT; active SDKs are not upgraded in place.' >&2
-  exit 1
+  echo 'Pre-alpha SDK lock changed: extracting current pinned packages; rebuild Nier tools afterward.' >&2
 fi
 while read -r lane package arch version digest filename extra; do
   [[ -z ${lane:-} || $lane == \#* ]] && continue
@@ -47,6 +46,11 @@ while read -r lane package arch version digest filename extra; do
     touch -- "$receipt"
   fi
 done < "$lock"
+# Verify the frontend extension development surface in the extracted SDK. The
+# stock compiler and libraries remain unmodified; headers come from its exact
+# matching Ubuntu development packages.
+[[ -f $sdk_root/host/usr/lib/llvm-18/include/clang/Frontend/FrontendAction.h ]] || { echo 'Missing pinned Clang plugin headers' >&2; exit 1; }
+[[ -f $sdk_root/host/usr/lib/llvm-18/lib/libclang-cpp.so ]] || { echo 'Missing pinned Clang plugin library' >&2; exit 1; }
 # Ubuntu's usr-merged filesystem aliases are normally provided by the installed
 # root filesystem, not these development packages. Recreate only the aliases;
 # no compiler, loader, ELF binary, header, or linker script is patched.

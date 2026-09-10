@@ -1,4 +1,4 @@
-#include "Package.h"
+#include "nier/Artifact/Artifact.h"
 #include "llvm/Support/raw_ostream.h"
 #include <archive.h>
 #include <archive_entry.h>
@@ -8,8 +8,9 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <sys/stat.h>
 
-using namespace aot::driver;
+using namespace nier::driver;
 
 namespace {
 constexpr size_t MaxBytes = 64 * 1024 * 1024;
@@ -78,16 +79,20 @@ PackageFiles validFiles() {
   // and semantic validation belong to inspectArtifact/lowerArtifact tests.
   std::string module("opaque\0module-fixture", 21);
   llvm::json::Array modules;
-  modules.push_back(llvm::json::Object{{"path", "modules/0.mlirbc"},
-                                      {"sha256", digest(module)},
-                                      {"optimization", "O2"}});
+  modules.push_back(llvm::json::Object{{"path", "modules/0.nierbc"},
+                                      {"sha256", digest(module)}});
+  llvm::json::Object plans;
+  for (const char *target : {"x86_64", "i686"})
+    plans[target] = llvm::json::Array{llvm::json::Object{
+        {"modules", llvm::json::Array{0}}, {"optimization", "O2"}}};
   PackageFiles result;
-  result["modules/0.mlirbc"] = module;
+  result["modules/0.nierbc"] = module;
   result["manifest.json"] = jsonText(llvm::json::Object{
-      {"format_version", 1}, {"contract", Contract}, {"name", "package-test"},
+      {"format_version", 1}, {"contract", Contract}, {"kind", "executable"},
       {"runtime", "glibc-2.39-0ubuntu8.8"},
-      {"profiles", llvm::json::Array{"x86_64", "i686"}},
-      {"libraries", llvm::json::Array{}}, {"modules", std::move(modules)}});
+      {"targets", llvm::json::Array{"x86_64", "i686"}},
+      {"libraries", llvm::json::Array{}}, {"link_options", llvm::json::Array{}}, {"modules", std::move(modules)},
+      {"compilation_units", std::move(plans)}});
   return result;
 }
 
@@ -104,6 +109,9 @@ PackageFiles mutateManifest(
 
 llvm::json::Object &firstModule(llvm::json::Object &manifest) {
   return *(*manifest.getArray("modules"))[0].getAsObject();
+}
+llvm::json::Object &firstUnit(llvm::json::Object &manifest, llvm::StringRef target = "x86_64") {
+  return *(*manifest.getObject("compilation_units")->getArray(target))[0].getAsObject();
 }
 
 class Tests {
@@ -170,25 +178,90 @@ public:
 void manifestTests(Tests &tests) {
   tests.validate("standard manifest accepted", validFiles(), true);
   auto multiple = validFiles();
-  multiple["modules/1.mlirbc"] = "another opaque module";
+  multiple["modules/1.nierbc"] = "another opaque module";
   auto multipleManifest = llvm::json::parse(multiple.at("manifest.json"));
   if (!multipleManifest)
     throw std::runtime_error(llvm::toString(multipleManifest.takeError()));
   multipleManifest->getAsObject()->getArray("modules")->push_back(
-      llvm::json::Object{{"path", "modules/1.mlirbc"},
-                         {"sha256", digest(multiple.at("modules/1.mlirbc"))},
-                         {"optimization", "O0"}});
+      llvm::json::Object{{"path", "modules/1.nierbc"},
+                         {"sha256", digest(multiple.at("modules/1.nierbc"))}});
+  for (const char *target : {"x86_64", "i686"})
+    multipleManifest->getAsObject()->getObject("compilation_units")->getArray(target)->push_back(
+        llvm::json::Object{{"modules", llvm::json::Array{1}}, {"optimization", "O0"}});
   multiple["manifest.json"] = jsonText(std::move(*multipleManifest));
   tests.validate("multiple translation units accepted", multiple, true);
   for (const char *level : {"O0", "O1", "O2", "O3", "Os", "Oz"})
     tests.validate(std::string("optimization accepted: ") + level,
                    mutateManifest([&](auto &m) {
-                     firstModule(m)["optimization"] = level;
+                     firstUnit(m)["optimization"] = level;
                    }), true);
   tests.validate("declared managed libm accepted",
                  mutateManifest([](auto &m) {
                    m["libraries"] = llvm::json::Array{"m"};
                  }), true);
+  tests.validate("exact shared library import accepted",
+                 mutateManifest([](auto &m) {
+                   m["libraries"] = llvm::json::Array{":libz.so.1"};
+                 }), true);
+  tests.validate("path in exact shared library import rejected",
+                 mutateManifest([](auto &m) {
+                   m["libraries"] = llvm::json::Array{":../libz.so.1"};
+                 }), false);
+  tests.validate("executable dynamic exports accepted",
+                 mutateManifest([](auto &m) {
+                   m["link_options"] = llvm::json::Array{"--export-dynamic", "--hash-style=both", "--undefined-version"};
+                 }), true);
+  tests.validate("shared library SONAME accepted",
+                 mutateManifest([](auto &m) {
+                   m["kind"] = "shared";
+                   m["link_options"] = llvm::json::Array{"-soname=libexample.so.1"};
+                 }), true);
+  tests.validate("SONAME on executable rejected",
+                 mutateManifest([](auto &m) {
+                   m["link_options"] = llvm::json::Array{"-soname=libexample.so.1"};
+                 }), false);
+  tests.validate("path in SONAME rejected",
+                 mutateManifest([](auto &m) {
+                   m["kind"] = "shared";
+                   m["link_options"] = llvm::json::Array{"-soname=../libexample.so.1"};
+                 }), false);
+  tests.validate("unqualified linker input rejected",
+                 mutateManifest([](auto &m) {
+                   m["link_options"] = llvm::json::Array{"--script=/tmp/input"};
+                 }), false);
+  tests.validate("static archive requires member identities",
+                 mutateManifest([](auto &m) { m["kind"] = "static"; }), false);
+  auto emptyArchive = createArtifact("static", {});
+  if (!emptyArchive)
+    tests.check("empty static archive accepted", false, llvm::toString(emptyArchive.takeError()));
+  else
+    tests.validate("empty static archive accepted", *emptyArchive, true);
+  tests.validate("static archive member accepted",
+                 mutateManifest([](auto &m) {
+                   m["kind"] = "static";
+                   for (const char *target : {"x86_64", "i686"}) firstUnit(m, target)["archive_member"] = "code.c.o";
+                 }), true);
+  tests.validate("static archive member cannot name a path",
+                 mutateManifest([](auto &m) {
+                   m["kind"] = "static";
+                   for (const char *target : {"x86_64", "i686"}) firstUnit(m, target)["archive_member"] = "../code.o";
+                 }), false);
+  tests.validate("archive identity on nonstatic module rejected",
+                 mutateManifest([](auto &m) {
+                   firstUnit(m)["archive_member"] = "code.o";
+                 }), false);
+  tests.validate("static archive cannot carry executable link flags",
+                 mutateManifest([](auto &m) {
+                   m["kind"] = "static";
+                   for (const char *target : {"x86_64", "i686"}) firstUnit(m, target)["archive_member"] = "code.o";
+                   m["link_options"] = llvm::json::Array{"--export-dynamic"};
+                 }), false);
+  auto duplicateMembers = createArtifact("static", {{"first", "O0", "same.o"}, {"second", "O2", "same.o"}});
+  if (!duplicateMembers)
+    tests.check("duplicate static member names accepted in physical order", false,
+                llvm::toString(duplicateMembers.takeError()));
+  else
+    tests.validate("duplicate static member names accepted in physical order", *duplicateMembers, true);
   tests.validate("unknown format version rejected",
                  mutateManifest([](auto &m) { m["format_version"] = 2; }), false);
   tests.validate("string format version rejected",
@@ -197,17 +270,18 @@ void manifestTests(Tests &tests) {
                  mutateManifest([](auto &m) { m["contract"] = "future"; }), false);
   tests.validate("wrong runtime rejected",
                  mutateManifest([](auto &m) { m["runtime"] = "host-libc"; }), false);
-  tests.validate("reversed profiles rejected",
+  tests.validate("target order is not producer provenance",
                  mutateManifest([](auto &m) {
-                   m["profiles"] = llvm::json::Array{"i686", "x86_64"};
-                 }), false);
-  tests.validate("missing profile rejected",
+                   m["targets"] = llvm::json::Array{"i686", "x86_64"};
+                 }), true);
+  tests.validate("independently qualified target subset accepted",
                  mutateManifest([](auto &m) {
-                   m["profiles"] = llvm::json::Array{"x86_64"};
-                 }), false);
+                   m["targets"] = llvm::json::Array{"x86_64"};
+                   m.getObject("compilation_units")->erase("i686");
+                 }), true);
   tests.validate("unknown library rejected",
                  mutateManifest([](auto &m) {
-                   m["libraries"] = llvm::json::Array{"host-secret"};
+                   m["libraries"] = llvm::json::Array{"../host-secret"};
                  }), false);
   tests.validate("non-string library rejected",
                  mutateManifest([](auto &m) {
@@ -221,7 +295,7 @@ void manifestTests(Tests &tests) {
                  mutateManifest([](auto &m) { m["modules"] = llvm::json::Array{17}; }), false);
   tests.validate("wrong module path rejected",
                  mutateManifest([](auto &m) {
-                   firstModule(m)["path"] = "modules/1.mlirbc";
+                   firstModule(m)["path"] = "modules/1.nierbc";
                  }), false);
   tests.validate("source path in module record rejected",
                  mutateManifest([](auto &m) {
@@ -235,8 +309,34 @@ void manifestTests(Tests &tests) {
                  mutateManifest([](auto &m) { firstModule(m).erase("sha256"); }), false);
   tests.validate("unsupported optimization rejected",
                  mutateManifest([](auto &m) {
-                   firstModule(m)["optimization"] = "Ofast";
+                   firstUnit(m)["optimization"] = "Ofast";
                  }), false);
+  tests.validate("old per-fragment optimization metadata rejected",
+                 mutateManifest([](auto &m) { firstModule(m)["optimization"] = "O2"; }), false);
+  tests.validate("missing compilation plan rejected",
+                 mutateManifest([](auto &m) { m.erase("compilation_units"); }), false);
+  tests.validate("compilation plan cannot omit a target",
+                 mutateManifest([](auto &m) { m.getObject("compilation_units")->erase("i686"); }), false);
+  tests.validate("compilation plan cannot add an unknown target",
+                 mutateManifest([](auto &m) { (*m.getObject("compilation_units"))["arm"] = llvm::json::Array{}; }), false);
+  tests.validate("empty compilation unit rejected",
+                 mutateManifest([](auto &m) { firstUnit(m)["modules"] = llvm::json::Array{}; }), false);
+  tests.validate("dropped fragment rejected",
+                 mutateManifest([](auto &m) { (*m.getObject("compilation_units"))["x86_64"] = llvm::json::Array{}; }), false);
+  tests.validate("duplicated fragment rejected",
+                 mutateManifest([](auto &m) { firstUnit(m)["modules"] = llvm::json::Array{0, 0}; }), false);
+  tests.validate("out-of-range fragment rejected",
+                 mutateManifest([](auto &m) { firstUnit(m)["modules"] = llvm::json::Array{1}; }), false);
+  tests.validate("negative fragment rejected",
+                 mutateManifest([](auto &m) { firstUnit(m)["modules"] = llvm::json::Array{-1}; }), false);
+  tests.validate("noninteger fragment rejected",
+                 mutateManifest([](auto &m) { firstUnit(m)["modules"] = llvm::json::Array{"0"}; }), false);
+  tests.validate("private compilation-unit payload rejected",
+                 mutateManifest([](auto &m) { firstUnit(m)["source"] = "private code"; }), false);
+  auto grouped = createArtifact("executable", {{"first"}, {"second"}}, {}, {}, {"x86_64", "i686"}, {},
+      {{"x86_64", {{{0}, "O0"}, {{1}, "O2"}}}, {"i686", {{{0, 1}, "O3"}}}});
+  if (!grouped) tests.check("different native-unit partitions accepted", false, llvm::toString(grouped.takeError()));
+  else tests.validate("different native-unit partitions accepted", *grouped, true);
   tests.validate("unknown source-bearing manifest field rejected",
                  mutateManifest([](auto &m) {
                    m["source_code"] = "int private_application(void) { return 7; }";
@@ -264,10 +364,10 @@ void manifestTests(Tests &tests) {
   files["manifest.json"] = std::string(1024 * 1024 + 1, ' ');
   tests.validate("oversized manifest rejected", files, false);
   files = validFiles();
-  files.erase("modules/0.mlirbc");
+  files.erase("modules/0.nierbc");
   tests.validate("missing module rejected", files, false);
   files = validFiles();
-  files["modules/0.mlirbc"].push_back('x');
+  files["modules/0.nierbc"].push_back('x');
   tests.validate("corrupt module bytes rejected", files, false);
   for (const char *name : {"source.c", "private/input.ll", "capture.bc",
                            "private.ast", "debug.json", "resources/source.tar"}) {
@@ -291,11 +391,39 @@ void manifestTests(Tests &tests) {
   tests.validate("duplicate nested JSON key rejected", files, false);
 }
 
+void versionScriptTests(Tests &tests) {
+  auto files = createArtifact("shared", {{"module", "O2"}}, {},
+      {"-soname=libfixture.so.1"}, {"x86_64", "i686"},
+      "/* private source /home/builder/code */\nLIB_1 { global: public_*; INPUT_value; local: *; };\n");
+  if (!files) {
+    tests.check("version script factory", false, llvm::toString(files.takeError()));
+    return;
+  }
+  tests.validate("normalized C version script accepted", *files, true);
+  tests.check("version script comments not published",
+      files->at("link/version.script").find("private source") == std::string::npos);
+  auto corrupt = *files;
+  corrupt["link/version.script"] += " ";
+  tests.validate("version script digest mismatch rejected", corrupt, false);
+  corrupt = *files;
+  corrupt.erase("link/version.script");
+  tests.validate("missing version script rejected", corrupt, false);
+  for (llvm::StringRef text : {"/* unfinished", "# comments only", "{ global: \"quoted\"; };", "INCLUDE /tmp/native-input"}) {
+    auto rejected = normalizeVersionScript(text);
+    tests.check("unqualified version script rejected: " + text.str(), !rejected);
+    if (!rejected) llvm::consumeError(rejected.takeError());
+  }
+  auto executable = createArtifact("executable", {{"module", "O2"}}, {}, {},
+      {"x86_64"}, "{ global: main; };");
+  tests.check("unqualified executable version script rejected", !executable);
+  if (!executable) llvm::consumeError(executable.takeError());
+}
+
 void archiveTests(Tests &tests) {
   tests.archive("regular binary archive accepted",
-                {{"manifest.json", "{}"}, {"modules/0.mlirbc", std::string("a\0b", 3)}}, true);
+                {{"manifest.json", "{}"}, {"modules/0.nierbc", std::string("a\0b", 3)}}, true);
   for (const char *name : {"/absolute", "../escape", "modules/../escape",
-                           "./manifest.json", "modules//0.mlirbc"})
+                           "./manifest.json", "modules//0.nierbc"})
     tests.archive(std::string("unsafe archive path rejected: ") + name,
                   {{name, "data"}}, false);
   tests.archive("overlong archive path rejected", {{std::string(257, 'a'), "x"}}, false);
@@ -383,12 +511,21 @@ void writerTests(Tests &tests) {
   bool refused = static_cast<bool>(overwrite);
   if (overwrite)
     llvm::consumeError(std::move(overwrite));
-  tests.check("writer refuses existing output", refused);
+  tests.check("writer refuses invalid replacement", refused);
   decoded = readPackage(path);
   if (!decoded)
     tests.check("existing output remains intact", false, llvm::toString(decoded.takeError()));
   else
     tests.check("existing output remains intact", *decoded == files);
+
+  auto fifo = tests.nextPath();
+  if (::mkfifo(fifo.c_str(), 0600) != 0)
+    tests.check("special output fixture created", false);
+  else {
+    auto error = writePackage(fifo, files);
+    tests.check("writer preserves and rejects FIFO output", bool(error) && fs::is_fifo(fifo));
+    if (error) llvm::consumeError(std::move(error));
+  }
 
   PackageFiles tooMany;
   for (size_t i = 0; i <= MaxFiles; ++i)
@@ -421,6 +558,7 @@ int main() {
     }
     Tests tests(scratch->path);
     manifestTests(tests);
+    versionScriptTests(tests);
     archiveTests(tests);
     writerTests(tests);
     return tests.finish();

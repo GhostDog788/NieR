@@ -1,0 +1,5 @@
+/* private publication fixture path /home/builder/source */
+API_1 {
+  global: public_answer; optional_not_built;
+  local: *;
+};

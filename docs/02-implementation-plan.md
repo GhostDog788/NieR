@@ -1,4 +1,4 @@
-# On-Target AOT: Implementation Plan
+# Nier: Implementation Plan
 
 ## 1. Authority, scope, and current status
 
@@ -7,17 +7,24 @@ requirements contract. This document specifies the selected implementation
 direction, the C MVP, and the subsequent work required to satisfy all of 01.
 It does not change those requirements.
 
-**Status on 2026-09-10:** the first real Hello World pipeline works, including
-two-profile merging, native-width controls, direct native execution, and basic
-Make/CMake integration. The implemented compiler is still a deliberately small
-single-block scalar/direct-call slice. Broad C, the upstream corpus, general
-control-flow/ABI merging, wider portability, native performance parity, and
-reverse-engineering parity are not claimed as achieved. Section 17 records
-the verified results separately from planned capabilities.
+**Status on 2026-09-11:** the independent Nier publication/compiler flow works,
+including stock-Clang publication, native ABI/build fixtures, and the complete
+configured cJSON/zlib corpus. The previous combined program and publication
+recipes have been removed. This is a qualified pre-alpha C implementation,
+not unrestricted C or completion of 01, general dependency management,
+performance parity, or RE parity. Section 17 records the verified shapes and
+remaining limits rather than inferring broad support from test counts.
+
+**Pre-alpha policy:** there are no backward-compatibility obligations anywhere.
+Formats, commands, APIs, and configuration may change between commits. Remove
+obsolete interfaces rather than preserving aliases, readers, or migrations.
+Current-format validation and SDK integrity checks are correctness requirements,
+not compatibility services.
 
 The next deliverable is a working C MVP, not the complete product:
 
-1. Establish the real pipeline with Hello World and native-width probes.
+1. Establish stock-Clang publication and independent native compilation with
+   multi-file Hello World and native-width probes.
 2. Expand it into the agreed broad-C functional MVP, including normal build
    integration and the configured cJSON/zlib corpus.
 3. Complete the remaining C facilities, languages, targets, platform services,
@@ -72,23 +79,37 @@ It must not dispatch to rustc, a Go compiler, or language-specific dialects to
 finish compilation. Normal language runtimes may remain native dependencies
 or linked native code; that does not make the device compiler language-specific.
 
-### 2.2 Common consumer, reusable native producers
+### 2.2 Nier as the independent public boundary
 
-The external publication contract is source-to-common-IR. Its implementation
-may compose existing native compilers, build tools, and profile-specific
-configuration. The central LLVM-to-common-IR integration is shared.
+Nier code is the flagship format and pre-alpha standard. It consists of defined
+source-language-independent semantics, public construction/validation APIs,
+bytecode, artifact rules, and conformance tests. MLIR supplies infrastructure;
+arbitrary MLIR dialects are not automatically Nier.
 
-The initial C producer is stock Clang with a shared LLVM capture plugin.
-Additional languages must feed the same boundary using permitted existing
-software. Compiler-specific command-line/configuration integration is not
-permission to invent a new source-language compiler or add a separate
-language-specific code generator to the device.
+Our shared LLVM-to-Nier merger is one reference producer, not a mandatory
+admission path. Independent producers may emit Nier directly without Clang,
+native profile captures, or merger provenance. They must represent all required
+semantics and provision their language runtime/dependency contract. No
+language-specific importer, frontend, or extension implementation is required
+on the destination for already-supported Nier semantics.
 
-Keep source interpretation, preprocessing, macro expansion, build scripts,
-generated bindings, language-specific optimizations, and ordinary runtime
-lowering in existing publisher-side components. Where those components cannot
-supply adequate capture inputs under the selected constraints, record a
-feasibility failure; do not hide it behind a new importer.
+Producer-local extensions must lower to supported Nier before publication.
+New required generic semantics evolve Nier itself; unknown required operations
+fail. Platform-specific distributions implement the same supported semantics,
+not language-specific feature subsets. They may omit publisher tools and
+irrelevant target components.
+
+For C, developers invoke actual stock Clang with a Nier configuration. A
+replacement frontend action delegates source compilation to stock Clang,
+captures both native LLVM profiles, and calls the shared merger. It does not
+implement AST-to-Nier lowering. The stock driver invokes internal `nier-ld`
+to combine Nier objects into the final artifact. Clang plugins and native
+compiler inputs are confined to publisher-side targets.
+
+The independent `nierc` links the Nier core, artifact support, and native
+lowering, never the LLVM-capture producer or Clang plugin. Producer APIs live
+separately from consumer/direct-Nier APIs. Consumer-only builds must work with
+`NIER_BUILD_PUBLISHER=OFF`.
 
 ### 2.3 Why capture multiple native profiles
 
@@ -145,14 +166,14 @@ redefinition of the agreed C MVP.
 
 | Included by C MVP completion | Deliberately deferred beyond this MVP |
 |---|---|
-| Ordinary C scalar arithmetic and control flow | Threads, atomics, and TLS |
+| Ordinary C scalar arithmetic and control flow, native setjmp/longjmp | Threads, atomics, and TLS |
 | Native pointers, fixed arrays, structs, and unions | Dynamic loading and plugin coverage |
 | float and double | long double and complex arithmetic |
 | Aggregates passed and returned by value | Advanced floating-point environment behavior |
 | Function pointers, indirect calls, and native callbacks | Variable-length arrays |
-| Variadic calls and supported variadic function bodies | setjmp/longjmp and nonlocal jumps |
-| Target-conditional common-IR sharing | Inline assembly and architecture intrinsics |
-| Multiple translation units and normal object/archive/link behavior | The remaining general-C and full-product matrix |
+| Variadic calls, scalar/pointer bodies, va_copy and native va_list forwarding | Additional nonlocal-jump extensions |
+| Target-conditional sharing and differing profile source sets | Inline assembly and architecture intrinsics |
+| Multiple TUs, static archives, executable and shared-library outputs | The remaining general-C and full-product matrix |
 | Make and CMake integration | Production installation/update services |
 
 The inclusion of a category is a test obligation, not a statement that the
@@ -171,6 +192,14 @@ Use unmodified upstream source releases:
 
 - **cJSON 1.7.19**, with its configured build and test suite.
 - **zlib 1.3.2**, with its configured build and test suite.
+
+Qualify cJSON in separate static/shared CMake Release builds, running all 19
+registered CTests in each with its normal setjmp/longjmp-based Unity harness.
+Qualify zlib using upstream configure/Make, `CFLAGS=-O3`, `--shared`,
+`make test`, and `make test64`; retain its version script and native
+architecture-selected algorithms. This does not claim zlib CMake's separate
+coverage/integration suite. Optional corpus configurations are documented, not
+silently substituted when required tests fail.
 
 Lock archive URLs, exact digests, build options, test commands, and expected
 configuration in the corpus recipes. Upstream configuration options may be
@@ -203,12 +232,14 @@ The logical components are:
 | Device compiler | Read common IR and emit target-specific LLVM IR |
 | Stock LLVM tools/libraries | Native optimization and object generation |
 | Stock LLD | Final native ELF linking |
-| Publication CLI | Publish, inspect, and manually compile an experimental artifact |
+| Stock-Clang adapter / publication linker | Emit Nier units and standalone executable/shared-library artifacts |
+| Independent nierc | Inspect Nier and manually produce native output without the publisher |
 | SDK/corpus/test support | Pinned inputs, native references, fixtures, and reproducible checks |
 
-These are responsibilities, not a claim that every component exists or that
-every path/API is frozen. The compiler, publisher, and CLI may initially share
-one small codebase; separate their input contracts even when doing so.
+Shared libraries are permitted, but publication and native compilation are
+independent programs and build targets from the first Nier checkpoint. Keep
+Nier core/artifact/target lowering separate from LLVM-to-Nier capture merging.
+Only publisher builds require Clang development libraries.
 
 ### 4.2 Prebuilt SDK supply
 
@@ -326,21 +357,45 @@ Do not silently pretend an arbitrary native object contains portable IR.
 
 ### 5.3 Make and CMake
 
-The first checkpoint may use an explicit source-list recipe. This is a
-bootstrap stepping stone, not completion of build integration.
+Provide an external Make integration file and CMake
+`nier_add_publication(...)` helper. Developers declare the source directory,
+existing target/selected outputs, and existing configuration arguments.
+Do not require application source edits, target-by-target rewrites, a renamed
+Clang executable, or a separate developer-facing publication command.
 
-The C MVP must support the configured Make and CMake projects through normal
-compiler/toolchain configuration and wrappers. The wrappers run the actual
-unmodified compiler and collect capture products; they must not fake every
-object file with a new format that breaks native build-time linking.
+The SDK internally coordinates two normal native project builds. Actual stock
+Clang emits native objects so configure probes and generators execute normally.
+A Clang observer and LLVM snapshot plugin collect provisional records; only a
+successful native build/link with validated capture, dependency and output
+identities makes those records eligible for publication. Internal native linker
+recording preserves ordinary native behavior; archive creation still uses
+stock `llvm-ar`. A readonly private object marker connects immutable capture
+journals with actual native objects. An after-main Clang observer finalizes
+the original native object hash after successful code generation. Private
+native lanes use `-fno-temp-file` so that output is available at this point.
+These checks establish build correspondence, not hostile-workspace security.
 
-Run target-sensitive configure and code-generation steps privately for each
-profile. Keep host tools distinct from target outputs. Do not run private
-project generators on the destination or distribute their source.
+The SDK then invokes stock Clang on selected paired LLVM inputs to emit Nier
+units, and invokes stock Clang again for the final Nier publication link.
+Build-generated headers remain profile-specific: a pointer-width generator
+must produce 8 for x86-64 and 4 for i686. No third source build or destination
+execution of private generators is needed.
 
-Compare native and publication builds from the same original source and
-configuration. Developer-facing source/build adaptation must be packaging
-configuration, not rewrites of application logic.
+Preserve supported differing translation-unit inventories, native archive
+extraction/link order, responses, per-TU flags, visibility, SONAMEs, version
+scripts, and normal native dependency contracts. Matching-source-set-only
+support does not complete this migration. Preserve target compilation
+boundaries instead of introducing implicit LTO while matching across files.
+
+Successful rebuilds replace the requested artifact atomically; failed builds
+or merges preserve the previous valid output. Never overwrite project sources.
+An output artifact is not a production installed release.
+
+Measure fresh Make and CMake integration exercises against a 15-minute
+developer-effort target, assuming an installed SDK and working native build.
+Automated build duration is separate. Qualifying projects must honor documented
+compiler/tool configuration; missing capture evidence or unsupported build
+operations produce actionable diagnostics rather than guessed pairings.
 
 ## 6. Common MLIR and merger contract
 
@@ -388,10 +443,10 @@ profile-selected function/module copies as its universal fallback. Sharing
 must be real and inspectable, and original capture modules must be absent
 from the publication.
 
-Start by requiring corresponding common graphs. Add target-conditional graph
-sharing as part of the C MVP, with fixtures whose preprocessing/configuration
-produces meaningful differences. A same-graph-only compiler does not complete
-that MVP requirement.
+Start with corresponding graphs, then add target-conditional sharing and
+correspondence across differing source inventories. Tests must exercise real
+preprocessing, configuration, and source-selection differences while retaining
+common structure. A same-graph-only compiler does not complete the MVP.
 
 Multiple profiles reveal examples, not a uniquely determined original source
 expression. A proposed symbolic replacement must specialize correctly for the
@@ -419,6 +474,26 @@ lifetime, or memory-access constraints needed for native semantics. Conversely,
 private debug records are evidence for the publisher, not automatically
 necessary public semantics.
 
+The current implementation separates three concerns:
+
+- `AggregateNormalize` is producer-only. Private debug type graphs propose
+  logical signatures and storage anchors; instruction/use proofs must validate
+  every admitted native entry, argument, result, and indirect-call shim before
+  normalization. Debug data alone is not authority to change the program.
+- The public `native_abi` type attribute records a logical native callable
+  signature. Aggregate body arguments use owned-storage anchors, with a checked
+  relationship to that signature. This is an intermediate compiler convention,
+  not the installed program's calling convention or a language identifier.
+- `AggregateABI` and `NativeABIBridge` are consumer-safe target-lowering code.
+  They materialize native parameter/return forms inside the original functions
+  and calls, without helper wrappers or a boxed runtime ABI. The producer
+  independently reproves the generated forms before its final native inverse
+  comparison. The device needs neither the debug evidence nor that producer.
+
+Ordered-record ABI support and explicit packed/overlapping layout classification
+have separate qualification tests. A passing classifier is not sufficient to
+admit an unproved producer normalization shape.
+
 ### 6.4 Verification and failed merges
 
 For each supported fixture and profile:
@@ -444,27 +519,47 @@ it remains unfinished scope if required by the current milestone.
 
 ### 7.1 Package format
 
-Use per-translation-unit common MLIR bytecode in a standard tar archive with
+Use shared common MLIR fragments in a standard tar archive with
 a JSON manifest. Use libarchive and LLVM JSON support rather than inventing
 archive or JSON parsers.
 
-The envelope is versioned and explicitly experimental. Pin the compatible
-dialect/compiler/LLVM/MLIR contract. Do not claim that arbitrary compiler-
-internal bytecode is a stable long-term distribution ABI.
+The envelope is explicitly pre-alpha, with only a current-contract discriminator
+and no historical readers. Pin the implementation's LLVM/MLIR dependency, but
+do not make Clang identity or capture provenance an artifact admission rule.
+Document the Nier encoding and canonical JSON rules for independent producers.
 
 A representative logical layout is:
 
 ~~~text
 manifest.json
-modules/<opaque-id>.mlirbc
+modules/<opaque-id>.nierbc
 resources/<declared-relative-path>
 native/<declared-payload-id>       # full-product extension where applicable
 ~~~
 
 The manifest describes artifact identity, format/dialect version, module
-digests, profile coverage, entry points, recorded compile/link semantics, and
+digests, qualified target constraints, artifact kind, entry points, compile/link semantics, and
 the declared native SDK/dependency contract. Preserve archive membership and
 link ordering separately from portable code modules.
+
+The current kinds are `object`, `executable`, `shared`, and `static`. Module
+records carry only bytecode paths and digests. A mandatory `compilation_units`
+table lists each qualified target's ordered native units: each unit names its
+ordered fragment indices and optimization setting. Every fragment occurs once
+per target. The usual one-fragment-per-TU case uses singleton units; genuine
+source repartitioning can group shared fragments differently. Reassemble each
+original unit before invoking stock optimization; do not silently enable LTO.
+
+Static artifacts contain every ordered archive member, not only members used
+by one application. Each compilation unit carries its public archive basename;
+physical unit order distinguishes duplicate names. Executable/shared artifacts record
+explicit native dependency names or exact SONAME imports. The selected native
+build's actual `DT_NEEDED` list is retained without repeating as-needed
+selection at the destination, including constructor-only dependencies.
+Qualified link metadata includes SONAME, dynamic exports, GNU/both hash styles,
+and a bounded, digest-checked C symbol version script with comments removed.
+The native SDK explicitly uses LLD's `--undefined-version` to retain ordinary
+GNU-linker behavior for version maps naming optional absent definitions.
 
 Serialize deterministically where practical: stable entry ordering, canonical
 field ordering defined by this schema, normalized archive metadata, bounded
@@ -494,36 +589,44 @@ gate, and source/private-input exclusion applies from the first artifact.
 Do not rely on a secret format, encryption with a bundled decoder, a hidden
 compiler, or deletion after installation to establish RE parity.
 
-### 7.3 Initial commands
+### 7.3 Independent program interfaces
 
-The selected initial interface is:
+The first example consists of `main.c`, `hello.h`, and `hello.c`:
+`main` calls the function declared in the header and defined in `hello.c`.
 
-~~~text
-aot publish --recipe privatebuild.json -o application.aotpkg
-aot inspect application.aotpkg
-aot compile application.aotpkg --output-dir native
-./native/<entrypoint>
+~~~sh
+clang --config=/publisher-sdk/nier.cfg -O2 main.c hello.c -o hello.nier
+nierc inspect hello.nier
+nierc hello.nier --sdk /device-sdk -o hello
+./hello
 ~~~
 
-Command spelling and schema details must match the implementation and its
-tests; the first source-list recipe is not a substitute for the Make/CMake
-recipe support required at C MVP exit.
+Normal separate compilation is also required: stock Clang `-c` emits
+relocatable Nier objects, and its ordinary link invocation combines them into
+one final archive. `-shared` selects shared-library publication. Each selected
+executable or shared library has one standalone artifact containing all its
+ordinary code and required public metadata; external native dependencies remain
+explicit rather than implicitly bundled.
 
-Publish runs in the private workspace. Inspect reports the public contract,
-coverage, modules, and dependencies without requiring source. Compile runs
-in the separate destination workspace and consumes only approved input
-classes for that stage.
+`nierc lower INPUT.nier --target i686 --output-dir DIR` provides diagnostic
+LLVM output. It is not an installed i686 execution claim. `nierc` has no
+publication/source-language mode. There is no `aot publish` compatibility path.
 
-There is no initial installer registry, updater, activation daemon, store,
-or application launcher. These manual compilation jobs are development
-artifacts, not production installed releases or an implementation of T8.
-A later production installer must enforce the no-recompile lifecycle.
+Successful writers use validated atomic replacement. The SDK coordinator stages
+its final Clang output before replacing a valid existing artifact; nierc also
+preserves prior output on failure. Direct stock-Clang commands retain the
+upstream driver's failed-output cleanup, which can remove the requested output
+after a failed job and cannot be overridden by the frontend plugin. Do not use
+an input/source path as an output path. The artifact is independent of publisher
+intermediates.
+No installer, updater, store, launcher, or installed-release registry is part
+of this migration; T8 remains later production work.
 
 ## 8. Destination compilation, linking, and execution
 
 ### 8.1 Input and transformation boundary
 
-The destination selects a supported profile from the publication and a
+The destination selects a supported target from the artifact constraints and a
 matching SDK. Reject unsupported versions, missing required modules,
 incompatible native inputs, and unknown required semantics.
 
@@ -536,6 +639,11 @@ This is the final custom program representation. Thereafter use unmodified
 LLVM optimization and code generation, followed by unmodified LLD. Diagnostics,
 input staging, and normal tool invocation remain orchestration, not permission
 to add another custom program transformation.
+
+For a static-library output, stock `llvm-ar` replaces the final ELF link:
+append each independently generated member in physical order, then generate
+the archive index. Duplicate member names must not trigger replacement or
+deduplication. Later native consumers perform normal lazy archive extraction.
 
 ### 8.2 Optimization and linking
 
@@ -641,7 +749,8 @@ archive fail this checkpoint.
 ### C2 — Broad core C and native ABI
 
 Add fixed arrays, struct/union layout, aggregates by value, float/double,
-indirect calls, callbacks, and variadics. Include calls crossing translation
+indirect calls, callbacks, variadics including native va_list forwarding, and
+setjmp/longjmp. Include calls crossing translation
 units and boundaries with stock-native reference components.
 
 ABI tests must expose wrong registers, hidden result pointers, alignment,
@@ -651,7 +760,8 @@ right pointer size does not establish any of these.
 ### C3 — Target-conditional sharing and build integration
 
 Implement differing target-conditioned regions in a shared graph. Add
-multi-translation-unit projects, native object/archive/link preservation, and
+multi-translation-unit projects, differing source sets, static/shared outputs,
+native object/archive/link preservation, and
 the selected Make/CMake integration. Include generated/configuration inputs
 without source edits.
 
@@ -1165,79 +1275,119 @@ container project.
 
 ## 17. Implementation-status record
 
-As of 2026-09-10, C0 has passed on the development machine. Source-list and
-basic Make/CMake publication use the same shared merger and artifact/device
-path. The native-width portion of C1 has passed; its general control-flow
-coverage has not. Some C3 build plumbing is implemented, but C2-C4 are not
-accepted. No requirement in 01 has been reduced to match the current slice.
+The Nier migration replaces the old combined program and publication recipes;
+old prototype artifact hashes and measurements are not evidence for the new
+implementation. The implementation and tests, not this roadmap, determine
+which gates have passed.
 
-| Item | Status recorded by this revision |
-|---|---|
-| Requirements in 01 | Approved and unchanged |
-| Selected architecture and C-first delivery | Documented here |
-| Pinned SDK/bootstrap | Verified local Ubuntu 24.04 SDK, matching LLVM/MLIR/LLD 18.1.3 and both glibc 2.39 sysroots; no system installation |
-| Initial capture/merger/common artifact/device slice | Implemented: registered MLIR dialect, actual bytecode, matching scalar graphs, mandatory reconstruction checks for both profiles, stock LLVM/LLD |
-| C0 execution | Passed: ordinary C printf source produces a directly executed, stripped native x86-64 PIE using supplied glibc/loader |
-| C1 specialization evidence | Native word/pointer sizes, fixed literals, fixed 64-bit integers, noinline and cross-TU calls pass; general CFG support remains missing |
-| Existing-build portion of C3 | Direct-object Make/CMake builds, generated headers, native generators and native configure probes work in private profile trees; archives/divergent graphs remain unqualified |
-| Parser and input boundaries | 73 package checks, 13 IR cases, compiler/native input-access tracing; not a security sandbox or full parser-hardening proof |
-| Broad-C C2-C4 and corpus | Not completed; cJSON/zlib have not been accepted through this compiler |
-| Full standalone A1/A2 and platform/lifecycle | Later mandatory gates |
-| Security product | Later phase after standalone acceptance |
+Verified checkpoints include separate core/producer targets, public Nier APIs,
+bounded artifact handling, direct stock-Clang publication, and multi-file
+Hello World. Positive tests now cover matching CFG/SSA, scalar floating point,
+native-width/fixed-width controls, record and array storage, mutable globals,
+function pointers and native callbacks. Native `setjmp`/`longjmp` tests cover
+cross-frame calls, nested live environments, zero-to-one return conversion,
+and preserved volatile locals on both private widths at O0/O2.
+Promoted scalar/pointer `va_arg`, `va_copy`, register/overflow cases,
+and native `va_list` forwarding also pass both private widths at O0/O2.
+These tests do not establish the entire C04-C07 ABI/graph matrix. Conditional
+switch fixtures now have actual target-only arms inside one shared function,
+retain side effects and native case/block order, and execute correctly on
+both widths at O0/O2. This qualified producer rule requires closed,
+straight-line arms that rejoin shared code; general divergent CFGs are not
+silently admitted. Overlapping union storage and shared loop-metadata
+identities also have positive reconstruction tests. Nested packed/bitfield
+storage fixtures cover nonzero static initialization, copying, signed field
+extraction, unaligned accesses, and pointer-based mutation on both private
+widths at O0/O2; they do not claim packed/bitfield by-value ABI coverage.
+
+Make and CMake fixtures exercise native configure probes/generators, differing
+source files selected into corresponding object roles, genuinely unequal
+three-versus-two translation-unit inventories, ordinary/thin/group/
+whole-archive extraction, shared-library outputs and native callers, and
+static outputs with duplicate member names. Static tests check observable
+member order and lazy extraction with both stock-native and Nier-produced
+callers. Shared-link tests check SONAME, versioned exports, dynamic visibility,
+constructor-only dependencies, and failed-link output preservation. Per-target
+archive extraction order and independent per-TU optimization settings are
+preserved through explicit compilation-unit plans. Unequal source counts
+currently require provable self-contained fragments; general cross-fragment
+private identities remain an explicit rejection, not a native-code fallback.
+The SDK configures stock Clang's `-ffile-prefix-map` for each private lane,
+giving transient source/build roots stable `/nier/source` and `/nier/build`
+identities in `__FILE__`. It does not rewrite application strings after capture
+or erase genuine source differences.
+
+The unchanged pinned cJSON static and shared configurations each pass all 19
+native-reference tests on both private profiles. Pinned zlib's original
+`make test` and `make test64` likewise pass both native profiles. The cJSON
+static/shared libraries and demonstration program additionally publish,
+compile, and run through Nier with reference-identical stdout. A stock-native
+caller also loads the Nier-produced DSO and matches the native reference.
+The complete zlib gate now also passes through Nier: its static archive,
+versioned shared library, and all six test programs are independently
+published and compiled. The original `make test` and `make test64` recipes run
+successfully in a source-free destination with build tools disabled. Loader
+diagnostics confirm the shared tests use the Nier-generated `libz.so.1`.
+The complete cJSON gate also passes: each static/shared configuration produces
+21 Nier artifacts and its source-free destination passes all 19 original
+CTests. Unity retains its normal `setjmp`/`longjmp` assertion control. Native
+and Nier callers both load the destination `libcjson.so.1`; demonstration
+stdout matches the native reference byte-for-byte.
+The reproducible gate is [corpus/qualify.sh](../corpus/qualify.sh); its original
+test staging has been checked separately with native reference binaries.
+
+The public aggregate pipeline passes at O0/O2: stock Clang emits a multi-TU
+artifact, `nierc` builds the native executable and a separate native DSO, and
+a stock-native caller/bridge verifies ordinary native calls and callbacks.
+Qualified records include integer pairs, mixed integer/double values, and
+larger native-width records, with register pressure and hidden-result storage.
+The same shared Nier units also pass private core-only native execution on
+both widths. Classifier-only and normalization-only tests remain separately
+identified; neither is substituted for this artifact-pipeline evidence.
+
+Union/bitfield/packed **by-value ABI** and aggregate `va_arg` extraction are
+still unsupported, even though corresponding storage or classifier tests may
+pass. General divergent CFGs and cross-fragment private identities remain
+outside the bounded rules above. These are declared compiler limitations, not
+security prohibitions or permission to publish native fallback bodies. Other
+ordinary C facilities listed in section 12, languages, targets, production
+dependencies/lifecycle, and A1/A2 remain future work. The 15-minute human
+onboarding target has not been established by a user study; automated fixture
+timings are not a substitute. Unknown required semantics fail publication.
 
 Reproduction from the repository root:
 
 ~~~sh
 bash scripts/bootstrap-sdk.sh
 source sdk/env.sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 2
-ctest --test-dir build --output-on-failure
+cmake -S . -B build/prealpha -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/prealpha --parallel 2
+ctest --test-dir build/prealpha --output-on-failure
 mkdir -p artifacts
-build/aot publish --recipe examples/hello/hello.build.json -o artifacts/hello.aotpkg
-build/aot compile artifacts/hello.aotpkg --output-dir artifacts/hello-native
-env -u LD_LIBRARY_PATH artifacts/hello-native/bin/hello
+clang --config="$PWD/build/prealpha/nier.cfg" -O2 examples/hello/main.c examples/hello/hello.c -o artifacts/hello.nier
+build/prealpha/nierc artifacts/hello.nier -o artifacts/hello
+env -u LD_LIBRARY_PATH artifacts/hello
 ~~~
 
-The recorded demo outputs already exist in this workspace. Reuse the executable
-or select new output paths when repeating compilation; no overwrite is allowed.
-Observed stdout is `Hello world` followed by a newline, with exit status 0.
-The original capture calls printf; normal device LLVM optimization changes
-this case to a native `puts@GLIBC_2.2.5` import. The final ELF also uses the
-SDK's `__libc_start_main@GLIBC_2.34`, not a publication launcher.
-
-The release build passes all seven CTest groups: `ir_validation`,
-`package_validation`, `capture_hook`, `hello_pipeline`, `scalar_pipeline`,
-`build_integration`, and `device_boundary`. Capture is tested at O0/O1/O2/O3/Os/Oz
-for both profiles. Build integration tests use unchanged application sources,
-separate private native generator executions for both profiles, and a real
-CMake runtime configure probe. Only selected application modules are published.
-General Make/CMake compatibility and archive extraction are not thereby proved.
-
-Recorded SHA-256 identities:
-
-| Input/output | SHA-256 |
-|---|---|
-| Approved 01 | `fd0078c01339158f798d83a4efd4d639e97069113a8394f2d8a7e280afca644f` |
-| SDK package lock | `f731dcf4284a77f01eeadaa809c963e23987e8ca6cb2580393b614b2ed0b1b36` |
-| Hello C source | `c88dc247112f06475cfe75a61f60b3c50cafc59e4e6e1bd06494a04a54c5b79d` |
-| Hello publication | `51f4d712bb3ff870fa55090f68207313bea2b50497c10f8e43636f6d1bd55869` |
-| Hello native executable | `4972bdb161cb01d759a5d1df2c37de2aedd535ca8e3d8f007bb46a107e761249` |
-
-Two local publications produced identical package bytes. The package is 4,096
-bytes and the stripped native executable 4,856 bytes. A single warm-cache
-measurement observed publication at 0.05 s / 96,840 KiB peak RSS and device
-compilation at 0.04 s / 62,176 KiB. These are plumbing measurements, not
-controlled performance acceptance or reproducible-build certification. The
-native executable identity includes its local SDK interpreter/search paths.
-
-The current reader enforces a closed public schema and canonical manifest JSON,
-and rejects unsupported semantic IR. The publisher strips private debug data,
-paths, and unnecessary private symbol names; needed native linkage symbols and
-program string data remain. Full TAR auxiliary-metadata analysis and comparative
-RE evaluation remain open. The environment is a qualified development host,
-not a hermetic publisher image. See the repository README and SDK README for
-current usage and host assumptions.
+The command sequence is the new interface and must be exercised after each
+integration change. A consumer-only build uses `NIER_BUILD_PUBLISHER=OFF`;
+its independent-producer test must work without linking the merger or Clang.
+The consolidated checkpoint passes all 39 publisher/core integration tests
+and all eight consumer-only tests. The relocated compiler-only distribution
+test also verifies source/frontend-free compilation and direct native execution.
+The complete corpus is a separate, longer qualification command; its private
+reports record the actual tool/configuration/recipe hashes and all 50 artifact
+hashes across the two projects, not just the dirty worktree's Git revision.
+After the final aggregate-call fixes, the current publisher also revalidated
+all 50 retained native selections and reproduced all 170 unit-artifact
+occurrences and all 50 final publications byte-for-byte. This test rechecks
+immutable capture/dependency/native witnesses and both strict native inverses;
+it does not rerun configure, native builds, or upstream tests, and does not
+modify the original evidence. It links the final publisher checkpoint to the
+complete corpus results above without presenting replay as a fresh corpus run.
+Do not report broad-C completion from passing a subset of the C01-C12 registry.
+Performance/RE, other languages/targets, production lifecycle, and security
+remain separate future gates.
 
 ## 18. Requirement traceability
 

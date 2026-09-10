@@ -13,6 +13,8 @@ host librhash0
 host libuv1t64
 host clang-18
 host libclang-common-18-dev
+host libclang-18-dev
+host libclang-cpp18-dev
 host libclang-cpp18
 host libclang1-18
 host libclang-rt-18-dev
@@ -35,6 +37,7 @@ host libxml2-dev
 host libxml2
 host libstdc++6
 host libgcc-s1
+host gcc-14-base
 host libbsd0
 host libmd0
 host libicu74

@@ -3,7 +3,7 @@ set -euo pipefail
 capture_plugin=$1
 sdk_root=$2
 test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-test_work=$(mktemp -d "${TMPDIR:-/tmp}/aot-capture-test-XXXXXX")
+test_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-capture-test-XXXXXX")
 llvm_bin="$sdk_root/host/usr/lib/llvm-18/bin"
 for level in 0 1 2 3 s z; do
     for profile in x86_64 i686; do
@@ -12,7 +12,7 @@ for level in 0 1 2 3 s z; do
             i686) triple=i686-unknown-linux-gnu; sysroot=i686-linux-gnu ;;
         esac
         capture="$test_work/$profile-O$level.bc"
-        AOT_CAPTURE_PATH="$capture" "$llvm_bin/clang" --target="$triple" \
+        NIER_CAPTURE_PATH="$capture" "$llvm_bin/clang" --target="$triple" \
             --sysroot="$sdk_root/sysroots/$sysroot" -O"$level" -fPIC -g \
             -fstandalone-debug -fpass-plugin="$capture_plugin" \
             -c "$test_root/examples/hello/hello.c" -o "$test_work/$profile-O$level.o"

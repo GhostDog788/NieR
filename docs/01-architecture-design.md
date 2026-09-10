@@ -1,4 +1,4 @@
-# On-Target AOT: Project Requirements
+# Nier: Project Requirements
 
 This document defines what the product must achieve. Its companion,
 `02-implementation-plan.md`, proposes how to achieve it and must demonstrate
@@ -7,6 +7,13 @@ These are acceptance requirements; feasibility and compliance remain to be
 demonstrated by the implementation proposal and the resulting product.
 
 ## 1. Purpose and product boundary
+
+The flagship product is **Nier code**: an independently usable,
+architecture-neutral publication format. Any producer that can represent its
+program semantics and required runtime/dependency contract in Nier must be able
+to use the same Nier compiler without adding language-specific consumer support.
+This is an extensibility requirement, not a claim that the current prototype
+already represents every language or operating system.
 
 Developers should be able to write ordinary native-language applications,
 publish one Linux package without disclosing their source, and have each
@@ -33,6 +40,16 @@ independent usability. Security restrictions must not become hidden
 prerequisites or limitations of the standalone toolchain. The standalone
 toolchain remains subject to the ordinary rules of its host OS.
 
+### Pre-alpha development policy
+
+Until the project owner explicitly changes this policy, every component is
+pre-alpha and has **zero backward-compatibility obligations**. Formats,
+interfaces, configuration, and implementation may change between commits.
+Do not retain legacy readers, aliases, migration layers, or deprecated behavior
+for compatibility. Validation of the current contract is still required.
+The production lifecycle in T8 remains a future product requirement; it does
+not impose installed-release or compatibility machinery on this prototype.
+
 ## 2. Standalone toolchain requirements
 
 ### T1. Languages, applications, and developer experience
@@ -46,6 +63,14 @@ libraries, native interoperability, and familiar development workflows.
 Publication configuration and packaging work must be kept as transparent as
 possible, without requiring application logic to be rewritten around a new
 execution framework.
+
+C publication must use the actual unmodified Clang command-line compiler,
+configured for Nier. Developers must not need a separate publication command
+or a replacement executable masquerading as Clang. Existing qualifying
+Make/CMake projects must require only small SDK configuration, not rewritten
+application logic or per-target build rules. The acceptance target is at most
+15 minutes of developer integration effort with an installed SDK and a working
+native build, excluding automated build duration.
 
 The toolchain must preserve each language's normal semantics and runtime
 facilities. This includes memory management, concurrency, error handling, and
@@ -84,6 +109,11 @@ implementation for a particular CPU. Those components carry explicit target
 compatibility requirements and form an exception to ordinary code's portable
 publication path.
 
+Nier code and the public metadata required to compile one published output must
+be delivered as one standalone artifact; an archive satisfies this requirement.
+Compilation must not depend on the publisher's source tree, recipes, captures,
+or intermediate outputs. Explicit native dependencies remain governed by T4.
+
 The standalone toolchain must support these native payloads without requiring
 store approval or limiting their use through security policy. The justification
 and approval requirements in S3 apply only when security is enforced.
@@ -107,6 +137,12 @@ dependency to become a shared library. T4 also imposes no security restriction
 on ordinary dynamic loading in the standalone toolchain.
 
 ### T5. Native execution and OS transparency
+
+The Nier compiler must be an independent program, separate from publication.
+Shared libraries between implementations are permitted; requiring the publisher
+to be installed or run on the destination is not. Platform-specific compiler
+distributions may omit irrelevant platform components, but must implement the
+same supported Nier semantics rather than language-specific feature subsets.
 
 Installed applications must be ordinary native executables and libraries,
 loaded and executed through normal OS mechanisms. Their process behavior,

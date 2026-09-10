@@ -1,5 +1,9 @@
-#include "aot/IR/Compiler.h"
-#include "Dialect.h"
+#include "nier/IR/Compiler.h"
+#include "Internal.h"
+#include "NativeABIBridge.h"
+#include "OverlapLayout.h"
+#include "ConditionalSpecialization.h"
+#include "nier/IR/Dialect.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -10,7 +14,6 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -18,20 +21,22 @@
 #include "llvm/IR/NoFolder.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/Verifier.h"
-#include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/TargetParser/Triple.h"
 
 #include <map>
 #include <set>
 #include <string>
 #include <system_error>
 #include <vector>
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
-namespace aot {
+namespace nier {
 namespace {
 
 using mlir::Attribute;
@@ -52,16 +57,6 @@ bool configurationAttribute(StringRef name) {
          name == "tune-cpu" || name == "min-legal-vector-width";
 }
 
-unsigned arithmeticFlags(const llvm::BinaryOperator &operation) {
-  unsigned flags = 0;
-  if (auto *overflow = llvm::dyn_cast<llvm::OverflowingBinaryOperator>(&operation))
-    flags |= (overflow->hasNoUnsignedWrap() ? 1 : 0) |
-             (overflow->hasNoSignedWrap() ? 2 : 0);
-  if (auto *exact = llvm::dyn_cast<llvm::PossiblyExactOperator>(&operation))
-    flags |= exact->isExact() ? 4 : 0;
-  return flags;
-}
-
 bool validArithmeticFlags(unsigned opcode, unsigned flags) {
   bool overflowing = opcode == llvm::Instruction::Add || opcode == llvm::Instruction::Sub ||
                      opcode == llvm::Instruction::Mul || opcode == llvm::Instruction::Shl;
@@ -73,14 +68,21 @@ bool validArithmeticFlags(unsigned opcode, unsigned flags) {
 // cannot hide semantic requirements or private debug payloads from consumers.
 llvm::Error validateSchema(mlir::ModuleOp module) {
   const std::map<std::string, std::set<std::string>> allowed = {
-      {"builtin.module", {"aot.schema", "aot.profiles", "aot.module_flags"}},
-      {"aot.func", {"id", "type", "declaration", "variadic", "internal", "dso_local", "attributes"}},
-      {"aot.global", {"id", "bytes", "alignment", "unnamed"}},
-      {"aot.constant", {"value"}}, {"aot.address", {"global"}},
-      {"aot.alloca", {"element", "alignment"}}, {"aot.load", {"alignment"}},
-      {"aot.store", {"alignment"}}, {"aot.call", {"callee", "attributes", "tail"}},
-      {"aot.binary", {"opcode", "flags"}}, {"aot.cast", {"opcode"}},
-      {"aot.compare", {"predicate"}}, {"aot.return", {}}};
+      {"builtin.module", {"nier.schema", "nier.module_flags"}},
+      {"nier.func", {"id", "type", "declaration", "variadic", "internal", "weak", "available_externally", "dso_local", "visibility", "intrinsic", "attributes", "block_domains", "native_abi"}},
+      {"nier.global", {"id", "bytes", "alignment", "unnamed", "element", "initializer", "constant", "declaration", "linkage", "dso_local", "visibility"}},
+      {"nier.constant", {"value"}}, {"nier.address", {"global"}},
+      {"nier.alloca", {"element", "alignment"}}, {"nier.load", {"alignment", "volatile"}},
+      {"nier.store", {"alignment", "volatile"}}, {"nier.call", {"callee", "attributes", "tail", "native_abi"}},
+      {"nier.call_indirect", {"type", "variadic", "attributes", "tail", "native_abi"}},
+      {"nier.binary", {"opcode", "flags"}}, {"nier.cast", {"opcode"}},
+      {"nier.compare", {"predicate"}}, {"nier.return", {}},
+      {"nier.gep", {"element", "inbounds"}},
+      {"nier.select", {}}, {"nier.fneg", {}}, {"nier.bswap", {}},
+      {"nier.va_arg", {}}, {"nier.va_forward", {}},
+      {"nier.br", {"loop", "loop_id"}}, {"nier.cond_br", {"true_count", "loop", "loop_id"}},
+      {"nier.switch", {"cases", "argument_counts", "case_domains"}},
+      {"nier.unreachable", {}}};
   std::string error;
   module.walk([&](Operation *operation) {
     auto found = allowed.find(operation->getName().getStringRef().str());
@@ -111,618 +113,38 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
   return llvm::Error::success();
 }
 
-bool debugFunction(const llvm::Function &function) {
-  return function.getName().starts_with("llvm.dbg.");
-}
-
-bool debugInstruction(const llvm::Instruction &instruction) {
-  return llvm::isa<llvm::DbgInfoIntrinsic>(instruction);
-}
-
-std::vector<const llvm::Instruction *> captureInstructions(const llvm::Function &f) {
-  std::vector<const llvm::Instruction *> result;
-  for (const auto &instruction : llvm::instructions(f))
-    if (!debugInstruction(instruction))
-      result.push_back(&instruction);
-  return result;
-}
-
-std::string valueText(const llvm::Value &value) {
-  std::string result;
-  llvm::raw_string_ostream stream(result);
-  value.print(stream);
-  return result;
-}
-
-// Only debug/TBAA are discarded. TBAA is an optional optimization aid, not a
-// replacement for the represented load/store behavior. No performance parity
-// claim is made by this first checkpoint.
-bool permittedMetadata(const llvm::Instruction &instruction) {
-  llvm::SmallVector<std::pair<unsigned, llvm::MDNode *>> metadata;
-  instruction.getAllMetadataOtherThanDebugLoc(metadata);
-  for (const auto &entry : metadata)
-    if (entry.first != llvm::LLVMContext::MD_tbaa &&
-        entry.first != llvm::LLVMContext::MD_tbaa_struct &&
-        entry.first != llvm::LLVMContext::MD_DIAssignID)
-      return false;
-  return true;
-}
-
 void configureModule(llvm::Module &module, bool x64) {
-  module.setModuleIdentifier("aot");
-  module.setSourceFileName("aot");
+  module.setModuleIdentifier("nier");
+  module.setSourceFileName("nier");
   module.setTargetTriple(x64 ? "x86_64-unknown-linux-gnu"
                             : "i686-unknown-linux-gnu");
   module.setDataLayout(x64 ? X64Layout : I686Layout);
 }
 
-using ModuleFlags = std::map<std::string, std::pair<unsigned, uint64_t>>;
-ModuleFlags moduleFlags(const llvm::Module &module) {
-  ModuleFlags result;
-  llvm::SmallVector<llvm::Module::ModuleFlagEntry> flags;
-  module.getModuleFlagsMetadata(flags);
-  for (const auto &flag : flags) {
-    StringRef name = flag.Key->getString();
-    if (name == "Dwarf Version" || name == "Debug Info Version" ||
-        name == "debug-info-assignment-tracking") continue;
-    if (auto *value = llvm::mdconst::dyn_extract<llvm::ConstantInt>(flag.Val))
-      result[name.str()] = {unsigned(flag.Behavior), value->getZExtValue()};
-  }
-  return result;
-}
-
-void canonicalizeFlags(llvm::Module &module) {
-  auto flags = moduleFlags(module);
-  if (auto *old = module.getModuleFlagsMetadata()) module.eraseNamedMetadata(old);
-  for (const auto &[name, value] : flags)
-    module.addModuleFlag(llvm::Module::ModFlagBehavior(value.first), name,
-                         uint32_t(value.second));
-}
-
-llvm::Error validateCapture(const llvm::Module &module, bool x64) {
-  llvm::Triple triple(module.getTargetTriple());
-  if (!triple.isOSLinux() ||
-      triple.getArch() != (x64 ? llvm::Triple::x86_64 : llvm::Triple::x86))
-    return failure("capture has the wrong Linux CPU profile");
-  if (module.getDataLayoutStr() != (x64 ? X64Layout : I686Layout))
-    return failure("capture data layout is not the pinned LLVM 18 profile");
-  if (!module.getModuleInlineAsm().empty() || !module.alias_empty() ||
-      !module.ifunc_empty())
-    return failure("module assembly, aliases and ifuncs are not supported yet");
-  const std::map<std::string, std::string> targetAttributes = {
-      {"target-cpu", x64 ? "x86-64" : "i686"},
-      {"target-features", x64 ? "+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" : "+cmov,+cx8,+x87"},
-      {"tune-cpu", "generic"}, {"min-legal-vector-width", "0"}};
-  for (const auto &function : module)
-    for (const auto &[name, expected] : targetAttributes) {
-      auto value = function.getFnAttribute(name);
-      if (value.isValid() && (!value.isStringAttribute() || value.getValueAsString() != expected))
-        return failure("capture changes a pinned CPU/profile attribute: " + llvm::Twine(name));
-    }
-  const std::map<std::string, uint64_t> expected = {
-      {"NumRegisterParameters", 0}, {"wchar_size", 4}, {"PIC Level", 2},
-      {"PIE Level", 2}, {"uwtable", 2}};
-  llvm::SmallVector<llvm::Module::ModuleFlagEntry> flags;
-  module.getModuleFlagsMetadata(flags);
-  for (const auto &flag : flags) {
-    StringRef key = flag.Key->getString();
-    if (key == "Dwarf Version" || key == "Debug Info Version" ||
-        key == "debug-info-assignment-tracking")
-      continue;
-    auto found = expected.find(key.str());
-    auto *number = llvm::mdconst::dyn_extract<llvm::ConstantInt>(flag.Val);
-    if (found == expected.end() || !number ||
-        number->getZExtValue() != found->second)
-      return failure("unsupported module flag: " + key);
-  }
-  for (const auto &named : module.named_metadata())
-    if (named.getName() != "llvm.module.flags" &&
-        named.getName() != "llvm.ident" &&
-        named.getName() != "llvm.dbg.cu")
-      return failure("unsupported named module metadata: " + named.getName());
-  return llvm::Error::success();
-}
-
-// Full instruction semantics remain in this comparison; source spellings,
-// debug/TBAA and the explicitly pinned target configuration do not.
-void canonicalize(llvm::Module &module, bool x64) {
-  llvm::StripDebugInfo(module);
-  if (auto *ident = module.getNamedMetadata("llvm.ident"))
-    module.eraseNamedMetadata(ident);
-  std::vector<llvm::Function *> erase;
-  unsigned functionIndex = 0;
-  for (auto &function : module) {
-    if (debugFunction(function)) {
-      erase.push_back(&function);
-      continue;
-    }
-    if (function.hasLocalLinkage())
-      function.setName("f" + std::to_string(functionIndex));
-    ++functionIndex;
-    for (StringRef name : {"target-cpu", "target-features", "tune-cpu",
-                           "min-legal-vector-width"})
-      function.removeFnAttr(name);
-    for (auto &argument : function.args())
-      argument.setName("");
-    for (auto &block : function) {
-      block.setName("");
-      for (auto &instruction : block) {
-        instruction.setName("");
-        instruction.setMetadata(llvm::LLVMContext::MD_tbaa, nullptr);
-        instruction.setMetadata(llvm::LLVMContext::MD_tbaa_struct, nullptr);
-      }
-    }
-  }
-  for (auto *function : erase)
-    function->eraseFromParent();
-  unsigned globalIndex = 0;
-  for (auto &global : module.globals())
-    global.setName("g" + std::to_string(globalIndex++));
-  configureModule(module, x64);
-  canonicalizeFlags(module);
-}
-
-std::string moduleText(const llvm::Module &module) {
-  std::string result;
-  llvm::raw_string_ostream stream(result);
-  module.print(stream, nullptr);
-  return result;
-}
-
-class Merger {
-public:
-  mlir::MLIRContext context;
-  mlir::OpBuilder builder;
-  mlir::OwningOpRef<mlir::ModuleOp> module;
-  std::string error;
-  llvm::DenseMap<const llvm::Value *, mlir::Value> values;
-  llvm::DenseMap<const llvm::Value *, const llvm::Value *> pairs;
-  llvm::DenseMap<const llvm::GlobalValue *, std::string> symbols;
-
-  Merger() : builder(&context) {
-    context.getOrLoadDialect<ir::AOTDialect>();
-    module = mlir::ModuleOp::create(builder.getUnknownLoc());
-    (*module)->setAttr("aot.schema", builder.getI32IntegerAttr(1));
-    (*module)->setAttr("aot.profiles", builder.getStrArrayAttr({"x86_64", "i686"}));
-    builder.setInsertionPointToEnd(module->getBody());
-  }
-
-  void fail(const llvm::Twine &message) {
-    if (error.empty())
-      error = message.str();
-  }
-
-  Operation *op(StringRef name, mlir::TypeRange results = {},
-                mlir::ValueRange operands = {},
-                llvm::ArrayRef<mlir::NamedAttribute> attributes = {},
-                bool region = false) {
-    mlir::OperationState state(builder.getUnknownLoc(), name);
-    state.addTypes(results);
-    state.addOperands(operands);
-    state.addAttributes(attributes);
-    if (region)
-      state.addRegion();
-    return builder.create(state);
-  }
-
-  mlir::NamedAttribute attr(StringRef name, Attribute value) {
-    return builder.getNamedAttr(name, value);
-  }
-
-  mlir::Type type(llvm::Type *left, llvm::Type *right) {
-    if (left->isVoidTy() && right->isVoidTy())
-      return builder.getNoneType();
-    if (left->isPointerTy() && right->isPointerTy() &&
-        left->getPointerAddressSpace() == 0 && right->getPointerAddressSpace() == 0)
-      return ir::PointerType::get(&context);
-    if (left->isIntegerTy() && right->isIntegerTy()) {
-      unsigned lw = left->getIntegerBitWidth(), rw = right->getIntegerBitWidth();
-      if (lw == rw && (lw == 1 || lw == 8 || lw == 16 || lw == 32 || lw == 64))
-        return builder.getIntegerType(lw);
-      if (lw == 64 && rw == 32)
-        return ir::WordType::get(&context);
-    }
-    fail("unsupported scalar type correspondence; aggregates and FP are not in the first checkpoint");
-    return {};
-  }
-
-  Attribute expression(uint64_t left, uint64_t right) {
-    if (left == right)
-      return builder.getI64IntegerAttr(left);
-    if (left == 8 && right == 4)
-      return builder.getStringAttr("pointer_bytes");
-    fail("integer/layout values do not fit the verified symbolic expression set");
-    return {};
-  }
-
-  mlir::ArrayAttr attributes(llvm::AttributeSet input) {
-    llvm::SmallVector<Attribute> result;
-    for (llvm::Attribute attribute : input) {
-      llvm::SmallVector<mlir::NamedAttribute> fields;
-      if (attribute.isStringAttribute()) {
-        if (configurationAttribute(attribute.getKindAsString()))
-          continue;
-        fields.push_back(attr("name", builder.getStringAttr(attribute.getKindAsString())));
-        fields.push_back(attr("string", builder.getStringAttr(attribute.getValueAsString())));
-      } else if (attribute.isEnumAttribute() || attribute.isIntAttribute()) {
-        fields.push_back(attr("name", builder.getStringAttr(
-            llvm::Attribute::getNameFromAttrKind(attribute.getKindAsEnum()))));
-        if (attribute.isIntAttribute())
-          fields.push_back(attr("integer", builder.getI64IntegerAttr(attribute.getValueAsInt())));
-      } else {
-        fail("type/range ABI attributes are not supported in the first checkpoint");
-        return {};
-      }
-      result.push_back(builder.getDictionaryAttr(fields));
-    }
-    return builder.getArrayAttr(result);
-  }
-
-  mlir::ArrayAttr attributeList(llvm::AttributeList left,
-                               llvm::AttributeList right, unsigned count) {
-    llvm::SmallVector<Attribute> result;
-    auto add = [&](llvm::AttributeSet a, llvm::AttributeSet b) {
-      auto x = attributes(a), y = attributes(b);
-      if (!x || !y)
-        return;
-      if (x != y)
-        fail("profile-dependent ABI attributes are not supported yet");
-      result.push_back(x);
-    };
-    add(left.getFnAttrs(), right.getFnAttrs());
-    add(left.getRetAttrs(), right.getRetAttrs());
-    for (unsigned index = 0; index < count; ++index)
-      add(left.getParamAttrs(index), right.getParamAttrs(index));
-    return builder.getArrayAttr(result);
-  }
-
-  mlir::Value operand(const llvm::Value *left, const llvm::Value *right) {
-    if (!error.empty())
-      return {};
-    if (auto found = values.find(left); found != values.end()) {
-      if (pairs.lookup(left) != right) {
-        fail("SSA operands do not have the same profile correspondence");
-        return {};
-      }
-      return found->second;
-    }
-    mlir::Type mergedType = type(left->getType(), right->getType());
-    if (!mergedType)
-      return {};
-    if (const auto *a = llvm::dyn_cast<llvm::ConstantInt>(left)) {
-      const auto *b = llvm::dyn_cast<llvm::ConstantInt>(right);
-      if (!b) {
-        fail("constant kind differs between profiles");
-        return {};
-      }
-      Attribute value;
-      const llvm::APInt &av = a->getValue(), &bv = b->getValue();
-      if (av.sextOrTrunc(64) == bv.sextOrTrunc(64))
-        value = builder.getIntegerAttr(builder.getI64Type(), av.sextOrTrunc(64));
-      else if (av.zextOrTrunc(64) == bv.zextOrTrunc(64))
-        value = builder.getIntegerAttr(builder.getI64Type(), av.zextOrTrunc(64));
-      else
-        value = expression(av.getZExtValue(), bv.getZExtValue());
-      if (!value)
-        return {};
-      return op("aot.constant", mergedType, {}, {attr("value", value)})->getResult(0);
-    }
-    if (llvm::isa<llvm::ConstantPointerNull>(left) &&
-        llvm::isa<llvm::ConstantPointerNull>(right))
-      return op("aot.constant", mergedType, {},
-                {attr("value", builder.getStringAttr("null"))})->getResult(0);
-    const auto *global = llvm::dyn_cast<llvm::GlobalVariable>(left);
-    if (global && pairs.lookup(left) == right) {
-      return op("aot.address", mergedType, {},
-                {attr("global", builder.getStringAttr(symbols.lookup(global)))})
-          ->getResult(0);
-    }
-    fail("unsupported constant, forward SSA reference or function address");
-    return {};
-  }
-
-  void mergeInstruction(const llvm::Instruction &left,
-                         const llvm::Instruction &right) {
-    if (!error.empty())
-      return;
-    if (left.getOpcode() != right.getOpcode() || !permittedMetadata(left) ||
-        !permittedMetadata(right)) {
-      fail("unsupported instruction correspondence or semantic metadata");
-      return;
-    }
-    Operation *result = nullptr;
-    if (auto *a = llvm::dyn_cast<llvm::AllocaInst>(&left)) {
-      auto *b = llvm::cast<llvm::AllocaInst>(&right);
-      auto *ac = llvm::dyn_cast<llvm::ConstantInt>(a->getArraySize());
-      auto *bc = llvm::dyn_cast<llvm::ConstantInt>(b->getArraySize());
-      if (!ac || !bc || !ac->isOne() || !bc->isOne() ||
-          a->getAddressSpace() || b->getAddressSpace() ||
-          a->isUsedWithInAlloca() || b->isUsedWithInAlloca() ||
-          a->isSwiftError() || b->isSwiftError()) {
-        fail("only single native scalar stack allocations are supported yet");
-        return;
-      }
-      auto element = type(a->getAllocatedType(), b->getAllocatedType());
-      auto alignment = expression(a->getAlign().value(), b->getAlign().value());
-      if (!element || !alignment)
-        return;
-      result = op("aot.alloca", ir::PointerType::get(&context), {},
-                  {attr("element", mlir::TypeAttr::get(element)),
-                   attr("alignment", alignment)});
-    } else if (auto *a = llvm::dyn_cast<llvm::LoadInst>(&left)) {
-      auto *b = llvm::cast<llvm::LoadInst>(&right);
-      if (a->isVolatile() || b->isVolatile() || a->isAtomic() || b->isAtomic()) {
-        fail("volatile and atomic loads are not supported yet");
-        return;
-      }
-      auto valueType = type(a->getType(), b->getType());
-      auto pointer = operand(a->getPointerOperand(), b->getPointerOperand());
-      auto alignment = expression(a->getAlign().value(), b->getAlign().value());
-      if (!valueType || !pointer || !alignment)
-        return;
-      result = op("aot.load", valueType, pointer, {attr("alignment", alignment)});
-    } else if (auto *a = llvm::dyn_cast<llvm::StoreInst>(&left)) {
-      auto *b = llvm::cast<llvm::StoreInst>(&right);
-      if (a->isVolatile() || b->isVolatile() || a->isAtomic() || b->isAtomic()) {
-        fail("volatile and atomic stores are not supported yet");
-        return;
-      }
-      auto value = operand(a->getValueOperand(), b->getValueOperand());
-      auto pointer = operand(a->getPointerOperand(), b->getPointerOperand());
-      auto alignment = expression(a->getAlign().value(), b->getAlign().value());
-      if (!value || !pointer || !alignment)
-        return;
-      result = op("aot.store", {}, {value, pointer}, {attr("alignment", alignment)});
-    } else if (auto *a = llvm::dyn_cast<llvm::CallInst>(&left)) {
-      auto *b = llvm::cast<llvm::CallInst>(&right);
-      if (!a->getCalledFunction() || !b->getCalledFunction() ||
-          pairs.lookup(a->getCalledFunction()) != b->getCalledFunction() ||
-          a->arg_size() != b->arg_size() || a->hasOperandBundles() ||
-          b->hasOperandBundles() || a->getCallingConv() || b->getCallingConv() ||
-          a->getTailCallKind() != b->getTailCallKind()) {
-        fail("indirect/ABI-changing/bundled calls are not supported yet");
-        return;
-      }
-      llvm::SmallVector<mlir::Value> arguments;
-      for (unsigned i = 0; i < a->arg_size(); ++i) {
-        auto argument = operand(a->getArgOperand(i), b->getArgOperand(i));
-        if (!argument)
-          return;
-        arguments.push_back(argument);
-      }
-      auto returns = type(a->getType(), b->getType());
-      auto attributes = attributeList(a->getAttributes(), b->getAttributes(), a->arg_size());
-      if (!returns || !error.empty())
-        return;
-      llvm::SmallVector<mlir::Type> resultTypes;
-      if (!mlir::isa<mlir::NoneType>(returns))
-        resultTypes.push_back(returns);
-      result = op("aot.call", resultTypes, arguments,
-                  {attr("callee", builder.getStringAttr(symbols.lookup(a->getCalledFunction()))),
-                   attr("attributes", attributes),
-                   attr("tail", builder.getI32IntegerAttr(a->getTailCallKind()))});
-    } else if (auto *a = llvm::dyn_cast<llvm::ReturnInst>(&left)) {
-      auto *b = llvm::cast<llvm::ReturnInst>(&right);
-      if (bool(a->getReturnValue()) != bool(b->getReturnValue())) {
-        fail("return ABI differs between profiles");
-        return;
-      }
-      llvm::SmallVector<mlir::Value> returns;
-      if (a->getReturnValue()) {
-        auto value = operand(a->getReturnValue(), b->getReturnValue());
-        if (!value)
-          return;
-        returns.push_back(value);
-      }
-      result = op("aot.return", {}, returns);
-    } else if (auto *a = llvm::dyn_cast<llvm::BinaryOperator>(&left)) {
-      auto *b = llvm::cast<llvm::BinaryOperator>(&right);
-      if (!a->getType()->isIntegerTy() || !b->getType()->isIntegerTy()) {
-        fail("floating point is not supported in the first checkpoint");
-        return;
-      }
-      auto valueType = type(a->getType(), b->getType());
-      auto x = operand(a->getOperand(0), b->getOperand(0));
-      auto y = operand(a->getOperand(1), b->getOperand(1));
-      if (!valueType || !x || !y)
-        return;
-      unsigned af = arithmeticFlags(*a), bf = arithmeticFlags(*b);
-      if (af != bf) {
-        fail("arithmetic flags differ between profiles");
-        return;
-      }
-      result = op("aot.binary", valueType, {x, y},
-                  {attr("opcode", builder.getStringAttr(a->getOpcodeName())),
-                   attr("flags", builder.getI32IntegerAttr(af))});
-    } else if (auto *a = llvm::dyn_cast<llvm::CastInst>(&left)) {
-      auto *b = llvm::cast<llvm::CastInst>(&right);
-      auto valueType = type(a->getType(), b->getType());
-      auto value = operand(a->getOperand(0), b->getOperand(0));
-      if (!valueType || !value)
-        return;
-      result = op("aot.cast", valueType, value,
-                  {attr("opcode", builder.getStringAttr(a->getOpcodeName()))});
-    } else if (auto *a = llvm::dyn_cast<llvm::ICmpInst>(&left)) {
-      auto *b = llvm::cast<llvm::ICmpInst>(&right);
-      if (a->getPredicate() != b->getPredicate()) {
-        fail("comparison predicates differ between profiles");
-        return;
-      }
-      auto x = operand(a->getOperand(0), b->getOperand(0));
-      auto y = operand(a->getOperand(1), b->getOperand(1));
-      if (!x || !y)
-        return;
-      result = op("aot.compare", builder.getI1Type(), {x, y},
-                  {attr("predicate", builder.getI32IntegerAttr(a->getPredicate()))});
-    } else {
-      fail("unsupported first-checkpoint instruction: " + StringRef(left.getOpcodeName()));
-      return;
-    }
-    if (!left.getType()->isVoidTy()) {
-      values[&left] = result->getResult(0);
-      pairs[&left] = &right;
-    }
-  }
-
-  void merge(llvm::Module &left, llvm::Module &right) {
-    auto lf = moduleFlags(left), rf = moduleFlags(right);
-    auto numReg = rf.find("NumRegisterParameters");
-    bool hasNumReg = numReg != rf.end();
-    std::pair<unsigned, uint64_t> numRegValue;
-    if (hasNumReg) { numRegValue = numReg->second; rf.erase(numReg); }
-    if (lf != rf) { fail("profile module flags differ beyond the supported native ABI setting"); return; }
-    llvm::SmallVector<Attribute> flags;
-    auto flag = [&](StringRef name, std::pair<unsigned, uint64_t> value, StringRef profile) {
-      flags.push_back(builder.getDictionaryAttr({
-          attr("name", builder.getStringAttr(name)),
-          attr("behavior", builder.getI32IntegerAttr(value.first)),
-          attr("value", builder.getI32IntegerAttr(value.second)),
-          attr("profile", builder.getStringAttr(profile))}));
-    };
-    for (const auto &[name, value] : lf) flag(name, value, "both");
-    if (hasNumReg) flag("NumRegisterParameters", numRegValue, "i686");
-    (*module)->setAttr("aot.module_flags", builder.getArrayAttr(flags));
-    unsigned globalIndex = 0;
-    for (auto &a : left.globals()) {
-      auto *b = right.getNamedGlobal(a.getName());
-      auto *ad = a.hasInitializer() ? llvm::dyn_cast<llvm::ConstantDataSequential>(a.getInitializer()) : nullptr;
-      auto *bd = b && b->hasInitializer() ? llvm::dyn_cast<llvm::ConstantDataSequential>(b->getInitializer()) : nullptr;
-      if (!b || !ad || !bd || !ad->isString() || !bd->isString() ||
-          ad->getAsString() != bd->getAsString() ||
-          !a.isConstant() || !b->isConstant() ||
-          a.getLinkage() != llvm::GlobalValue::PrivateLinkage ||
-          b->getLinkage() != llvm::GlobalValue::PrivateLinkage ||
-          a.getAddressSpace() || b->getAddressSpace() ||
-          a.isThreadLocal() || b->isThreadLocal() ||
-          a.hasSection() || b->hasSection() || a.hasComdat() || b->hasComdat() ||
-          a.getUnnamedAddr() != b->getUnnamedAddr()) {
-        fail("only matching private constant byte-string globals are supported yet");
-        return;
-      }
-      auto alignment = expression(a.getAlign().valueOrOne().value(),
-                                  b->getAlign().valueOrOne().value());
-      if (!alignment)
-        return;
-      std::string id = "g" + std::to_string(globalIndex++);
-      symbols[&a] = id;
-      pairs[&a] = b;
-      op("aot.global", {}, {},
-         {attr("id", builder.getStringAttr(id)),
-          attr("bytes", builder.getStringAttr(ad->getAsString())),
-          attr("alignment", alignment),
-          attr("unnamed", builder.getI32IntegerAttr(unsigned(a.getUnnamedAddr())))});
-    }
-    if (globalIndex != right.global_size()) {
-      fail("global inventory differs between profiles");
-      return;
-    }
-    unsigned index = 0;
-    std::vector<std::pair<llvm::Function *, llvm::Function *>> functions;
-    for (auto &a : left) {
-      if (debugFunction(a))
-        continue;
-      auto *b = right.getFunction(a.getName());
-      if (!b || a.isDeclaration() != b->isDeclaration() ||
-          a.arg_size() != b->arg_size() || a.isVarArg() != b->isVarArg() ||
-          a.getLinkage() != b->getLinkage() ||
-          a.isDSOLocal() != b->isDSOLocal() ||
-          a.getCallingConv() || b->getCallingConv() ||
-          a.hasPersonalityFn() || b->hasPersonalityFn() ||
-          a.hasPrefixData() || b->hasPrefixData() ||
-          a.hasPrologueData() || b->hasPrologueData() ||
-          a.hasComdat() || b->hasComdat() || a.hasSection() || b->hasSection() ||
-          a.getVisibility() != llvm::GlobalValue::DefaultVisibility ||
-          b->getVisibility() != llvm::GlobalValue::DefaultVisibility ||
-          (a.getLinkage() != llvm::GlobalValue::ExternalLinkage &&
-           a.getLinkage() != llvm::GlobalValue::InternalLinkage)) {
-        fail("unsupported function inventory, linkage or ABI difference");
-        return;
-      }
-      if (a.isDeclaration() && a.isIntrinsic() &&
-          a.getName() != "llvm.lifetime.start.p0" &&
-          a.getName() != "llvm.lifetime.end.p0") {
-        fail("unsupported first-checkpoint import: " + a.getName());
-        return;
-      }
-      std::string id = (!a.hasLocalLinkage())
-                           ? a.getName().str() : "f" + std::to_string(index);
-      ++index;
-      symbols[&a] = id;
-      pairs[&a] = b;
-      functions.emplace_back(&a, b);
-    }
-    unsigned rightCount = 0;
-    for (auto &f : right)
-      rightCount += !debugFunction(f);
-    if (functions.size() != rightCount) {
-      fail("function inventory differs between profiles");
-      return;
-    }
-    for (auto [a, b] : functions) {
-      builder.setInsertionPointToEnd(module->getBody());
-      llvm::SmallVector<mlir::Type> parameters, returns;
-      for (unsigned i = 0; i < a->arg_size(); ++i) {
-        auto t = type(a->getArg(i)->getType(), b->getArg(i)->getType());
-        if (!t)
-          return;
-        parameters.push_back(t);
-      }
-      auto rt = type(a->getReturnType(), b->getReturnType());
-      if (!rt)
-        return;
-      if (!mlir::isa<mlir::NoneType>(rt))
-        returns.push_back(rt);
-      auto attrs = attributeList(a->getAttributes(), b->getAttributes(), a->arg_size());
-      if (!error.empty())
-        return;
-      auto *function = op("aot.func", {}, {},
-          {attr("id", builder.getStringAttr(symbols.lookup(a))),
-           attr("type", mlir::TypeAttr::get(builder.getFunctionType(parameters, returns))),
-           attr("declaration", builder.getBoolAttr(a->isDeclaration())),
-           attr("variadic", builder.getBoolAttr(a->isVarArg())),
-           attr("internal", builder.getBoolAttr(a->hasInternalLinkage())),
-           attr("dso_local", builder.getBoolAttr(a->isDSOLocal())),
-           attr("attributes", attrs)}, true);
-      if (a->isDeclaration())
-        continue;
-      if (a->size() != 1 || b->size() != 1) {
-        fail("multiple-block CFG merging is not implemented in the first checkpoint");
-        return;
-      }
-      auto *block = new mlir::Block();
-      function->getRegion(0).push_back(block);
-      for (unsigned i = 0; i < parameters.size(); ++i) {
-        auto argument = block->addArgument(parameters[i], builder.getUnknownLoc());
-        values[a->getArg(i)] = argument;
-        pairs[a->getArg(i)] = b->getArg(i);
-      }
-      builder.setInsertionPointToEnd(block);
-      auto ai = captureInstructions(*a), bi = captureInstructions(*b);
-      if (ai.size() != bi.size()) {
-        fail("profile instruction sequences need a normalization not implemented yet");
-        return;
-      }
-      for (unsigned i = 0; i < ai.size(); ++i) {
-        mergeInstruction(*ai[i], *bi[i]);
-        if (!error.empty())
-          return;
-      }
-    }
-  }
-};
-
 class Lowerer {
 public:
-  llvm::LLVMContext context;
+  llvm::LLVMContext &context;
   std::unique_ptr<llvm::Module> module;
   llvm::IRBuilder<llvm::NoFolder> builder;
   bool x64;
   std::string error;
   std::map<std::string, llvm::GlobalValue *> symbols;
   llvm::DenseMap<mlir::Value, llvm::Value *> values;
+  llvm::DenseMap<mlir::Block *, llvm::BasicBlock *> blocks;
+  llvm::DenseMap<mlir::Type, llvm::Type *> aggregateTypes;
+  std::map<std::string, mlir::Type> recordIdentities;
+  std::map<std::string, std::pair<mlir::Attribute, llvm::MDNode *>> nativeLoops;
+  struct AggregateABI {
+    llvm::FunctionType *logical = nullptr;
+    detail::NativeABISignature native;
+    llvm::SmallVector<llvm::StructType *, 8> orderedRecords;
+  };
+  llvm::DenseMap<llvm::Function *, AggregateABI> aggregateFunctions;
+  llvm::DenseMap<llvm::CallInst *, AggregateABI> aggregateCalls;
+  detail::NativeABIInverseHints *inverseHints;
 
-  explicit Lowerer(bool x64)
-      : module(std::make_unique<llvm::Module>("aot", context)), builder(context), x64(x64) {
+  Lowerer(llvm::LLVMContext &context, bool x64, detail::NativeABIInverseHints *inverseHints = nullptr)
+      : context(context), module(std::make_unique<llvm::Module>("nier", context)), builder(context), x64(x64), inverseHints(inverseHints) {
     configureModule(*module, x64);
   }
 
@@ -736,6 +158,83 @@ public:
       return llvm::PointerType::get(context, 0);
     if (mlir::isa<ir::WordType>(input))
       return llvm::IntegerType::get(context, x64 ? 64 : 32);
+    if (mlir::isa<ir::VaListType>(input)) {
+      if (!x64) return llvm::PointerType::get(context, 0);
+      if (auto found = aggregateTypes.find(input); found != aggregateTypes.end()) return found->second;
+      auto *i32 = llvm::Type::getInt32Ty(context);
+      auto *pointer = llvm::PointerType::get(context, 0);
+      auto *record = llvm::StructType::create(context, {i32, i32, pointer, pointer}, "v0");
+      auto *array = llvm::ArrayType::get(record, 1);
+      aggregateTypes[input] = array;
+      return array;
+    }
+    if (input.isF32()) return llvm::Type::getFloatTy(context);
+    if (input.isF64()) return llvm::Type::getDoubleTy(context);
+    if (auto array = mlir::dyn_cast<ir::ArrayType>(input)) {
+      auto *element = type(array.getElementType());
+      if (!element || array.getNumElements(x64) > (1ULL << 30)) {
+        fail("unsupported or oversized native array type"); return nullptr;
+      }
+      return llvm::ArrayType::get(element, array.getNumElements(x64));
+    }
+    if (auto overlap = mlir::dyn_cast<ir::OverlapType>(input)) {
+      if (auto found = aggregateTypes.find(input); found != aggregateTypes.end()) return found->second;
+      auto identity = overlap.getIdentity();
+      if (identity.size() < 2 || identity.size() > 64 || !identity.starts_with("r") ||
+          !llvm::all_of(identity.drop_front(), [](char c) { return c >= '0' && c <= '9'; })) {
+        fail("overlap identities must be opaque r-prefixed integers"); return nullptr;
+      }
+      auto inserted = recordIdentities.emplace(identity.str(), input);
+      if (!inserted.second && inserted.first->second != input) {
+        fail("conflicting definitions of a Nier storage identity"); return nullptr;
+      }
+      auto alternatives = overlap.getAlternatives();
+      auto domains = overlap.getDomains();
+      if (alternatives.empty() || alternatives.size() > 64 || alternatives.size() != domains.size()) {
+        fail("invalid overlap alternative inventory"); return nullptr;
+      }
+      llvm::SmallVector<llvm::Type *> selected;
+      unsigned domainInventory = 0;
+      for (unsigned i = 0; i < alternatives.size(); ++i) {
+        if (domains[i] < 1 || domains[i] > 3) { fail("invalid overlap alternative domain"); return nullptr; }
+        domainInventory |= domains[i];
+        auto *native = type(alternatives[i]);
+        if (!native) return nullptr;
+        auto qualified = detail::selectOverlapCarrier({native}, module->getDataLayout());
+        if (!qualified) { fail(llvm::toString(qualified.takeError())); return nullptr; }
+        if (domains[i] & (x64 ? 1 : 2)) selected.push_back(native);
+      }
+      if (domainInventory != 3) { fail("overlap has no storage in one native word domain"); return nullptr; }
+      auto carrier = detail::selectOverlapCarrier(selected, module->getDataLayout());
+      if (!carrier) { fail(llvm::toString(carrier.takeError())); return nullptr; }
+      auto *storage = llvm::StructType::create(context, {*carrier}, identity);
+      aggregateTypes[input] = storage;
+      return storage;
+    }
+    if (auto record = mlir::dyn_cast<ir::RecordType>(input)) {
+      if (auto found = aggregateTypes.find(input); found != aggregateTypes.end()) return found->second;
+      auto identity = record.getIdentity();
+      if (!identity.empty() && (identity.size() > 64 || !identity.starts_with("r") ||
+          identity.size() < 2 || !llvm::all_of(identity.drop_front(), [](char c) { return c >= '0' && c <= '9'; }))) {
+        fail("record identities must be opaque r-prefixed integers"); return nullptr;
+      }
+      if (!identity.empty()) {
+        auto inserted = recordIdentities.emplace(identity.str(), input);
+        if (!inserted.second && inserted.first->second != input) {
+          fail("conflicting definitions of a Nier record identity"); return nullptr;
+        }
+      }
+      llvm::SmallVector<llvm::Type *> fields;
+      for (auto field : record.getFields()) {
+        auto *native = type(field);
+        if (!native || !native->isSized()) { fail("record field must have a native storage size"); return nullptr; }
+        fields.push_back(native);
+      }
+      auto *native = identity.empty() ? llvm::StructType::get(context, fields, record.isPacked())
+          : llvm::StructType::create(context, fields, identity, record.isPacked());
+      aggregateTypes[input] = native;
+      return native;
+    }
     if (auto integer = mlir::dyn_cast<mlir::IntegerType>(input)) {
       unsigned width = integer.getWidth();
       if (width == 1 || width == 8 || width == 16 || width == 32 || width == 64)
@@ -745,15 +244,24 @@ public:
     return nullptr;
   }
 
-  uint64_t expression(Attribute value) {
+  uint64_t expression(Attribute value, bool word64) {
     if (auto integer = mlir::dyn_cast_or_null<mlir::IntegerAttr>(value))
-      return integer.getValue().getZExtValue();
+      if (integer.getValue().getBitWidth() <= 64) return integer.getValue().getZExtValue();
     if (auto text = mlir::dyn_cast_or_null<mlir::StringAttr>(value))
       if (text.getValue() == "pointer_bytes")
-        return x64 ? 8 : 4;
+        return word64 ? 8 : 4;
+    if (auto conditional = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(value)) {
+      auto wide = conditional.getAs<mlir::IntegerAttr>("word64");
+      auto narrow = conditional.getAs<mlir::IntegerAttr>("word32");
+      if (conditional.size() == 2 && wide && narrow &&
+          wide.getValue().getBitWidth() <= 64 && narrow.getValue().getBitWidth() <= 64)
+        return (word64 ? wide : narrow).getValue().getZExtValue();
+    }
     fail("invalid symbolic integer/layout expression");
     return 0;
   }
+
+  uint64_t expression(Attribute value) { return expression(value, x64); }
 
   llvm::MaybeAlign alignment(Operation &operation) {
     uint64_t n = expression(operation.getAttr("alignment"));
@@ -762,6 +270,111 @@ public:
       return llvm::MaybeAlign();
     }
     return llvm::Align(n);
+  }
+
+  bool pureLiteralInitializer(Attribute value) {
+    if (mlir::isa<mlir::IntegerAttr>(value)) return true;
+    if (auto number = mlir::dyn_cast<mlir::FloatAttr>(value))
+      return number.getType().isF32() || number.getType().isF64();
+    if (auto text = mlir::dyn_cast<mlir::StringAttr>(value))
+      return text.getValue() == "zero" || text.getValue() == "null";
+    if (auto elements = mlir::dyn_cast<mlir::ArrayAttr>(value))
+      return elements.size() <= 1024 * 1024 && llvm::all_of(elements, [&](Attribute element) { return pureLiteralInitializer(element); });
+    return false;
+  }
+
+  llvm::Constant *initializer(llvm::Type *expected, Attribute value) {
+    if (auto text = mlir::dyn_cast<mlir::StringAttr>(value)) {
+      if (text.getValue() == "zero") return llvm::Constant::getNullValue(expected);
+      if (text.getValue() == "undef") return llvm::UndefValue::get(expected);
+      if (text.getValue() == "poison") return llvm::PoisonValue::get(expected);
+      if (text.getValue() == "null" && expected->isPointerTy())
+        return llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(expected));
+    }
+    if (expected->isIntegerTy()) {
+      auto number = expression(value);
+      if (!error.empty()) return nullptr;
+      return llvm::ConstantInt::get(expected, number);
+    }
+    if (expected->isFloatingPointTy()) {
+      auto number = mlir::dyn_cast<mlir::FloatAttr>(value);
+      if (!number || type(number.getType()) != expected) { fail("invalid floating initializer"); return nullptr; }
+      return llvm::ConstantFP::get(context, number.getValue());
+    }
+    if (auto reference = mlir::dyn_cast<mlir::DictionaryAttr>(value)) {
+      if (auto array = reference.getAs<mlir::ArrayAttr>("array")) {
+        auto *nativeType = llvm::dyn_cast<llvm::ArrayType>(expected);
+        auto count = reference.get("count");
+        uint64_t wide = expression(count, true), narrow = expression(count, false);
+        uint64_t selected = x64 ? wide : narrow;
+        if (!error.empty() || reference.size() != 2 || !nativeType ||
+            selected != nativeType->getNumElements() || std::max(wide, narrow) != array.size() ||
+            array.size() > 1024 * 1024) {
+          fail("invalid native-index-domain array initializer"); return nullptr;
+        }
+        for (unsigned i = std::min(wide, narrow); i < array.size(); ++i)
+          if (!pureLiteralInitializer(array[i])) {
+            fail("one-domain array tails require pure literal initializers"); return nullptr;
+          }
+        llvm::SmallVector<llvm::Constant *> elements;
+        for (unsigned i = 0; i < selected; ++i) {
+          auto *element = initializer(nativeType->getElementType(), array[i]);
+          if (!element) return nullptr;
+          elements.push_back(element);
+        }
+        return llvm::ConstantArray::get(nativeType, elements);
+      }
+      if (auto opcode = reference.getAs<mlir::StringAttr>("op")) {
+        auto element = reference.getAs<mlir::TypeAttr>("element");
+        auto indices = reference.getAs<mlir::ArrayAttr>("indices");
+        auto inbounds = reference.getAs<mlir::BoolAttr>("inbounds");
+        if (opcode.getValue() != "gep" || reference.size() != 5 || !element || !indices ||
+            !inbounds || !reference.get("base") || !expected->isPointerTy()) {
+          fail("invalid constant address expression"); return nullptr;
+        }
+        auto *sourceType = type(element.getValue());
+        auto *base = initializer(llvm::PointerType::get(context, 0), reference.get("base"));
+        llvm::SmallVector<llvm::Constant *> nativeIndices;
+        for (auto entry : indices) {
+          auto record = mlir::dyn_cast<mlir::DictionaryAttr>(entry);
+          auto kind = record ? record.getAs<mlir::TypeAttr>("type") : mlir::TypeAttr();
+          auto *indexType = kind ? type(kind.getValue()) : nullptr;
+          if (!record || record.size() != 2 || !indexType || !indexType->isIntegerTy() || !record.get("value")) {
+            fail("invalid constant address index"); return nullptr;
+          }
+          auto *index = initializer(indexType, record.get("value"));
+          if (!llvm::isa_and_nonnull<llvm::ConstantInt>(index)) { fail("address index is not a defined integer constant"); return nullptr; }
+          nativeIndices.push_back(index);
+        }
+        llvm::SmallVector<llvm::Value *> checked(nativeIndices.begin(), nativeIndices.end());
+        if (!sourceType || !base || nativeIndices.empty() ||
+            !llvm::GetElementPtrInst::getIndexedType(sourceType, checked)) {
+          fail("invalid constant address index path"); return nullptr;
+        }
+        return llvm::ConstantExpr::getGetElementPtr(sourceType, base, nativeIndices, inbounds.getValue());
+      }
+      auto name = reference.getAs<mlir::StringAttr>("symbol");
+      auto found = name ? symbols.find(name.getValue().str()) : symbols.end();
+      if (reference.size() == 1 && expected->isPointerTy() && found != symbols.end())
+        return found->second;
+      fail("invalid initializer symbol reference"); return nullptr;
+    }
+    if (auto elements = mlir::dyn_cast<mlir::ArrayAttr>(value)) {
+      uint64_t count = expected->isArrayTy() ? llvm::cast<llvm::ArrayType>(expected)->getNumElements()
+          : expected->isStructTy() ? llvm::cast<llvm::StructType>(expected)->getNumElements() : UINT64_MAX;
+      if (elements.size() != count || count > 1024 * 1024) { fail("aggregate initializer extent mismatch"); return nullptr; }
+      llvm::SmallVector<llvm::Constant *> native;
+      for (unsigned i = 0; i < count; ++i) {
+        auto *elementType = expected->isArrayTy() ? llvm::cast<llvm::ArrayType>(expected)->getElementType()
+            : llvm::cast<llvm::StructType>(expected)->getElementType(i);
+        auto *element = initializer(elementType, elements[i]);
+        if (!element) return nullptr;
+        native.push_back(element);
+      }
+      return expected->isArrayTy() ? static_cast<llvm::Constant *>(llvm::ConstantArray::get(llvm::cast<llvm::ArrayType>(expected), native))
+          : llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(expected), native);
+    }
+    fail("unsupported typed global initializer"); return nullptr;
   }
 
   llvm::AttributeSet attributes(Attribute value) {
@@ -802,18 +415,20 @@ public:
         fail("unsupported ABI attribute kind");
         return {};
       }
-      if (auto integer = dictionary.getAs<mlir::IntegerAttr>("integer")) {
+      if (auto integer = dictionary.get("integer")) {
         if (!llvm::Attribute::isIntAttrKind(kind)) {
           fail("ABI integer attribute has the wrong kind");
           return {};
         }
-        uint64_t number = integer.getValue().getZExtValue();
+        uint64_t number = expression(integer);
+        if (!error.empty()) return {};
         if (!((kind == llvm::Attribute::UWTable && number >= 1 && number <= 2) ||
               (kind == llvm::Attribute::Memory && number <= 63) ||
+              kind == llvm::Attribute::AllocSize ||
               ((kind == llvm::Attribute::Alignment || kind == llvm::Attribute::StackAlignment) &&
                number && number <= (1ULL << 29) && llvm::isPowerOf2_64(number)) ||
               kind == llvm::Attribute::Dereferenceable || kind == llvm::Attribute::DereferenceableOrNull)) {
-          fail("unsupported integer code-generation attribute or value"); return {};
+          fail("unsupported integer code-generation attribute or value: " + name.getValue()); return {};
         }
         result.push_back(llvm::Attribute::get(context, kind, number));
       } else {
@@ -834,6 +449,12 @@ public:
       return {};
     }
     auto fn = attributes(array[0]), ret = attributes(array[1]);
+    if (auto allocation = fn.getAttribute(llvm::Attribute::AllocSize); allocation.isValid()) {
+      auto indices = allocation.getAllocSizeArgs();
+      if (indices.first >= arguments || (indices.second && *indices.second >= arguments)) {
+        fail("allocation-size attribute refers to an unknown argument"); return {};
+      }
+    }
     llvm::SmallVector<llvm::AttributeSet> params;
     for (unsigned i = 0; i < arguments; ++i)
       params.push_back(attributes(array[i + 2]));
@@ -849,17 +470,84 @@ public:
     return found->second;
   }
 
+  bool visibility(Operation &operation, llvm::GlobalValue &value) {
+    auto attribute = operation.getAttr("visibility");
+    if (!attribute) return true;
+    auto name = mlir::dyn_cast<mlir::StringAttr>(attribute);
+    if (!name || (name.getValue() != "default" && name.getValue() != "hidden" &&
+                  name.getValue() != "protected") ||
+        (value.hasLocalLinkage() && name.getValue() != "default")) {
+      fail("invalid native symbol visibility"); return false;
+    }
+    value.setVisibility(name.getValue() == "hidden" ? llvm::GlobalValue::HiddenVisibility :
+        name.getValue() == "protected" ? llvm::GlobalValue::ProtectedVisibility : llvm::GlobalValue::DefaultVisibility);
+    return true;
+  }
+
+  bool qualifyABIType(mlir::Type input, llvm::SmallVectorImpl<llvm::StructType *> &ordered, unsigned depth = 0) {
+    if (depth > 64) { fail("native ABI record nesting exceeds the qualified bound"); return false; }
+    if (auto record = mlir::dyn_cast<ir::RecordType>(input)) {
+      if (record.isPacked() || record.getFields().empty()) { fail("packed/empty native ABI records require an additional layout contract"); return false; }
+      for (auto field : record.getFields()) if (!qualifyABIType(field, ordered, depth + 1)) return false;
+      auto *native = llvm::dyn_cast_or_null<llvm::StructType>(type(record));
+      if (!native) return false;
+      if (!llvm::is_contained(ordered, native)) ordered.push_back(native);
+      return true;
+    }
+    if (auto array = mlir::dyn_cast<ir::ArrayType>(input)) return qualifyABIType(array.getElementType(), ordered, depth + 1);
+    auto *native = type(input);
+    if (!native || (!native->isIntegerTy() && !native->isPointerTy() && !native->isFloatingPointTy())) {
+      fail("native ABI requires explicit ordinary record semantics; overlapping/special storage is not an ordered record"); return false;
+    }
+    return true;
+  }
+
+  bool aggregateABI(Operation &operation, llvm::FunctionType *body, AggregateABI &abi) {
+    auto attribute = operation.getAttrOfType<mlir::TypeAttr>("native_abi");
+    auto signature = attribute ? mlir::dyn_cast<mlir::FunctionType>(attribute.getValue()) : mlir::FunctionType();
+    if (!signature || signature.getNumResults() > 1 || body->isVarArg() || operation.getAttr("intrinsic")) {
+      fail("invalid or unsupported aggregate native ABI signature"); return false;
+    }
+    llvm::SmallVector<llvm::Type *> parameters;
+    bool aggregate = false;
+    for (auto input : signature.getInputs()) {
+      if (!qualifyABIType(input, abi.orderedRecords)) return false;
+      auto *native = type(input);
+      parameters.push_back(native); aggregate |= native->isAggregateType();
+    }
+    llvm::Type *returns = llvm::Type::getVoidTy(context);
+    if (signature.getNumResults()) {
+      auto result = signature.getResult(0);
+      if (!qualifyABIType(result, abi.orderedRecords)) return false;
+      returns = type(result); aggregate |= returns->isAggregateType();
+    }
+    abi.logical = llvm::FunctionType::get(returns, parameters, false);
+    if (!aggregate || detail::nativeStorageBodyType(abi.logical) != body) {
+      fail("native ABI signature disagrees with its owned-storage body arguments/result"); return false;
+    }
+    auto classified = detail::classifyNativeABI(abi.logical, x64, abi.orderedRecords);
+    if (!classified) { fail(llvm::toString(classified.takeError())); return false; }
+    abi.native = std::move(*classified);
+    return true;
+  }
+
   llvm::Function *function(Operation &operation) {
     auto id = operation.getAttrOfType<mlir::StringAttr>("id");
     auto ft = operation.getAttrOfType<mlir::TypeAttr>("type");
     auto variadic = operation.getAttrOfType<mlir::BoolAttr>("variadic");
     auto internal = operation.getAttrOfType<mlir::BoolAttr>("internal");
+    auto weak = operation.getAttrOfType<mlir::BoolAttr>("weak");
+    auto available = operation.getAttrOfType<mlir::BoolAttr>("available_externally");
     auto local = operation.getAttrOfType<mlir::BoolAttr>("dso_local");
     auto declaration = operation.getAttrOfType<mlir::BoolAttr>("declaration");
     auto signature = ft ? mlir::dyn_cast<mlir::FunctionType>(ft.getValue()) : mlir::FunctionType();
     if (!id || id.getValue().empty() || !signature || !variadic || !internal ||
         !local || !declaration || signature.getNumResults() > 1 ||
-        symbols.count(id.getValue().str())) {
+        symbols.count(id.getValue().str()) ||
+        (operation.getAttr("weak") && !weak) ||
+        (operation.getAttr("available_externally") && !available) ||
+        (unsigned(internal.getValue()) + unsigned(weak && weak.getValue()) + unsigned(available && available.getValue()) > 1) ||
+        (available && available.getValue() && declaration.getValue())) {
       fail("invalid or duplicate function declaration");
       return nullptr;
     }
@@ -868,18 +556,56 @@ public:
       auto *native = type(t);
       if (!native)
         return nullptr;
+      if (!native->isIntegerTy() && !native->isFloatingPointTy() && !native->isPointerTy()) {
+        fail("aggregate by-value ABI parameters are not qualified yet"); return nullptr;
+      }
       inputs.push_back(native);
     }
     llvm::Type *returns = signature.getNumResults() ? type(signature.getResult(0))
                                                    : llvm::Type::getVoidTy(context);
     if (!returns)
       return nullptr;
+    if (!returns->isVoidTy() && !returns->isIntegerTy() &&
+        !returns->isFloatingPointTy() && !returns->isPointerTy()) {
+      fail("aggregate by-value ABI results are not qualified yet"); return nullptr;
+    }
     auto *nativeType = llvm::FunctionType::get(returns, inputs, variadic.getValue());
+    std::string nativeName = id.getValue().str();
+    if (auto attribute = operation.getAttr("intrinsic")) {
+      auto name = mlir::dyn_cast<mlir::StringAttr>(attribute);
+      llvm::Intrinsic::ID intrinsic = name && name.getValue() == "memcpy" ? llvm::Intrinsic::memcpy :
+          name && name.getValue() == "memmove" ? llvm::Intrinsic::memmove :
+          name && name.getValue() == "memset" ? llvm::Intrinsic::memset : llvm::Intrinsic::not_intrinsic;
+      if (!intrinsic || !declaration.getValue() || variadic.getValue() || internal.getValue() ||
+          (weak && weak.getValue()) || inputs.size() != 4 || !inputs[0]->isPointerTy() ||
+          !inputs[2]->isIntegerTy() ||
+          (intrinsic != llvm::Intrinsic::memset && !inputs[1]->isPointerTy())) {
+        fail("invalid native memory intrinsic declaration"); return nullptr;
+      }
+      llvm::SmallVector<llvm::Type *> overloads{inputs[0]};
+      if (intrinsic != llvm::Intrinsic::memset) overloads.push_back(inputs[1]);
+      overloads.push_back(inputs[2]);
+      if (llvm::Intrinsic::getType(context, intrinsic, overloads) != nativeType) {
+        fail("native memory intrinsic signature mismatch"); return nullptr;
+      }
+      nativeName = llvm::Intrinsic::getName(intrinsic, overloads, module.get(), nativeType);
+      if (module->getNamedValue(nativeName)) {
+        fail("duplicate native intrinsic specialization"); return nullptr;
+      }
+    }
     auto *result = llvm::Function::Create(nativeType,
-        internal.getValue() ? llvm::GlobalValue::InternalLinkage : llvm::GlobalValue::ExternalLinkage,
-        id.getValue(), module.get());
+        internal.getValue() ? llvm::GlobalValue::InternalLinkage :
+        weak && weak.getValue() ? llvm::GlobalValue::WeakAnyLinkage :
+        available && available.getValue() ? llvm::GlobalValue::AvailableExternallyLinkage : llvm::GlobalValue::ExternalLinkage,
+        nativeName, module.get());
     result->setDSOLocal(local.getValue());
+    if (!visibility(operation, *result)) return nullptr;
     result->setAttributes(attributeList(operation, inputs.size()));
+    if (operation.getAttr("native_abi")) {
+      AggregateABI abi;
+      if (!aggregateABI(operation, nativeType, abi)) return nullptr;
+      aggregateFunctions[result] = std::move(abi);
+    }
     symbols[id.getValue().str()] = result;
     return result;
   }
@@ -893,34 +619,46 @@ public:
     return true;
   }
 
+  llvm::BasicBlock *edge(Operation &operation, unsigned successor,
+                         mlir::ValueRange arguments) {
+    auto *target = operation.getSuccessor(successor);
+    auto found = blocks.find(target);
+    if (found == blocks.end() || target->isEntryBlock() ||
+        target->getNumArguments() != arguments.size()) {
+      fail("invalid branch target or block argument count");
+      return nullptr;
+    }
+    for (unsigned i = 0; i < arguments.size(); ++i) {
+      auto *value = operand(arguments[i]);
+      auto *phi = llvm::dyn_cast_or_null<llvm::PHINode>(
+          values.lookup(target->getArgument(i)));
+      if (!value || !phi || phi->getType() != value->getType()) {
+        fail("branch block argument type mismatch");
+        return nullptr;
+      }
+      phi->addIncoming(value, builder.GetInsertBlock());
+    }
+    return found->second;
+  }
+
   void instruction(Operation &operation) {
     StringRef name = operation.getName().getStringRef();
     llvm::Value *result = nullptr;
-    if (name == "aot.constant") {
+    if (name == "nier.constant") {
       if (!shape(operation, 0, 1)) return;
       auto *t = type(operation.getResult(0).getType());
       if (!t) return;
-      auto value = operation.getAttr("value");
-      if (t->isPointerTy()) {
-        auto text = mlir::dyn_cast_or_null<mlir::StringAttr>(value);
-        if (!text || text.getValue() != "null") {
-          fail("pointer constant must be null"); return;
-        }
-        result = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(t));
-      } else {
-        uint64_t n = expression(value);
-        if (!error.empty()) return;
-        result = llvm::ConstantInt::get(t, n);
-      }
-    } else if (name == "aot.address") {
+      result = initializer(t, operation.getAttr("value"));
+      if (!result) return;
+    } else if (name == "nier.address") {
       if (!shape(operation, 0, 1)) return;
       auto id = operation.getAttrOfType<mlir::StringAttr>("global");
       auto found = id ? symbols.find(id.getValue().str()) : symbols.end();
-      if (found == symbols.end() || !llvm::isa<llvm::GlobalVariable>(found->second)) {
-        fail("address refers to an unknown byte global"); return;
+      if (found == symbols.end()) {
+        fail("address refers to an unknown global or function"); return;
       }
       result = found->second;
-    } else if (name == "aot.alloca") {
+    } else if (name == "nier.alloca") {
       if (!shape(operation, 0, 1)) return;
       auto element = operation.getAttrOfType<mlir::TypeAttr>("element");
       auto *t = element ? type(element.getValue()) : nullptr;
@@ -929,25 +667,123 @@ public:
       auto *allocation = builder.CreateAlloca(t, 0, nullptr);
       allocation->setAlignment(*align);
       result = allocation;
-    } else if (name == "aot.load") {
+    } else if (name == "nier.gep") {
+      auto element = operation.getAttrOfType<mlir::TypeAttr>("element");
+      auto inbounds = operation.getAttrOfType<mlir::BoolAttr>("inbounds");
+      if (operation.getNumOperands() < 2 || operation.getNumResults() != 1 ||
+          operation.getNumRegions() || !element || !inbounds) {
+        fail("invalid native address calculation shape"); return;
+      }
+      auto *sourceType = type(element.getValue());
+      auto *pointer = operand(operation.getOperand(0));
+      llvm::SmallVector<llvm::Value *> indices;
+      for (auto index : operation.getOperands().drop_front()) {
+        auto *value = operand(index);
+        if (!value || !value->getType()->isIntegerTy()) {
+          fail("native address index must be an integer"); return;
+        }
+        indices.push_back(value);
+      }
+      if (!sourceType || !pointer || !pointer->getType()->isPointerTy() ||
+          !llvm::GetElementPtrInst::getIndexedType(sourceType, indices)) {
+        fail("invalid native address element or index path"); return;
+      }
+      result = builder.CreateGEP(sourceType, pointer, indices, "", inbounds.getValue());
+    } else if (name == "nier.bswap") {
+      if (!shape(operation, 1, 1)) return;
+      auto *value = operand(operation.getOperand(0));
+      if (!value || (!value->getType()->isIntegerTy(16) && !value->getType()->isIntegerTy(32) && !value->getType()->isIntegerTy(64))) {
+        fail("byte reversal requires a qualified 16/32/64-bit integer"); return;
+      }
+      result = builder.CreateIntrinsic(llvm::Intrinsic::bswap, {value->getType()}, {value});
+    } else if (name == "nier.va_forward") {
+      if (!shape(operation, 1, 1)) return;
+      auto *state = operand(operation.getOperand(0));
+      if (!state || !state->getType()->isPointerTy() ||
+          !mlir::isa<ir::PointerType>(operation.getResult(0).getType())) {
+        fail("native va_list forwarding requires a state address and pointer result"); return;
+      }
+      // The native ABI passes the SysV64 array-state address, whereas i686
+      // passes its current stack cursor value. This is not a wrapper ABI.
+      result = x64 ? state : builder.CreateAlignedLoad(llvm::PointerType::get(context, 0), state, llvm::Align(4));
+    } else if (name == "nier.va_arg") {
+      if (!shape(operation, 1, 1)) return;
+      auto *state = operand(operation.getOperand(0));
+      auto *element = type(operation.getResult(0).getType());
+      if (!state || !state->getType()->isPointerTy() || !element ||
+          (!element->isIntegerTy(32) && !element->isIntegerTy(64) &&
+           !element->isPointerTy() && !element->isDoubleTy())) {
+        fail("native va_arg currently requires a promoted scalar or pointer result"); return;
+      }
+      result = builder.CreateVAArg(state, element);
+    } else if (name == "nier.load") {
       if (!shape(operation, 1, 1)) return;
       auto *pointer = operand(operation.getOperand(0));
       auto *t = type(operation.getResult(0).getType());
       auto align = alignment(operation);
-      if (!pointer || !t || !align || !pointer->getType()->isPointerTy()) {
+      auto isVolatile = operation.getAttrOfType<mlir::BoolAttr>("volatile");
+      if (!pointer || !t || !align || !pointer->getType()->isPointerTy() ||
+          (operation.getAttr("volatile") && !isVolatile)) {
         fail("invalid scalar load"); return;
       }
-      result = builder.CreateAlignedLoad(t, pointer, *align);
-    } else if (name == "aot.store") {
+      result = builder.CreateAlignedLoad(t, pointer, *align, isVolatile && isVolatile.getValue());
+    } else if (name == "nier.store") {
       if (!shape(operation, 2, 0)) return;
       auto *value = operand(operation.getOperand(0));
       auto *pointer = operand(operation.getOperand(1));
       auto align = alignment(operation);
-      if (!value || !pointer || !align || !pointer->getType()->isPointerTy()) {
+      auto isVolatile = operation.getAttrOfType<mlir::BoolAttr>("volatile");
+      if (!value || !pointer || !align || !pointer->getType()->isPointerTy() ||
+          (operation.getAttr("volatile") && !isVolatile)) {
         fail("invalid scalar store"); return;
       }
-      builder.CreateAlignedStore(value, pointer, *align);
-    } else if (name == "aot.call") {
+      builder.CreateAlignedStore(value, pointer, *align, isVolatile && isVolatile.getValue());
+    } else if (name == "nier.call_indirect") {
+      auto signature = operation.getAttrOfType<mlir::TypeAttr>("type");
+      auto functionType = signature ? mlir::dyn_cast<mlir::FunctionType>(signature.getValue()) : mlir::FunctionType();
+      auto variadic = operation.getAttrOfType<mlir::BoolAttr>("variadic");
+      auto tail = operation.getAttrOfType<mlir::IntegerAttr>("tail");
+      if (operation.getNumRegions() || operation.getNumResults() > 1 || operation.getNumOperands() < 1 ||
+          !functionType || functionType.getNumResults() > 1 || !variadic || !tail || tail.getInt() < 0 || tail.getInt() > 3) {
+        fail("invalid indirect call signature"); return;
+      }
+      auto *callee = operand(operation.getOperand(0));
+      if (!callee || !callee->getType()->isPointerTy()) { fail("indirect callee is not a native pointer"); return; }
+      llvm::SmallVector<llvm::Type *> parameters;
+      for (auto parameter : functionType.getInputs()) {
+        auto *native = type(parameter);
+        if (!native || (!native->isIntegerTy() && !native->isFloatingPointTy() && !native->isPointerTy())) {
+          fail("indirect aggregate by-value ABI parameters are not qualified yet"); return;
+        }
+        parameters.push_back(native);
+      }
+      auto *returns = functionType.getNumResults() ? type(functionType.getResult(0)) : llvm::Type::getVoidTy(context);
+      if (!returns || (!returns->isVoidTy() && !returns->isIntegerTy() && !returns->isFloatingPointTy() && !returns->isPointerTy())) {
+        fail("indirect aggregate by-value ABI results are not qualified yet"); return;
+      }
+      llvm::SmallVector<llvm::Value *> arguments;
+      for (auto argument : operation.getOperands().drop_front()) {
+        auto *value = operand(argument);
+        if (!value) return;
+        arguments.push_back(value);
+      }
+      if (arguments.size() < parameters.size() || (!variadic.getValue() && arguments.size() != parameters.size())) {
+        fail("indirect argument count mismatch"); return;
+      }
+      for (unsigned i = 0; i < parameters.size(); ++i)
+        if (arguments[i]->getType() != parameters[i]) { fail("indirect argument type mismatch"); return; }
+      if (returns->isVoidTy() != (operation.getNumResults() == 0)) { fail("indirect return arity mismatch"); return; }
+      auto *nativeType = llvm::FunctionType::get(returns, parameters, variadic.getValue());
+      auto *call = builder.CreateCall(nativeType, callee, arguments);
+      call->setAttributes(attributeList(operation, arguments.size()));
+      call->setTailCallKind(llvm::CallInst::TailCallKind(tail.getInt()));
+      if (operation.getAttr("native_abi")) {
+        AggregateABI abi;
+        if (!aggregateABI(operation, nativeType, abi)) return;
+        aggregateCalls[call] = std::move(abi);
+      }
+      result = call;
+    } else if (name == "nier.call") {
       if (operation.getNumRegions() || operation.getNumResults() > 1) {
         fail("invalid call shape"); return;
       }
@@ -978,8 +814,82 @@ public:
       if (function->getReturnType()->isVoidTy() != (operation.getNumResults() == 0)) {
         fail("direct call return arity mismatch"); return;
       }
+      auto abi = aggregateFunctions.find(function);
+      if (operation.getAttr("native_abi")) {
+        AggregateABI explicitABI;
+        if (!aggregateABI(operation, function->getFunctionType(), explicitABI)) return;
+        if (abi == aggregateFunctions.end() || abi->second.logical != explicitABI.logical) {
+          fail("direct call native ABI disagrees with its function declaration"); return;
+        }
+      }
+      if (abi != aggregateFunctions.end()) aggregateCalls[call] = abi->second;
       result = call;
-    } else if (name == "aot.return") {
+    } else if (name == "nier.br") {
+      if (operation.getNumResults() || operation.getNumRegions() ||
+          operation.getNumSuccessors() != 1) {
+        fail("invalid unconditional branch shape"); return;
+      }
+      auto *target = edge(operation, 0, operation.getOperands());
+      if (!target) return;
+      builder.CreateBr(target);
+    } else if (name == "nier.cond_br") {
+      auto count = operation.getAttrOfType<mlir::IntegerAttr>("true_count");
+      if (operation.getNumResults() || operation.getNumRegions() ||
+          operation.getNumSuccessors() != 2 || !count || count.getInt() < 0 ||
+          operation.getNumOperands() < 1 ||
+          uint64_t(count.getInt()) > operation.getNumOperands() - 1) {
+        fail("invalid conditional branch shape"); return;
+      }
+      auto *condition = operand(operation.getOperand(0));
+      if (!condition || !condition->getType()->isIntegerTy(1)) {
+        fail("conditional branch requires an i1 condition"); return;
+      }
+      auto arguments = operation.getOperands().drop_front();
+      auto *yes = edge(operation, 0, arguments.take_front(count.getInt()));
+      auto *no = edge(operation, 1, arguments.drop_front(count.getInt()));
+      if (!yes || !no) return;
+      builder.CreateCondBr(condition, yes, no);
+    } else if (name == "nier.switch") {
+      auto cases = operation.getAttrOfType<mlir::ArrayAttr>("cases");
+      auto counts = operation.getAttrOfType<mlir::DenseI32ArrayAttr>("argument_counts");
+      if (!cases || !counts || operation.getNumOperands() < 1 ||
+          operation.getNumResults() || operation.getNumRegions() ||
+          operation.getNumSuccessors() != cases.size() + 1 ||
+          counts.size() != operation.getNumSuccessors()) {
+        fail("invalid switch shape"); return;
+      }
+      auto *condition = operand(operation.getOperand(0));
+      if (!condition || !condition->getType()->isIntegerTy()) {
+        fail("switch condition must be an integer"); return;
+      }
+      auto arguments = operation.getOperands().drop_front();
+      llvm::SmallVector<llvm::BasicBlock *> targets;
+      for (unsigned i = 0; i < counts.size(); ++i) {
+        auto count = counts[i];
+        if (count < 0 || unsigned(count) > arguments.size()) {
+          fail("invalid switch block argument counts"); return;
+        }
+        auto *target = edge(operation, i, arguments.take_front(count));
+        if (!target) return;
+        targets.push_back(target);
+        arguments = arguments.drop_front(count);
+      }
+      if (!arguments.empty()) { fail("undeclared switch operands"); return; }
+      auto *result = builder.CreateSwitch(condition, targets.front(), cases.size());
+      std::set<uint64_t> unique;
+      for (unsigned i = 0; i < cases.size(); ++i) {
+        auto number = expression(cases[i]);
+        if (!error.empty()) return;
+        auto *value = llvm::ConstantInt::get(llvm::cast<llvm::IntegerType>(condition->getType()), number);
+        if (!unique.insert(value->getZExtValue()).second) {
+          fail("duplicate switch case after native specialization"); return;
+        }
+        result->addCase(value, targets[i + 1]);
+      }
+    } else if (name == "nier.unreachable") {
+      if (!shape(operation, 0, 0)) return;
+      builder.CreateUnreachable();
+    } else if (name == "nier.return") {
       if (operation.getNumOperands() > 1 || operation.getNumResults() || operation.getNumRegions()) {
         fail("invalid return shape"); return;
       }
@@ -990,58 +900,123 @@ public:
       } else {
         builder.CreateRetVoid();
       }
-    } else if (name == "aot.binary") {
+    } else if (name == "nier.binary") {
       if (!shape(operation, 2, 1)) return;
       auto opcode = operation.getAttrOfType<mlir::StringAttr>("opcode");
-      auto flags = operation.getAttrOfType<mlir::IntegerAttr>("flags");
+      auto flagExpression = operation.getAttr("flags");
+      auto flags = expression(flagExpression);
+      auto wideFlags = expression(flagExpression, true), narrowFlags = expression(flagExpression, false);
       unsigned code = 0;
       if (opcode)
         for (unsigned i = llvm::Instruction::BinaryOpsBegin; i < llvm::Instruction::BinaryOpsEnd; ++i)
           if (opcode.getValue() == llvm::Instruction::getOpcodeName(i)) code = i;
       auto *left = operand(operation.getOperand(0));
       auto *right = operand(operation.getOperand(1));
-      if (!code || !flags || flags.getInt() < 0 || flags.getInt() > 7 ||
-          !validArithmeticFlags(code, unsigned(flags.getInt())) ||
-          !left || !right || !left->getType()->isIntegerTy() || left->getType() != right->getType() ||
-          code == llvm::Instruction::FAdd || code == llvm::Instruction::FSub ||
+      bool floatingOpcode = code == llvm::Instruction::FAdd || code == llvm::Instruction::FSub ||
           code == llvm::Instruction::FMul || code == llvm::Instruction::FDiv ||
-          code == llvm::Instruction::FRem) {
-        fail("invalid scalar integer binary operation"); return;
+          code == llvm::Instruction::FRem;
+      if (!code || !error.empty() || wideFlags > 7 || narrowFlags > 7 ||
+          !validArithmeticFlags(code, unsigned(wideFlags)) || !validArithmeticFlags(code, unsigned(narrowFlags)) ||
+          !left || !right || left->getType() != right->getType() ||
+          (floatingOpcode ? !left->getType()->isFloatingPointTy() : !left->getType()->isIntegerTy())) {
+        fail("invalid scalar binary operation"); return;
       }
       auto *binary = llvm::cast<llvm::BinaryOperator>(
           builder.CreateBinOp(llvm::Instruction::BinaryOps(code), left, right));
-      if (flags.getInt() & 1) binary->setHasNoUnsignedWrap();
-      if (flags.getInt() & 2) binary->setHasNoSignedWrap();
-      if (flags.getInt() & 4) binary->setIsExact();
+      if (flags & 1) binary->setHasNoUnsignedWrap();
+      if (flags & 2) binary->setHasNoSignedWrap();
+      if (flags & 4) binary->setIsExact();
       result = binary;
-    } else if (name == "aot.cast") {
+    } else if (name == "nier.select") {
+      if (!shape(operation, 3, 1)) return;
+      auto *condition = operand(operation.getOperand(0));
+      auto *yes = operand(operation.getOperand(1));
+      auto *no = operand(operation.getOperand(2));
+      if (!condition || !yes || !no || !condition->getType()->isIntegerTy(1) ||
+          yes->getType() != no->getType()) {
+        fail("invalid scalar select"); return;
+      }
+      result = builder.CreateSelect(condition, yes, no);
+    } else if (name == "nier.fneg") {
+      if (!shape(operation, 1, 1)) return;
+      auto *value = operand(operation.getOperand(0));
+      if (!value || !value->getType()->isFloatingPointTy()) {
+        fail("floating negate requires float or double"); return;
+      }
+      result = builder.CreateFNeg(value);
+    } else if (name == "nier.cast") {
       if (!shape(operation, 1, 1)) return;
       auto opcode = operation.getAttrOfType<mlir::StringAttr>("opcode");
       unsigned code = 0;
+      StringRef spelling = opcode ? opcode.getValue() : StringRef();
+      bool nativeIdentity = spelling.consume_front("native_");
+      if (nativeIdentity && spelling != "zext" && spelling != "sext" && spelling != "trunc") {
+        fail("unsupported native cast policy"); return;
+      }
       if (opcode)
         for (unsigned i = llvm::Instruction::CastOpsBegin; i < llvm::Instruction::CastOpsEnd; ++i)
-          if (opcode.getValue() == llvm::Instruction::getOpcodeName(i)) code = i;
+          if (spelling == llvm::Instruction::getOpcodeName(i)) code = i;
       auto *input = operand(operation.getOperand(0));
       auto *output = type(operation.getResult(0).getType());
+      bool identity = nativeIdentity && input && output && input->getType() == output && output->isIntegerTy();
       if (!code || !input || !output ||
-          !llvm::CastInst::castIsValid(llvm::Instruction::CastOps(code), input, output)) {
+          (!identity && !llvm::CastInst::castIsValid(llvm::Instruction::CastOps(code), input, output))) {
         fail("invalid scalar cast"); return;
       }
-      result = builder.CreateCast(llvm::Instruction::CastOps(code), input, output);
-    } else if (name == "aot.compare") {
+      result = identity ? input : builder.CreateCast(llvm::Instruction::CastOps(code), input, output);
+    } else if (name == "nier.compare") {
       if (!shape(operation, 2, 1)) return;
       auto predicate = operation.getAttrOfType<mlir::IntegerAttr>("predicate");
       auto *left = operand(operation.getOperand(0));
       auto *right = operand(operation.getOperand(1));
-      if (!predicate || predicate.getInt() < llvm::CmpInst::FIRST_ICMP_PREDICATE ||
-          predicate.getInt() > llvm::CmpInst::LAST_ICMP_PREDICATE || !left || !right ||
-          left->getType() != right->getType() ||
-          (!left->getType()->isIntegerTy() && !left->getType()->isPointerTy())) {
+      bool floating = left && left->getType()->isFloatingPointTy();
+      int first = floating ? llvm::CmpInst::FIRST_FCMP_PREDICATE : llvm::CmpInst::FIRST_ICMP_PREDICATE;
+      int last = floating ? llvm::CmpInst::LAST_FCMP_PREDICATE : llvm::CmpInst::LAST_ICMP_PREDICATE;
+      if (!predicate || predicate.getInt() < first || predicate.getInt() > last ||
+          !left || !right || left->getType() != right->getType() ||
+          (!floating && !left->getType()->isIntegerTy() && !left->getType()->isPointerTy())) {
         fail("invalid scalar comparison"); return;
       }
-      result = builder.CreateICmp(llvm::CmpInst::Predicate(predicate.getInt()), left, right);
+      result = floating
+          ? builder.CreateFCmp(llvm::CmpInst::Predicate(predicate.getInt()), left, right)
+          : builder.CreateICmp(llvm::CmpInst::Predicate(predicate.getInt()), left, right);
     } else {
       fail("unknown required common operation: " + name); return;
+    }
+    if (operation.getAttr("loop_id") && !operation.getAttr("loop")) {
+      fail("native loop identity requires loop options"); return;
+    }
+    if (auto loop = operation.getAttr("loop")) {
+      auto options = mlir::dyn_cast<mlir::ArrayAttr>(loop);
+      auto identity = operation.getAttrOfType<mlir::StringAttr>("loop_id");
+      auto id = identity ? identity.getValue() : StringRef();
+      auto *terminator = builder.GetInsertBlock()->getTerminator();
+      if (!options || options.empty() || !llvm::isa_and_nonnull<llvm::BranchInst>(terminator) ||
+          id.size() < 2 || id.size() > 64 || !id.starts_with("l") ||
+          !llvm::all_of(id.drop_front(), [](char c) { return c >= '0' && c <= '9'; })) {
+        fail("loop options require a branch terminator and opaque loop identity"); return;
+      }
+      llvm::SmallVector<llvm::Metadata *> metadata{nullptr};
+      for (auto option : options) {
+        auto name = mlir::dyn_cast<mlir::StringAttr>(option);
+        if (!name || (name.getValue() != "llvm.loop.mustprogress" &&
+                      name.getValue() != "llvm.loop.unroll.disable" &&
+                      name.getValue() != "llvm.loop.unroll.enable")) {
+          fail("unknown loop semantic option"); return;
+        }
+        metadata.push_back(llvm::MDNode::get(context,
+            llvm::MDString::get(context, name.getValue())));
+      }
+      llvm::MDNode *node;
+      if (auto previous = nativeLoops.find(id.str()); previous != nativeLoops.end()) {
+        if (previous->second.first != loop) { fail("conflicting options for one native loop identity"); return; }
+        node = previous->second.second;
+      } else {
+        node = llvm::MDNode::getDistinct(context, metadata);
+        node->replaceOperandWith(0, node);
+        nativeLoops.emplace(id.str(), std::make_pair(loop, node));
+      }
+      terminator->setMetadata(llvm::LLVMContext::MD_loop, node);
     }
     if (operation.getNumResults()) {
       auto *expected = type(operation.getResult(0).getType());
@@ -1054,15 +1029,15 @@ public:
 
   void lower(mlir::ModuleOp source) {
     if (auto e = validateSchema(source)) { fail(llvm::toString(std::move(e))); return; }
-    auto schema = source->getAttrOfType<mlir::IntegerAttr>("aot.schema");
-    auto profiles = source->getAttrOfType<mlir::ArrayAttr>("aot.profiles");
-    if (!schema || schema.getInt() != 1 || !profiles || profiles.size() != 2 ||
-        profiles[0] != mlir::StringAttr::get(source.getContext(), "x86_64") ||
-        profiles[1] != mlir::StringAttr::get(source.getContext(), "i686")) {
+    auto selectedCFG = detail::specializeConditionalCFG(source, x64);
+    if (!selectedCFG) { fail(llvm::toString(selectedCFG.takeError())); return; }
+    source = **selectedCFG;
+    auto schema = source->getAttrOfType<mlir::IntegerAttr>("nier.schema");
+    if (!schema || schema.getInt() != 1) {
       fail("unsupported common IR schema or profile domain"); return;
     }
-    auto flags = source->getAttrOfType<mlir::ArrayAttr>("aot.module_flags");
-    if (!flags) { fail("missing module compilation flags"); return; }
+    auto flags = source->getAttrOfType<mlir::ArrayAttr>("nier.module_flags");
+    if (!flags) flags = mlir::ArrayAttr::get(source.getContext(), {});
     for (Attribute entry : flags) {
       auto record = mlir::dyn_cast<mlir::DictionaryAttr>(entry);
       auto name = record ? record.getAs<mlir::StringAttr>("name") : mlir::StringAttr();
@@ -1079,6 +1054,7 @@ public:
           fail("unknown module flag record field"); return;
         }
       bool ordinary = (name.getValue() == "wchar_size" && value.getInt() == 4) ||
+                      (name.getValue() == "frame-pointer" && value.getInt() >= 0 && value.getInt() <= 2) ||
                       ((name.getValue() == "PIC Level" || name.getValue() == "PIE Level" ||
                         name.getValue() == "uwtable") && value.getInt() == 2);
       bool native32 = name.getValue() == "NumRegisterParameters" && value.getInt() == 0;
@@ -1093,13 +1069,42 @@ public:
     }
     for (auto &operation : source.getBody()->getOperations()) {
       StringRef name = operation.getName().getStringRef();
-      if (name == "aot.func") {
+      if (name == "nier.func") {
         function(operation);
-      } else if (name == "aot.global") {
+      } else if (name == "nier.global") {
         if (!shape(operation, 0, 0)) return;
         auto id = operation.getAttrOfType<mlir::StringAttr>("id");
         auto bytes = operation.getAttrOfType<mlir::StringAttr>("bytes");
         auto unnamed = operation.getAttrOfType<mlir::IntegerAttr>("unnamed");
+        if (!bytes) {
+          auto element = operation.getAttrOfType<mlir::TypeAttr>("element");
+          auto constant = operation.getAttrOfType<mlir::BoolAttr>("constant");
+          auto declaration = operation.getAttrOfType<mlir::BoolAttr>("declaration");
+          auto local = operation.getAttrOfType<mlir::BoolAttr>("dso_local");
+          auto linkage = operation.getAttrOfType<mlir::StringAttr>("linkage");
+          auto *nativeType = element ? type(element.getValue()) : nullptr;
+          uint64_t align = expression(operation.getAttr("alignment"));
+          std::map<std::string, llvm::GlobalValue::LinkageTypes> linkages = {
+              {"external", llvm::GlobalValue::ExternalLinkage}, {"internal", llvm::GlobalValue::InternalLinkage},
+              {"private", llvm::GlobalValue::PrivateLinkage}, {"common", llvm::GlobalValue::CommonLinkage},
+              {"weak", llvm::GlobalValue::WeakAnyLinkage}};
+          auto selected = linkage ? linkages.find(linkage.getValue().str()) : linkages.end();
+          if (!error.empty() || !id || id.getValue().empty() || symbols.count(id.getValue().str()) ||
+              !nativeType || !nativeType->isSized() || !constant || !declaration || !local || selected == linkages.end() ||
+              !operation.getAttr("initializer") || !unnamed || unnamed.getInt() < 0 || unnamed.getInt() > 2 ||
+              (align && (align > (1ULL << 29) || !llvm::isPowerOf2_64(align))) || operation.getAttr("bytes")) {
+            fail("invalid typed global declaration"); return;
+          }
+          auto *global = new llvm::GlobalVariable(*module, nativeType, constant.getValue(), selected->second, nullptr, id.getValue());
+          global->setDSOLocal(local.getValue());
+          if (!visibility(operation, *global)) return;
+          if (align) global->setAlignment(llvm::Align(align));
+          global->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr(unnamed.getInt()));
+          symbols[id.getValue().str()] = global;
+          continue;
+        }
+        for (StringRef field : {"element", "initializer", "constant", "declaration", "linkage", "dso_local", "visibility"})
+          if (operation.getAttr(field)) { fail("byte global cannot also carry a typed definition"); return; }
         auto align = alignment(operation);
         if (!id || id.getValue().empty() || !bytes || !unnamed ||
             unnamed.getInt() < 0 || unnamed.getInt() > 2 || !align ||
@@ -1118,7 +1123,21 @@ public:
       if (!error.empty()) return;
     }
     for (auto &operation : source.getBody()->getOperations()) {
-      if (operation.getName().getStringRef() != "aot.func") continue;
+      if (operation.getName().getStringRef() != "nier.global" || operation.getAttr("bytes")) continue;
+      auto id = operation.getAttrOfType<mlir::StringAttr>("id");
+      auto declaration = operation.getAttrOfType<mlir::BoolAttr>("declaration");
+      auto value = operation.getAttr("initializer");
+      if (declaration.getValue()) {
+        if (!mlir::isa<mlir::UnitAttr>(value)) { fail("external global declaration has an initializer"); return; }
+        continue;
+      }
+      auto *global = llvm::cast<llvm::GlobalVariable>(symbols.at(id.getValue().str()));
+      auto *native = initializer(global->getValueType(), value);
+      if (!native) return;
+      global->setInitializer(native);
+    }
+    for (auto &operation : source.getBody()->getOperations()) {
+      if (operation.getName().getStringRef() != "nier.func") continue;
       if (operation.getNumRegions() != 1) { fail("invalid function region count"); return; }
       auto declaration = operation.getAttrOfType<mlir::BoolAttr>("declaration");
       auto &region = operation.getRegion(0);
@@ -1127,7 +1146,7 @@ public:
         if (!error.empty()) return;
         continue;
       }
-      if (!region.hasOneBlock()) { fail("only one-block functions are supported yet"); return; }
+      if (region.empty()) { fail("function definition has no entry block"); return; }
       auto id = operation.getAttrOfType<mlir::StringAttr>("id");
       auto *function = llvm::cast<llvm::Function>(symbols[id.getValue().str()]);
       auto &block = region.front();
@@ -1135,23 +1154,49 @@ public:
         fail("function body parameter count or terminator mismatch"); return;
       }
       values.clear();
+      blocks.clear();
       for (unsigned i = 0; i < block.getNumArguments(); ++i) {
         if (type(block.getArgument(i).getType()) != function->getArg(i)->getType()) {
           fail("function body parameter type mismatch"); return;
         }
         values[block.getArgument(i)] = function->getArg(i);
       }
-      builder.SetInsertPoint(llvm::BasicBlock::Create(context, "", function));
-      for (auto &child : block) {
-        if (builder.GetInsertBlock()->getTerminator()) {
-          fail("operation follows a function terminator"); return;
+      for (auto &sourceBlock : region)
+        blocks[&sourceBlock] = llvm::BasicBlock::Create(context, "", function);
+      for (auto &sourceBlock : region) {
+        if (sourceBlock.isEntryBlock()) continue;
+        builder.SetInsertPoint(blocks.lookup(&sourceBlock));
+        for (auto argument : sourceBlock.getArguments()) {
+          auto *nativeType = type(argument.getType());
+          if (!nativeType) return;
+          values[argument] = builder.CreatePHI(nativeType, 0);
         }
-        instruction(child);
-        if (!error.empty()) return;
       }
-      if (!builder.GetInsertBlock()->getTerminator()) {
-        fail("function is missing its return"); return;
+      for (auto &sourceBlock : region) {
+        builder.SetInsertPoint(blocks.lookup(&sourceBlock));
+        for (auto &child : sourceBlock) {
+          if (builder.GetInsertBlock()->getTerminator()) {
+            fail("operation follows a block terminator"); return;
+          }
+          instruction(child);
+          if (!error.empty()) return;
+        }
+        if (!builder.GetInsertBlock()->getTerminator()) {
+          fail("block is missing its terminator"); return;
+        }
       }
+    }
+    for (auto &entry : aggregateCalls) {
+      auto materialized = detail::materializeNativeAggregateCall(*entry.first, entry.second.logical, entry.second.native);
+      if (!materialized) { fail(llvm::toString(materialized.takeError())); return; }
+      if (inverseHints)
+        for (auto *record : entry.second.orderedRecords)
+          if (!llvm::is_contained(inverseHints->orderedRecords, record)) inverseHints->orderedRecords.push_back(record);
+    }
+    for (auto &entry : aggregateFunctions) {
+      auto materialized = detail::materializeNativeAggregateDefinition(*entry.first, entry.second.logical, entry.second.native,
+          entry.second.orderedRecords, inverseHints);
+      if (!materialized) { fail(llvm::toString(materialized.takeError())); return; }
     }
     std::string diagnostics;
     llvm::raw_string_ostream stream(diagnostics);
@@ -1164,9 +1209,9 @@ void summarize(mlir::ModuleOp module, ArtifactSummary &summary) {
   summary = {};
   module.walk([&](Operation *operation) {
     StringRef name = operation->getName().getStringRef();
-    if (name == "aot.func") ++summary.functions;
-    else if (name == "aot.global") ++summary.globals;
-    else if (name.starts_with("aot.")) ++summary.operations;
+    if (name == "nier.func") ++summary.functions;
+    else if (name == "nier.global") ++summary.globals;
+    else if (name.starts_with("nier.")) ++summary.operations;
     for (auto type : operation->getResultTypes())
       summary.symbolicTypes += mlir::isa<ir::WordType>(type);
     for (auto attribute : operation->getAttrs()) {
@@ -1180,14 +1225,33 @@ void summarize(mlir::ModuleOp module, ArtifactSummary &summary) {
 
 llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> readArtifact(
     StringRef path, mlir::MLIRContext &context) {
-  context.getOrLoadDialect<ir::AOTDialect>();
-  auto buffer = llvm::MemoryBuffer::getFile(path);
-  if (!buffer) return llvm::errorCodeToError(buffer.getError());
-  if ((*buffer)->getBufferSize() > 64 * 1024 * 1024 ||
-      !mlir::isBytecode((*buffer)->getMemBufferRef()))
+  context.getOrLoadDialect<ir::NIERDialect>();
+  if (path.contains('\0')) return failure("invalid Nier input pathname");
+  struct Descriptor { int value; ~Descriptor() { if (value >= 0) ::close(value); } };
+  Descriptor descriptor{::open(path.str().c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC)};
+  if (descriptor.value < 0) return failure("cannot open Nier bytecode input");
+  struct stat status;
+  if (::fstat(descriptor.value, &status) || !S_ISREG(status.st_mode) ||
+      status.st_size < 0 || uint64_t(status.st_size) > 64 * 1024 * 1024)
+    return failure("Nier bytecode input must be a bounded regular file");
+  auto buffer = llvm::WritableMemoryBuffer::getNewUninitMemBuffer(status.st_size, path);
+  if (!buffer) return failure("cannot allocate bounded Nier input buffer");
+  size_t offset = 0;
+  while (offset < buffer->getBufferSize()) {
+    auto count = ::read(descriptor.value, buffer->getBufferStart() + offset, buffer->getBufferSize() - offset);
+    if (count < 0 && errno == EINTR) continue;
+    if (count <= 0) return failure("Nier bytecode input was truncated or unreadable");
+    offset += size_t(count);
+  }
+  char extra;
+  ssize_t tail;
+  do { tail = ::read(descriptor.value, &extra, 1); } while (tail < 0 && errno == EINTR);
+  if (tail != 0 || ::fstat(descriptor.value, &status) || uint64_t(status.st_size) != offset)
+    return failure("Nier bytecode input changed size while reading");
+  if (!mlir::isBytecode(buffer->getMemBufferRef()))
     return failure("expected bounded MLIR bytecode, not textual IR");
   llvm::SourceMgr manager;
-  manager.AddNewSourceBuffer(std::move(*buffer), llvm::SMLoc());
+  manager.AddNewSourceBuffer(std::move(buffer), llvm::SMLoc());
   auto module = mlir::parseSourceFile<mlir::ModuleOp>(manager, &context);
   if (!module || mlir::failed(mlir::verify(*module)))
     return failure("cannot parse or verify the common MLIR artifact");
@@ -1196,43 +1260,52 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> readArtifact(
 
 } // namespace
 
-llvm::Error mergeProfiles(StringRef x86_64Capture, StringRef i686Capture,
-                          StringRef bytecodeOutput, ArtifactSummary *summary) {
-  llvm::LLVMContext leftContext, rightContext;
-  llvm::SMDiagnostic diagnostic;
-  auto left = llvm::parseIRFile(x86_64Capture, diagnostic, leftContext);
-  if (!left) return failure("cannot parse x86_64 LLVM capture: " + diagnostic.getMessage());
-  auto right = llvm::parseIRFile(i686Capture, diagnostic, rightContext);
-  if (!right) return failure("cannot parse i686 LLVM capture: " + diagnostic.getMessage());
-  if (auto e = validateCapture(*left, true)) return e;
-  if (auto e = validateCapture(*right, false)) return e;
-  if (llvm::verifyModule(*left) || llvm::verifyModule(*right))
-    return failure("input LLVM capture verification failed");
-  Merger merger;
-  merger.merge(*left, *right);
-  if (!merger.error.empty()) return failure(merger.error);
-  if (mlir::failed(mlir::verify(*merger.module)))
-    return failure("generated common MLIR verification failed");
-  for (bool x64 : {true, false}) {
-    Lowerer lowerer(x64);
-    lowerer.lower(*merger.module);
+llvm::Error verifyModule(mlir::ModuleOp module, llvm::ArrayRef<StringRef> targets) {
+  if (mlir::failed(mlir::verify(module)))
+    return failure("Nier structural verification failed");
+  if (auto error = validateSchema(module)) return error;
+  if (targets.empty()) return failure("Nier validation requires a semantic target domain");
+  std::set<std::string> seen;
+  for (auto target : targets) {
+    if ((target != "x86_64" && target != "i686") || !seen.insert(target.str()).second)
+      return failure("unsupported or duplicate Nier semantic target");
+    llvm::LLVMContext context;
+    Lowerer lowerer(context, target == "x86_64");
+    lowerer.lower(module);
     if (!lowerer.error.empty()) return failure(lowerer.error);
-    auto &reference = x64 ? *left : *right;
-    canonicalize(reference, x64);
-    canonicalize(*lowerer.module, x64);
-    if (moduleText(reference) != moduleText(*lowerer.module))
-      return failure(x64 ? "x86_64 semantic round-trip comparison failed"
-                         : "i686 semantic round-trip comparison failed");
   }
+  return llvm::Error::success();
+}
+
+llvm::Error writeModule(mlir::ModuleOp module, StringRef bytecodeOutput,
+                        llvm::ArrayRef<StringRef> targets) {
+  if (auto error = verifyModule(module, targets)) return error;
   std::error_code ec;
   llvm::raw_fd_ostream output(bytecodeOutput, ec, llvm::sys::fs::OF_None);
   if (ec) return llvm::errorCodeToError(ec);
-  if (mlir::failed(mlir::writeBytecodeToFile(merger.module->getOperation(), output)))
-    return failure("cannot serialize common MLIR bytecode");
+  if (mlir::failed(mlir::writeBytecodeToFile(module, output)))
+    return failure("cannot serialize Nier module");
   output.flush();
-  if (output.has_error()) return failure("failed writing common MLIR bytecode");
-  if (summary) summarize(*merger.module, *summary);
+  if (output.has_error()) return failure("failed writing Nier bytecode");
   return llvm::Error::success();
+}
+
+llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>>
+readModule(StringRef bytecodeInput, mlir::MLIRContext &context,
+           llvm::ArrayRef<StringRef> targets) {
+  auto module = readArtifact(bytecodeInput, context);
+  if (!module) return module.takeError();
+  if (auto error = verifyModule(**module, targets)) return error;
+  return std::move(*module);
+}
+
+
+llvm::Expected<std::unique_ptr<llvm::Module>> detail::lowerModule(
+    mlir::ModuleOp source, llvm::LLVMContext &context, bool x64, detail::NativeABIInverseHints *inverseHints) {
+  Lowerer lowerer(context, x64, inverseHints);
+  lowerer.lower(source);
+  if (!lowerer.error.empty()) return failure(lowerer.error);
+  return std::move(lowerer.module);
 }
 
 llvm::Error lowerArtifact(StringRef bytecodeInput, StringRef profile,
@@ -1242,7 +1315,8 @@ llvm::Error lowerArtifact(StringRef bytecodeInput, StringRef profile,
   mlir::MLIRContext context;
   auto source = readArtifact(bytecodeInput, context);
   if (!source) return source.takeError();
-  Lowerer lowerer(profile == "x86_64");
+  llvm::LLVMContext llvmContext;
+  Lowerer lowerer(llvmContext, profile == "x86_64");
   lowerer.lower(**source);
   if (!lowerer.error.empty()) return failure(lowerer.error);
   std::error_code ec;
@@ -1254,17 +1328,14 @@ llvm::Error lowerArtifact(StringRef bytecodeInput, StringRef profile,
   return llvm::Error::success();
 }
 
-llvm::Error inspectArtifact(StringRef bytecodeInput, ArtifactSummary &summary) {
+llvm::Error inspectArtifact(StringRef bytecodeInput, ArtifactSummary &summary,
+                            llvm::ArrayRef<StringRef> targets) {
   mlir::MLIRContext context;
   auto source = readArtifact(bytecodeInput, context);
   if (!source) return source.takeError();
-  for (bool x64 : {true, false}) {
-    Lowerer lowerer(x64);
-    lowerer.lower(**source);
-    if (!lowerer.error.empty()) return failure(lowerer.error);
-  }
+  if (auto error = verifyModule(**source, targets)) return error;
   summarize(**source, summary);
   return llvm::Error::success();
 }
 
-} // namespace aot
+} // namespace nier

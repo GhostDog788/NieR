@@ -1,0 +1,5 @@
+/* Private build configuration comment must not be exported. */
+NIER_FIXTURE_1 {
+  global: nier_build_width;
+  local: *;
+};

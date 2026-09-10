@@ -1,111 +1,201 @@
-# On-target AOT
+# Nier
 
-An experimental source-private publication toolchain: stock compilers capture
-native LLVM profiles on the publisher, a shared merger produces one common MLIR
-artifact, and a language-independent device compiler produces an ordinary native
-ELF using LLVM and stock LLD. The executable uses the supplied glibc and its
-unmodified Linux loader, with no publication runtime or JIT.
+Nier is a pre-alpha, source-private native publication toolchain. **Nier code**
+is its independent, architecture-neutral format, implemented with a custom MLIR
+dialect. A producer emits one standalone `.nier` archive. The separate,
+language-blind `nierc` compiler turns it into ordinary native output using
+LLVM and stock LLD.
 
-The first C Hello World/native-width checkpoint is working, with basic
-Make/CMake integration. **It is not yet the broad-C MVP or the complete product.**
-The authoritative requirements are in
-[01](docs/01-architecture-design.md); the staged implementation and acceptance
-gates are in [02](docs/02-implementation-plan.md).
+Our C producer is a plugin for **actual stock Clang**, not a replacement Clang
+executable or an `aot publish` wrapper. Other producers can construct Nier
+directly through the public APIs without LLVM captures.
+
+Everything is pre-alpha, with **zero backward-compatibility obligations**.
+There are no legacy command aliases, artifact readers, or migration layers.
+This is a qualified pre-alpha C implementation, not unrestricted C or the full product.
+Requirements are in [01](docs/01-architecture-design.md); implementation scope,
+remaining gates, and evidence are in [02](docs/02-implementation-plan.md).
 
 ## Build
 
-The bootstrap is for an Ubuntu 24.04 x86-64 development host. It extracts pinned,
-SHA-256-verified prebuilt packages into `.sdk`; it does not install system
-packages or modify upstream compilers. See [SDK details](sdk/README.md) for host
-dependencies and the non-hermetic publisher-host boundary.
+The pinned SDK uses prebuilt Ubuntu 24.04 x86-64 packages and LLVM/Clang/MLIR/LLD
+18.1.3. Bootstrap extracts verified packages locally; it does not install system
+packages or patch upstream compilers.
 
 ```sh
 bash scripts/bootstrap-sdk.sh
 source sdk/env.sh
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel 2
-ctest --test-dir build --output-on-failure
+cmake -S . -B build/prealpha -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/prealpha --parallel 2
+ctest --test-dir build/prealpha --output-on-failure
 ```
 
-## First Hello World
+See [SDK details](sdk/README.md) for host requirements and the non-hermetic
+development environment. Build products, downloaded SDK packages, and private
+workspaces are untracked.
+
+## Multi-file Hello World
+
+The example has `main.c`, `hello.h`, and `hello.c`. From the repository root,
+after sourcing the SDK environment:
 
 ```sh
 mkdir -p artifacts
-build/aot publish --recipe examples/hello/hello.build.json -o artifacts/hello.aotpkg
-build/aot inspect artifacts/hello.aotpkg
-build/aot compile artifacts/hello.aotpkg --output-dir artifacts/hello-native
-env -u LD_LIBRARY_PATH artifacts/hello-native/bin/hello
+clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
+  examples/hello/main.c examples/hello/hello.c -o artifacts/hello.nier
+build/prealpha/nierc inspect artifacts/hello.nier
+build/prealpha/nierc artifacts/hello.nier -o artifacts/hello
+env -u LD_LIBRARY_PATH artifacts/hello
 ```
 
 Expected output: `Hello world`.
 
-This workspace already contains that demo artifact and executable. Run the last
-command to try it now. To repeat publication/compilation, choose unused output
-paths; the CLI deliberately refuses to overwrite existing outputs.
+The publication file is a standard tar archive containing a manifest and
+Nier bytecode for both translation units—not source, original LLVM modules,
+native application objects, or whole per-target program copies.
 
-The final command executes the actual ELF directly. Clearing the SDK tool-shell's
-`LD_LIBRARY_PATH` prevents development-tool library paths from overriding its
-ordinary native library configuration. The artifact and compiler are unnecessary
-when running the executable; the supplied runtime libraries must remain available
-at the paths selected during linking.
+Normal separate compilation works too:
 
-Publication captures **both x86-64 and i686** through a stock LLVM pass plugin.
-It merges matching operations and native-width differences, reconstructs and
-checks both captured profiles, then publishes custom MLIR bytecode—not C source,
-raw LLVM modules, publisher-built application binaries, or two program copies.
-Only x86-64 device execution is initially qualified.
+```sh
+clang --config="$PWD/build/prealpha/nier.cfg" -O2 -c examples/hello/main.c -o artifacts/main.o
+clang --config="$PWD/build/prealpha/nier.cfg" -O2 -c examples/hello/hello.c -o artifacts/hello.o
+clang --config="$PWD/build/prealpha/nier.cfg" artifacts/main.o artifacts/hello.o -o artifacts/hello.nier
+```
 
-`aot compile` does not invoke Clang or read source/capture files. Its custom
-transformations end at target-specific LLVM IR; stock `opt`, `llc`, and `ld.lld`
-perform optimization, code generation, and linking. `aot lower` is a diagnostic
-interface that emits reconstructed LLVM IR for either capture profile without
-claiming i686 device-execution support.
+In this mode `.o` files contain relocatable Nier artifacts. Final publication
+does not retain references to those intermediate files.
 
-## Experimental interfaces and limits
+The native executable runs directly; neither the artifact nor compiler is
+needed at runtime. The supplied glibc and its unmodified loader must remain
+available at the paths selected during native linking. Clearing the developer
+shell's `LD_LIBRARY_PATH` prevents its tool-library directories from overriding
+the program's ordinary native loader configuration.
 
-A private source-list recipe selects ordinary `.c` translation units, compiler
-flags, an application name, and optional qualified native libraries. Each
-translation unit retains its optimization setting and is compiled separately on
-the device. The package contains a versioned JSON manifest and custom MLIR
-bytecode with hashes. Unknown versions, unsupported IR, merge mismatches, and
-undeclared payloads fail explicitly.
+## Libraries and native dependencies
 
-Existing outputs are never overwritten. Use a new output path for an experiment;
-this prototype does not implement installed-release updates or a release
-registry. Do not interpret repeated development builds as permission to
-recompile an installed release.
+Stock Clang's Nier mode accepts `-shared` and SONAME/version-script options;
+`nierc` emits a native shared library from a shared-kind artifact. Explicit
+native dependencies are resolved from the supplied SDK and optional
+`nierc --library-dir DIR` locations. Missing declared libraries fail before
+linking; arbitrary host libraries are not an automatic fallback.
 
-The initial compiler slice supports matching, single-block scalar functions,
-direct calls, readonly byte strings, basic scalar memory operations, and native
-widths. Broader control flow, native aggregate ABI reconstruction, arbitrary
-variadic definitions, callbacks, real-project acceptance, and complete
-Make/CMake/archive qualification remain staged work. Unsupported features are
-compiler diagnostics, not security policy bans.
+The Make/CMake integration can also select a native static-library output.
+Its standalone Nier artifact preserves all archive members and their order;
+`nierc` generates an ordinary native archive with stock `llvm-ar`, including
+duplicate member names. Tests check that later linking remains lazy.
 
-Existing-build recipes use a `build` object instead of `sources`, with `system`
-(`make` or `cmake`), `source_dir`, the executable `output`, optional
-`configure_args`, and `targets`. See `tests/fixtures/build/*.build.json`.
-Select a clean, scoped project source directory: it is copied into private
-profile trees, excluding `.git` and `.sdk`; other existing generated directories
-are not assumed disposable. The current integration accepts a single selected
-executable linked from direct C objects and qualified SDK libraries. Archives,
-shared outputs, divergent link graphs, and unqualified flags fail explicitly.
-It preserves native configure probes and build-time generators, including
-private i686 execution. No source-tree outputs are written back.
+Application library code must be published separately and compiled into the
+supplied native dependency environment. This manual prototype is not a
+production dependency installer or updater. Qualification of the complete
+library/build/ABI matrix remains part of the open C MVP gate.
 
-The current seven CTest groups cover 73 package-envelope checks, 13 IR-validation
-cases, capture at six optimization settings on both profiles, the Hello/width
-and cross-translation-unit fixtures, Make/CMake with generated headers and
-native configure probes, and input-access tracing. The latter requires
-`strace`; CMake omits that group if unavailable. Package JSON uses the canonical
-publisher encoding to reject duplicate/hidden fields. Tests do not establish
-full TAR-metadata sanitization, a hermetic publisher environment, or A1/A2.
+## Existing Make and CMake projects
 
-Security, store integration, signing, and executable-memory enforcement are not
-part of this checkpoint. Full performance and reverse-engineering resistance
-requirements remain unproved; excluding source/debug data alone does not prove
-native-equivalent information exposure.
+Use the small external integration described in
+[SDK build integration](sdk/share/nier/README.md). Make projects include
+`Nier.mk`; CMake coordinator projects call `nier_add_publication(...)`.
 
-Build products, downloaded packages, and private workspaces are ignored by Git.
-`--keep-work` retains a private temporary compiler workspace for debugging and
-prints its path; do not distribute those files.
+The SDK runs the existing project normally in two private native build trees.
+Configure probes and generators are real native executables, using real stock
+Clang. Target-generated inputs stay distinct: a pointer-width generator yields
+8 on x86-64 and 4 on i686. Only selected application captures go through Clang's
+paired-input Nier producer and final publication linker.
+
+A plain global `CC="clang --config=nier.cfg"` is not sufficient for a project
+that needs to execute build-time probes or generators: a Nier artifact is not a
+host executable. The SDK integration handles those native builds instead of
+requiring per-target project rewrites.
+
+The onboarding target is at most 15 minutes of developer effort for qualifying
+projects with a working native build and installed SDK. Automated build time is
+separate; passing our fixtures is not a universal onboarding guarantee.
+
+## Independent consumer and producer APIs
+
+```sh
+cmake -S . -B build/consumer-only -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DNIER_BUILD_PUBLISHER=OFF
+cmake --build build/consumer-only --parallel 2
+ctest --test-dir build/consumer-only --output-on-failure
+```
+
+This build does not configure or link Clang frontend libraries, the capture
+plugin, build replay, or the LLVM-to-Nier merger. Stock Clang is still the
+default C/C++ compiler used to build the project itself. The development SDK
+conveniently contains both publisher and consumer assets, but publisher assets
+are not consumer inputs.
+
+A compiler-only distribution can be assembled separately:
+
+```sh
+bash scripts/package-consumer.sh build/consumer-only /absolute/new/nier-compiler .sdk
+```
+
+The [distribution guide](scripts/package-consumer.md) describes its Ubuntu
+24.04 host baseline and runtime paths. The relocation test builds and runs
+native output with no publication tools or language frontends in the bundle.
+
+Public Nier APIs are under `include/nier/IR` and `include/nier/Artifact`.
+The optional LLVM producer API is separate under `include/nier/Producer`.
+The independent-producer test constructs two modules through the public APIs,
+without Clang, source captures, or copied publisher manifests, then compiles
+and runs the artifact.
+
+`nierc lower INPUT.nier --target i686 --output-dir DIR` exposes diagnostic
+LLVM output. Initial product native execution remains x86-64; private i686
+references and specialization checks do not imply complete i686 deployment.
+Artifact target constraints prevent extrapolating the current two-profile
+proof to ARM or different ABIs.
+
+## Current correctness and limitations
+
+Tests cover artifact bounds/digests/schema rejection, independent producers,
+stock-Clang options and profile-dependent dependency files, native-width/fixed
+literal controls, matching CFG/SSA and shared target-conditional switch arms,
+floating-point cases, record/global and overlapping union storage, nested
+packed/bitfield storage, native aggregate calls/returns and callbacks,
+native nonlocal jumps, promoted scalar/pointer
+varargs and native `va_list` forwarding at O0/O2, native build probes and
+generators, unequal translation-unit inventories, per-profile archive order
+with independent per-TU settings, static/shared outputs, and compiler/runtime
+input-access boundaries.
+See 02 and the test results for the current qualified subset.
+
+The unchanged cJSON static/shared configurations each publish all 21 outputs
+and pass all 19 original tests on Nier-generated executables, including normal
+Unity nonlocal jumps. Stock-native and Nier callers use the Nier shared library.
+The complete configured zlib gate also passes: its eight native outputs run
+the original static, shared, and 64-bit tests in a source-free destination.
+
+The qualified aggregate ABI includes integer, mixed floating/integer, and larger
+native-width records across TUs and native shared-library boundaries. It does
+not yet include union/bitfield/packed records **by value** or aggregate `va_arg`
+extraction. Conditional graphs and unequal source sets have bounded proof rules,
+not blanket coverage. Unsupported required features fail explicitly; an expected
+diagnostic is not completion of their milestone.
+
+Publication-specific interpreters, JITs, resident compilers, custom loaders,
+and post-link ELF transformations are absent. Ordinary native capabilities
+are not prohibited by a security policy. Signing, stores, executable-memory
+enforcement, production lifecycle, other languages/targets, and full
+performance/RE qualification remain later work. Source exclusion alone does
+not establish native-equivalent reverse-engineering resistance.
+
+## Output and failure behavior
+
+Writers stage and validate successful artifact/native output before replacing
+the requested file. The SDK coordinator stages its final Clang publication;
+a failed SDK rebuild preserves the previous valid artifact. `nierc` likewise
+does not replace a valid output after a failed native compile/link.
+The compiler and internal publication linker reject input/output aliases,
+including symlinked parents and hard links, before replacing an artifact.
+
+Direct stock-Clang commands retain Clang's own failure cleanup: the driver may
+remove its requested output when a frontend or linker job fails. A frontend
+plugin cannot override that behavior. Never use an input/source pathname as
+the output pathname. This is ordinary compiler output, not a production
+installed-release registry.
+
+Private diagnostic captures can contain source/debug information and must not
+be distributed. Bounded readers and validation are robustness measures, not a
+sandbox or security-platform enforcement.

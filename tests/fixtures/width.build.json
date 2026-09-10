@@ -1,5 +1,0 @@
-{
-  "name": "width",
-  "sources": ["width.c"],
-  "cflags": ["-O2"]
-}

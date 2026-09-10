@@ -1,0 +1,4 @@
+int native_backend_failure(void) {
+    __asm__ volatile("nier_invalid_native_instruction");
+    return 0;
+}

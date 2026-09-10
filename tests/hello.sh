@@ -1,43 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
-aot_bin=$1
-export AOT_SDK_ROOT=$2
+nierc=$1
+export NIER_SDK_ROOT=$2
+config=$3
 test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-test_work=$(mktemp -d "${TMPDIR:-/tmp}/aot-test-XXXXXX")
-# Retain evidence on failure. Successful runs also retain their small temp directory.
-printf 'Test workspace: %s\n' "$test_work"
-"$aot_bin" publish --recipe "$test_root/examples/hello/hello.build.json" -o "$test_work/hello.aotpkg"
-"$aot_bin" inspect "$test_work/hello.aotpkg"
-"$aot_bin" compile "$test_work/hello.aotpkg" --output-dir "$test_work/native"
-test "$(env -u LD_LIBRARY_PATH "$test_work/native/bin/hello")" = 'Hello world'
-readelf -l "$test_work/native/bin/hello" | rg -F "$AOT_SDK_ROOT/sysroots/x86_64-linux-gnu/"
-"$aot_bin" publish --recipe "$test_root/tests/fixtures/width.build.json" -o "$test_work/width.aotpkg"
-"$aot_bin" inspect "$test_work/width.aotpkg"
-"$aot_bin" compile "$test_work/width.aotpkg" --output-dir "$test_work/width-native"
-test "$(env -u LD_LIBRARY_PATH "$test_work/width-native/bin/width")" = 'pointer=8 word=8 fixed=4,8'
-"$aot_bin" lower "$test_work/width.aotpkg" --profile i686 --output-dir "$test_work/width-i686"
-"$AOT_SDK_ROOT/host/usr/lib/llvm-18/bin/opt" -passes=verify -disable-output "$test_work/width-i686/0.ll"
-if "$aot_bin" compile "$test_work/hello.aotpkg" --output-dir "$test_work/native"; then
-    printf 'ERROR: overwrote existing native output\n' >&2; exit 1
+test_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-hello-XXXXXX")
+clang="$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/clang"
+"$clang" --config="$config" -O2 "$test_root/examples/hello/main.c" "$test_root/examples/hello/hello.c" -o "$test_work/hello.nier"
+"$nierc" inspect "$test_work/hello.nier"
+"$nierc" "$test_work/hello.nier" -o "$test_work/hello"
+test "$(env -u LD_LIBRARY_PATH "$test_work/hello")" = 'Hello world'
+readelf -l "$test_work/hello" | rg -F "$NIER_SDK_ROOT/sysroots/x86_64-linux-gnu/"
+"$clang" --config="$config" -O2 -c "$test_root/examples/hello/main.c" -o "$test_work/main.o"
+"$clang" --config="$config" -O2 -c "$test_root/examples/hello/hello.c" -o "$test_work/hello.o"
+"$clang" --config="$config" "$test_work/main.o" "$test_work/hello.o" -o "$test_work/separate.nier"
+cmp "$test_work/hello.nier" "$test_work/separate.nier"
+mv "$test_work/main.o" "$test_work/main.private"
+mv "$test_work/hello.o" "$test_work/hello.private"
+"$nierc" "$test_work/separate.nier" -o "$test_work/separate"
+test "$(env -u LD_LIBRARY_PATH "$test_work/separate")" = 'Hello world'
+# Normal compiler rebuild semantics; no compatibility with previous formats.
+"$clang" --config="$config" -O2 "$test_root/examples/hello/main.c" "$test_root/examples/hello/hello.c" -o "$test_work/hello.nier"
+"$nierc" "$test_work/hello.nier" -o "$test_work/hello"
+"$clang" --config="$config" -O2 "$test_root/tests/fixtures/width.c" -o "$test_work/width.nier"
+"$nierc" "$test_work/width.nier" -o "$test_work/width"
+test "$(env -u LD_LIBRARY_PATH "$test_work/width")" = 'pointer=8 word=8 fixed=4,8'
+"$nierc" lower "$test_work/width.nier" --target i686 --output-dir "$test_work/width-i686"
+"$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/opt" -passes=verify -disable-output "$test_work/width-i686/0.ll"
+if "$clang" --config="$config" "$test_root/tests/fixtures/unsupported.c" -o "$test_work/unsupported.nier"; then
+    printf 'ERROR: accepted unqualified inline assembly\n' >&2; exit 1
 fi
-if "$aot_bin" publish --recipe "$test_root/tests/fixtures/unsupported.build.json" -o "$test_work/unsupported.aotpkg"; then
-    printf 'ERROR: accepted unqualified control flow\n' >&2; exit 1
-fi
-test ! -e "$test_work/unsupported.aotpkg"
-if "$aot_bin" compile "$test_work/hello.aotpkg" --sdk "$test_work/missing-sdk" --output-dir "$test_work/should-not-exist"; then
+test ! -e "$test_work/unsupported.nier"
+if "$nierc" "$test_work/hello.nier" --sdk "$test_work/missing-sdk" -o "$test_work/invalid"; then
     printf 'ERROR: accepted missing SDK\n' >&2; exit 1
 fi
 mkdir "$test_work/wrong-sdk"
 printf '%064d\n' 0 > "$test_work/wrong-sdk/sdk-lock.sha256"
-if "$aot_bin" compile "$test_work/hello.aotpkg" --sdk "$test_work/wrong-sdk" --output-dir "$test_work/should-not-exist"; then
-    printf 'ERROR: accepted mismatched SDK contract\n' >&2; exit 1
+if "$nierc" "$test_work/hello.nier" --sdk "$test_work/wrong-sdk" -o "$test_work/invalid"; then
+    printf 'ERROR: accepted mismatched SDK\n' >&2; exit 1
 fi
-test ! -e "$test_work/should-not-exist"
-# Source/captures are not payloads. Only a JSON manifest and custom MLIR bytecode.
-tar -tf "$test_work/hello.aotpkg" | sort
-if tar -xOf "$test_work/hello.aotpkg" | strings | rg 'hello\.c|DICompileUnit|DILocalVariable|aot-test-|aot-private-'; then
-    printf 'ERROR: private publisher provenance leaked\n' >&2; exit 1
+test ! -e "$test_work/invalid"
+test "$(tar -tf "$test_work/hello.nier" | wc -l)" -eq 3
+if tar -xOf "$test_work/hello.nier" | strings | rg 'hello\.c|main\.c|DICompileUnit|DILocalVariable|nier-private-|nier-hello-'; then
+    printf 'ERROR: publisher evidence leaked\n' >&2; exit 1
 fi
-mv "$test_work/hello.aotpkg" "$test_work/hello.aotpkg.offline"
-test "$(env -u LD_LIBRARY_PATH "$test_work/native/bin/hello")" = 'Hello world'
-printf 'Hello/shared-native-width pipeline passed. Broad C is not yet qualified.\n'
+mv "$test_work/hello.nier" "$test_work/hello.nier.offline"
+test "$(env -u LD_LIBRARY_PATH "$test_work/hello")" = 'Hello world'
+printf 'Stock-Clang multi-file Nier pipeline passed. Workspace: %s\n' "$test_work"

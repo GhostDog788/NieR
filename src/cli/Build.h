@@ -1,25 +1,36 @@
 #pragma once
-#include "Support.h"
+#include "nier/Support.h"
 
-namespace aot::driver {
+namespace nier::driver {
 struct CapturedUnit {
-  fs::path x64Path;
-  fs::path i686Path;
+  std::vector<fs::path> x64Paths, i686Paths;
   std::string optimization;
+  std::string archiveMemberName;
 };
 struct CapturedBuild {
   std::vector<CapturedUnit> units;
-  std::vector<std::string> libraries;
+  // When native selection order differs, move whole paired native TUs, never
+  // bodies or flags, into their observed i686 link order at publication link.
+  std::vector<size_t> i686Order;
+  std::vector<std::string> libraries, linkOptions;
+  std::string kind = "executable";
+  std::string versionScript;
 };
-
-// First existing-build checkpoint: one native executable linked from direct C
-// objects, plus SDK libc/libm. Archives/shared outputs are explicitly rejected.
-llvm::Expected<CapturedBuild> captureBuild(
-    const llvm::json::Object &build, const Sdk &sdk,
-    const fs::path &recipeDirectory, const fs::path &scratch,
-    const std::vector<std::string> &cflags);
-
-// Main dispatches argv[0] basenames aot-clang/aot-ar/aot-ranlib/aot-ld here.
-// Wrappers are only meaningful inside the private captureBuild environment.
-int wrapperMain(int argc, char **argv);
+struct BuildRequest {
+  std::string system;
+  fs::path sourceDirectory, output;
+  std::vector<std::string> configureArgs, targets, cflags;
+};
+// Internal SDK service: real stock Clang in two normal native build trees,
+// including native configure probes and project generators. No JSON recipes.
+llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
+    const Sdk &sdk, const fs::path &scratch);
+// Internal regression helper, not a publication entry point: revalidate a
+// retained pair of native build lanes without creating or changing evidence.
+// laneRelativeOutput is relative to each build-PROFILE lane (source/... for
+// Make, build/... for CMake). This does not rerun native builds or their tests.
+llvm::Expected<CapturedBuild> selectRetainedBuild(const fs::path &scratch,
+    const fs::path &laneRelativeOutput);
+// Internal observer selected by stock Clang's --ld-path; delegates to stock LLD.
+int nativeLinkMain(int argc, char **argv);
 }

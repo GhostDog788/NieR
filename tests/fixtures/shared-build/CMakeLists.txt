@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(NierNativeSharedFixture C)
+add_library(nierfixture SHARED library.c)
+target_link_options(nierfixture PRIVATE "LINKER:--version-script,${CMAKE_CURRENT_SOURCE_DIR}/exports.map")
+add_executable(probe probe.c)
+target_link_libraries(probe PRIVATE nierfixture)

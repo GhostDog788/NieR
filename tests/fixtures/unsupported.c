@@ -1,4 +1,4 @@
-int main(int argc, char **argv) {
-    (void)argv;
-    return argc > 1 ? 7 : 0;
+int main(void) {
+    __asm__ volatile ("" ::: "memory");
+    return 0;
 }

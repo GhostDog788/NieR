@@ -3,22 +3,24 @@
 set -euo pipefail
 sdk_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$sdk_dir/env.sh"
-work="$AOT_SDK_ROOT/check"
+work="$NIER_SDK_ROOT/check"
 mkdir -p -- "$work"
 clang --version
 mlir-opt --version
 ld.lld --version
-cmake -S "$sdk_dir/smoke" -B "$work/cmake" -G Ninja \
-  -DCMAKE_C_COMPILER="$AOT_LLVM_ROOT/bin/clang" \
-  -DCMAKE_CXX_COMPILER="$AOT_LLVM_ROOT/bin/clang++" \
+[[ -f $NIER_LLVM_ROOT/include/clang/Frontend/FrontendAction.h ]]
+[[ -f $NIER_LLVM_ROOT/lib/libclang-cpp.so ]]
+cmake --fresh -S "$sdk_dir/smoke" -B "$work/cmake" -G Ninja \
+  -DCMAKE_C_COMPILER="$NIER_LLVM_ROOT/bin/clang" \
+  -DCMAKE_CXX_COMPILER="$NIER_LLVM_ROOT/bin/clang++" \
   -DLLVM_DIR="$LLVM_DIR" -DMLIR_DIR="$MLIR_DIR" \
   -DCMAKE_BUILD_TYPE=Release
 cmake --build "$work/cmake" --parallel 2
 "$work/cmake/sdk-mlir-smoke"
 for profile in x86_64 i686; do
   case "$profile" in
-    x86_64) sysroot="$AOT_SYSROOT_X86_64"; triple=x86_64-linux-gnu ;;
-    i686) sysroot="$AOT_SYSROOT_I686"; triple=i686-linux-gnu ;;
+    x86_64) sysroot="$NIER_SYSROOT_X86_64"; triple=x86_64-linux-gnu ;;
+    i686) sysroot="$NIER_SYSROOT_I686"; triple=i686-linux-gnu ;;
   esac
   clang --target="$triple" --sysroot="$sysroot" -std=c11 -O2 \
     -Xclang -disable-llvm-passes -emit-llvm -c "$sdk_dir/smoke/stdio.c" \
@@ -31,11 +33,11 @@ rg -q '^target triple = "i686-unknown-linux-gnu"' "$work/stdio-i686.ll"
 rg -q 'ret i32 4' "$work/stdio-i686.ll"
 # Link a genuine native x86-64 object to the SDK's glibc and loader using LLD.
 # Explicit startup/runtime paths prevent accidental GCC/host-libc link inputs.
-target_lib="$AOT_SYSROOT_X86_64/usr/lib/x86_64-linux-gnu"
-runtime_lib="$AOT_LLVM_ROOT/lib/clang/18/lib/linux"
-clang --target=x86_64-linux-gnu --sysroot="$AOT_SYSROOT_X86_64" \
+target_lib="$NIER_SYSROOT_X86_64/usr/lib/x86_64-linux-gnu"
+runtime_lib="$NIER_LLVM_ROOT/lib/clang/18/lib/linux"
+clang --target=x86_64-linux-gnu --sysroot="$NIER_SYSROOT_X86_64" \
   -std=c11 -O2 -fPIE -c "$sdk_dir/smoke/stdio.c" -o "$work/stdio-x86_64.o"
-ld.lld --sysroot="$AOT_SYSROOT_X86_64" -pie \
+ld.lld --sysroot="$NIER_SYSROOT_X86_64" -pie \
   --dynamic-linker "$target_lib/ld-linux-x86-64.so.2" \
   -rpath "$target_lib" -o "$work/stdio-x86_64" \
   "$target_lib/Scrt1.o" "$target_lib/crti.o" \
