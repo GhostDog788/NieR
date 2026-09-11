@@ -18,6 +18,9 @@ remaining gates, and evidence are in [02](docs/02-implementation-plan.md).
 
 ## Learn the project
 
+Open `docs/` as the Obsidian vault and the repository root in VS Code.
+The [documentation home](docs/README.md) links the guides and in-vault reference pages; source paths in the docs are intended for VS Code's **Ctrl+P**.
+
 Already have a C project? [Use Nier with Make or CMake](docs/guides/02-toolchain-users/using-nier-with-your-c-project.md)
 shows the complete path from your existing build to a `.nier` artifact and a
 native executable, without requiring compiler-internals knowledge.
@@ -43,7 +46,7 @@ cmake --build build/prealpha --parallel 2
 ctest --test-dir build/prealpha --output-on-failure
 ```
 
-See [SDK details](sdk/README.md) for host requirements and the non-hermetic
+See [SDK details](docs/reference/development-sdk.md) for host requirements and the non-hermetic
 development environment. Build products, downloaded SDK packages, and private
 workspaces are untracked.
 
@@ -133,7 +136,7 @@ library/build/ABI matrix remains part of the open C MVP gate.
 ## Existing Make and CMake projects
 
 Use the small external integration described in
-[SDK build integration](sdk/share/nier/README.md). Make projects include
+[SDK build integration](docs/reference/build-integration.md). Make projects include
 `Nier.mk`; CMake coordinator projects call `nier_add_publication(...)`.
 
 The SDK runs the existing project normally in two private native build trees.
@@ -172,7 +175,7 @@ A compiler-only distribution can be assembled separately:
 bash scripts/package-consumer.sh build/consumer-only /absolute/new/nier-compiler .sdk
 ```
 
-The [distribution guide](scripts/package-consumer.md) describes its Ubuntu
+The [distribution guide](docs/reference/compiler-distribution.md) describes its Ubuntu
 24.04 host baseline and runtime paths. The relocation test builds and runs
 native output with no publication tools or language frontends in the bundle.
 

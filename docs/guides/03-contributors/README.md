@@ -2,11 +2,8 @@
 
 [All guides](../README.md) · [Glossary](../reference/glossary.md)
 
-This section connects the public Nier contract to the repository's components,
-APIs, compiler flow, and tests. Read the
-[foundations](../01-foundations/README.md) and
-[toolchain walkthrough](../02-toolchain-users/README.md) first. The chapters
-introduce the C++ and LLVM API vocabulary needed to follow the implementation.
+This section connects the public Nier contract to the repository's components, APIs, compiler flow, and tests.
+Read the [foundations](../01-foundations/README.md) and [toolchain walkthrough](../02-toolchain-users/README.md) first. The chapters introduce the C++ and LLVM API vocabulary needed to follow the implementation.
 
 10. [Reading the Repository](10-reading-the-repository.md) — ownership, component boundaries, and C++ conventions.
 11. [Implementing the Nier Contract](11-implementing-the-nier-contract.md) — dialect, validation, serialization, and independent producers.
@@ -14,5 +11,4 @@ introduce the C++ and LLVM API vocabulary needed to follow the implementation.
 13. [Following `nierc`](13-following-nierc.md) — consuming Nier and producing native output.
 14. [Testing, Debugging, and Following a Feature](14-testing-debugging-and-features.md) — diagnose failures and follow a feature through its evidence.
 
-Continue with the [compiler-maintainer deep dives](../04-maintainers/README.md)
-for the detailed algorithms and their correctness obligations.
+Continue with the [compiler-maintainer deep dives](../04-maintainers/README.md) for the detailed algorithms and their correctness obligations.

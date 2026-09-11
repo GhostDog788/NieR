@@ -1333,7 +1333,7 @@ The complete cJSON gate also passes: each static/shared configuration produces
 CTests. Unity retains its normal `setjmp`/`longjmp` assertion control. Native
 and Nier callers both load the destination `libcjson.so.1`; demonstration
 stdout matches the native reference byte-for-byte.
-The reproducible gate is [corpus/qualify.sh](../corpus/qualify.sh); its original
+The reproducible gate is `corpus/qualify.sh`; its original
 test staging has been checked separately with native reference binaries.
 
 The public aggregate pipeline passes at O0/O2: stock Clang emits a multi-TU

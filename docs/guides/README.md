@@ -1,24 +1,19 @@
 # Learning Nier: from C programmer to compiler maintainer
 
-Nier is a compiler project, a portable program representation, and a native
-publication workflow. Understanding all three at once is difficult. This series
-builds the ideas in dependency order: first understand what Nier code means,
-then use it, then follow its implementation, and finally examine the algorithms
-and evidence a maintainer must preserve.
+Nier is a compiler project, a portable program representation, and a native publication workflow.
+Understanding all three at once is difficult.
+This series builds the ideas in dependency order: first understand what Nier code means, then use it, then follow its implementation, and finally examine the algorithms and evidence a maintainer must preserve.
 
-The intended reader has written small or medium Linux applications in C and
-used Make or CMake. You should know functions, pointers, structs, libraries,
-and ordinary terminal commands. You do **not** need previous knowledge of IR,
-SSA, compiler construction, LLVM, MLIR, or modern C++. We introduce those ideas
-before relying on them.
+The intended reader has written small or medium Linux applications in C and used Make or CMake.
+You should know functions, pointers, structs, libraries, and ordinary terminal commands.
+You do **not** need previous knowledge of IR, SSA, compiler construction, LLVM, MLIR, or modern C++.
+We introduce those ideas before relying on them.
 
 ## Just want to publish your C project?
 
 Start with [Use Nier with your C project](02-toolchain-users/using-nier-with-your-c-project.md).
-It is a standalone, command-oriented guide for existing Make and CMake
-applications: check the native build, configure the external integration,
-produce a `.nier` artifact, and compile and run it with `nierc`. You do not need
-to read the compiler course first or rewrite your application's build files.
+It is a standalone, command-oriented guide for existing Make and CMake applications: check the native build, configure the external integration, produce a `.nier` artifact, and compile and run it with `nierc`.
+You do not need to read the compiler course first or rewrite your application's build files.
 The examples include the current pre-alpha limitations and runtime requirements.
 
 ## Choose how far to go
@@ -30,15 +25,15 @@ The examples include the current pre-alpha limitations and runtime requirements.
 | Contributor | 01–14 | Navigate the repository, trace a failure, and follow a feature across the producer, core, consumer, and tests. |
 | Maintainer | 01–24 | Reason about the major algorithms, preservation obligations, rejection boundaries, and qualification evidence. |
 
-These are stopping points, not separate competing tutorials. Later chapters
-state their prerequisites so you can revisit a topic directly. Reading the
-entire sequence gives the full path. The [glossary](reference/glossary.md) is a quick
-lookup aid, not prerequisite reading.
+These are stopping points, not separate competing tutorials.
+Later chapters state their prerequisites so you can revisit a topic directly.
+Reading the entire sequence gives the full path.
+The [glossary](reference/glossary.md) is a quick lookup aid, not prerequisite reading.
 
 ## Browse by folder
 
-The files are grouped by learning stage. Each folder has its own short index;
-chapter numbers preserve the full reading order across folders.
+The files are grouped by learning stage.
+Each folder has its own short index; chapter numbers preserve the full reading order across folders.
 
 - [01-foundations](01-foundations/README.md) — chapters 01–06: Nier code and compiler concepts.
 - [02-toolchain-users](02-toolchain-users/README.md) — chapters 07–09 and the standalone Make/CMake project guide.
@@ -48,9 +43,8 @@ chapter numbers preserve the full reading order across folders.
 
 ## Part I — Understanding Nier code
 
-No SDK or build is required for these chapters. Begin here even if you are
-mainly interested in the implementation: the C producer is one implementation
-of the public contract, not the definition of that contract.
+No SDK or build is required for these chapters.
+Begin here even if you are mainly interested in the implementation: the C producer is one implementation of the public contract, not the definition of that contract.
 
 1. [Meet Nier Code](01-foundations/01-meet-nier-code.md) — the problem, the public boundary, and the three distinct activities of publication, compilation, and execution.
 2. [The Compiler Foundations](01-foundations/02-compiler-foundations.md) — frontend, IR, optimizer, backend, linker, loader, and the roles of Clang, LLVM, and MLIR.
@@ -88,23 +82,28 @@ of the public contract, not the definition of that contract.
 
 ## How to use a chapter
 
-Read the objective and prerequisites first. Follow the worked example before
-opening the source links. The example gives you a question to investigate in
-the implementation; a list of filenames alone does not explain an algorithm.
-Finish with the recap and comprehension questions. Answers are included so the
-series works for independent study.
+Read these guides with `docs/` open as the Obsidian vault and the repository root open separately in VS Code.
+Local documentation links stay inside the vault.
+Source references appear as repository-relative code paths, such as `src/consumer/Main.cpp`; open them with **Ctrl+P** in VS Code.
+See the [documentation home](../README.md) for the reading and editing conventions.
 
-Labs are optional. Later explanations never depend on you having completed an
-earlier exercise. Practical chapters include setup or point to an explicit
-prerequisite rather than assuming an unexplained file already exists.
-Commands use Bash from the repository root unless stated otherwise. Run them
-on the documented SDK host, not inside a source directory of an unrelated
-application. Temporary work is intentionally kept separate from tracked files.
+Read the objective and prerequisites first.
+Follow the worked example before opening the source references in VS Code.
+The example gives you a question to investigate in the implementation; a list of filenames alone does not explain an algorithm.
+Finish with the recap and comprehension questions.
+Answers are included so the series works for independent study.
 
-An **excerpt** is real syntax with surrounding context omitted; it is not
-necessarily a standalone input. **Pseudocode** explains an algorithm and is not
-a supported CLI or format. Example output may abbreviate changing paths,
-digests, timings, and generated names. Those differences are not test failures.
+Labs are optional.
+Later explanations never depend on you having completed an earlier exercise.
+Practical chapters include setup or point to an explicit prerequisite rather than assuming an unexplained file already exists.
+Commands use Bash from the repository root unless stated otherwise.
+Run them on the documented SDK host, not inside a source directory of an unrelated application.
+Temporary work is intentionally kept separate from tracked files.
+
+An **excerpt** is real syntax with surrounding context omitted; it is not necessarily a standalone input.
+**Pseudocode** explains an algorithm and is not a supported CLI or format.
+Example output may abbreviate changing paths, digests, timings, and generated names.
+Those differences are not test failures.
 
 ## Four distinctions to keep visible
 
@@ -115,36 +114,28 @@ Throughout the course, distinguish:
 - **Qualified limitation:** a supported domain or shape beyond which the current implementation must not be assumed correct.
 - **Planned capability:** an objective that still requires implementation and acceptance evidence.
 
-For example, language-independent input is implemented, but supporting every
-source language is not. The current semantic target domain is x86-64/i686;
-initial product native execution is x86-64. The C producer's two private
-profiles do not establish ARM support. Native program execution needs no Nier
-interpreter, but ordinary native dependencies still exist.
+For example, language-independent input is implemented, but supporting every source language is not.
+The current semantic target domain is x86-64/i686; initial product native execution is x86-64.
+The C producer's two private profiles do not establish ARM support.
+Native program execution needs no Nier interpreter, but ordinary native dependencies still exist.
 
-Source exclusion is not encryption or proof of native-equivalent
-reverse-engineering resistance. A well-formed artifact is not a signed,
-trusted artifact. Correctness checks are not the separately planned security
-enforcement platform. These distinctions prevent a successful Hello World from
-being mistaken for completion of the whole product.
+Source exclusion is not encryption or proof of native-equivalent reverse-engineering resistance.
+A well-formed artifact is not a signed, trusted artifact.
+Correctness checks are not the separately planned security enforcement platform.
+These distinctions prevent a successful Hello World from being mistaken for completion of the whole product.
 
 ## Relationship to the rest of the documentation
 
-[01 — Project Requirements](../01-architecture-design.md) specifies what the
-project must achieve. [02 — Implementation Plan](../02-implementation-plan.md)
-describes the chosen approach, milestones, and current status. This series
-teaches those ideas and their implementation; it does not replace either
-document or silently relax requirements when the prototype has a limitation.
+[01 — Project Requirements](../01-architecture-design.md) specifies what the project must achieve.
+[02 — Implementation Plan](../02-implementation-plan.md) describes the chosen approach, milestones, and current status.
+This series teaches those ideas and their implementation; it does not replace either document or silently relax requirements when the prototype has a limitation.
 
-For command-oriented reference, use the [root README](../../README.md),
-[SDK documentation](../../sdk/README.md),
-[build integration reference](../../sdk/share/nier/README.md), and
-[qualification corpus reference](../../corpus/README.md).
+For command-oriented reference, use the [documentation overview](../README.md), [SDK documentation](../reference/development-sdk.md), [build integration reference](../reference/build-integration.md), and [qualification corpus reference](../reference/qualification-corpus.md).
 The guides add the reasoning needed to understand those references.
 
-Everything is pre-alpha. Code, artifact contracts, and these explanations can
-change together without compatibility with older commits. Rebuild the tools
-and regenerate examples after a format change. Prefer source links and symbol
-names over treating a copied bytecode dump or old test count as a permanent
-specification.
+Everything is pre-alpha.
+Code, artifact contracts, and these explanations can change together without compatibility with older commits.
+Rebuild the tools and regenerate examples after a format change.
+Prefer source paths and symbol names over treating a copied bytecode dump or old test count as a permanent specification.
 
 Start with [01 — Meet Nier Code](01-foundations/01-meet-nier-code.md).

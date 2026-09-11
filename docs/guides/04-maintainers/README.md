@@ -2,10 +2,9 @@
 
 [All guides](../README.md) · [Glossary](../reference/glossary.md)
 
-These chapters explain the algorithms, rejection boundaries, and evidence
-needed to maintain Nier. They build on the
-[contributor section](../03-contributors/README.md). Read them in order for the
-full story, or use the groups below to find a particular subsystem.
+These chapters explain the algorithms, rejection boundaries, and evidence needed to maintain Nier.
+They build on the [contributor section](../03-contributors/README.md).
+Read them in order for the full story, or use the groups below to find a particular subsystem.
 
 ## Recovering and specializing a common program
 
