@@ -4,7 +4,7 @@
 
 ## What you will understand
 
-You will follow a Nier program across branches and loops, distinguish SSA values from mutable memory, and understand why valid control flow is a compiler obligation.
+You will follow a NieR program across branches and loops, distinguish SSA values from mutable memory, and understand why valid control flow is a compiler obligation.
 Read [chapter 03](03-reading-a-nier-program.md) first.
 All examples are readable without a build; fragments are labeled explicitly.
 
@@ -27,7 +27,7 @@ This is a representation of data flow, not a restriction preventing C assignment
 The compiler translates the source's changing variables into explicit relationships.
 It can then ask whether a definition is used, what depends on it, or whether a replacement preserves all uses.
 
-Nier uses this value model.
+NieR uses this value model.
 It does not require each value to occupy a unique machine register.
 Register allocation happens later; the backend may combine, spill, or eliminate values while preserving behavior.
 
@@ -37,7 +37,7 @@ A **basic block** is a sequence of operations with a defined control-flow exit.
 A branch transfers control to another block.
 The blocks and their possible transfers form a **control-flow graph**, or CFG.
 
-Here is a **real Nier function-body excerpt**, following `validCFG` in the IR tests.
+Here is a **real NieR function-body excerpt**, following `validCFG` in the IR tests.
 The containing module and function attributes are omitted:
 
 ```mlir
@@ -143,7 +143,7 @@ SSA values do not make C memory immutable.
 A pointer can identify storage, and a store can change the bytes in that storage.
 The pointer value itself does not have to change.
 
-This is a **Nier body excerpt** showing the distinction:
+This is a **NieR body excerpt** showing the distinction:
 
 ```mlir
 %slot = "nier.alloca"() {element = i32, alignment = 4 : i64} : () -> !nier.ptr

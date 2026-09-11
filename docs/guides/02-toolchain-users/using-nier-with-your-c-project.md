@@ -1,4 +1,4 @@
-# Publish your C project with Nier
+# Publish your C project with NieR
 
 [Guide series](../README.md) · [Hello project walkthrough](hello-project-walkthrough.md) · [SDK integration reference](../../reference/build-integration.md)
 
@@ -33,7 +33,7 @@ cd "$app_source"
 
 Sourcing the environment selects the matching Clang, CMake, Ninja, and SDK tool libraries for this shell.
 It does not edit your shell startup files or install a different system compiler.
-Use one matching SDK and Nier build, rather than mixing a plugin from one checkout with tools from another.
+Use one matching SDK and NieR build, rather than mixing a plugin from one checkout with tools from another.
 
 Before adding publication, check your ordinary native build with Clang and run its tests.
 For Make, that might be `make CC=clang all`; for CMake, configure a fresh binary directory with `-DCMAKE_C_COMPILER=clang`, then build your normal target.
@@ -52,7 +52,7 @@ Find the actual result of the successful native build before configuring publica
 | Source directory | Existing application project | Existing application source project |
 | Native target | Target passed to Make, such as `all` | Application target, such as `myapp` |
 | Native output | Path relative to the private source/build directory, such as `bin/myapp` | Path relative to the private native binary directory, such as `bin/myapp` |
-| Nier output | Destination artifact path | Destination artifact path, relative to the publication binary directory unless absolute |
+| NieR output | Destination artifact path | Destination artifact path, relative to the publication binary directory unless absolute |
 
 Do not point the native-output setting at a `.nier` file, an intermediate object, or an executable from an earlier local build.
 The SDK will build the application privately and select the named result there.
@@ -66,7 +66,7 @@ Choose an unused artifact destination under your ignored build directory.
 
 ```make
 ifndef NIER_ROOT
-$(error Set NIER_ROOT to the absolute path of your Nier checkout)
+$(error Set NIER_ROOT to the absolute path of your NieR checkout)
 endif
 
 NIER_BUILD_TOOL ?= $(NIER_ROOT)/build/prealpha/nier-build
@@ -93,7 +93,7 @@ make -f nier/Makefile NIER_ROOT="$nier_repo"
 `NIER_ROOT` is the explicit absolute toolchain path; it is not the application's parent directory.
 The simple Make `include` above requires that toolchain path to contain no whitespace.
 `NIER_BUILD_TOOL` locates the SDK's internal build coordinator, not a replacement public compiler command.
-Override it if your Nier tools live outside `build/prealpha`.
+Override it if your NieR tools live outside `build/prealpha`.
 
 The included SDK Makefile runs your original Make build in private directories.
 If the project has a `configure` script, the adapter runs it there before Make.
@@ -111,12 +111,12 @@ The SDK separately configures the actual application.
 cmake_minimum_required(VERSION 3.20)
 project(MyPublication NONE)
 
-set(NIER_ROOT "" CACHE PATH "Absolute path of your Nier checkout")
+set(NIER_ROOT "" CACHE PATH "Absolute path of your NieR checkout")
 if(NOT IS_ABSOLUTE "${NIER_ROOT}")
-  message(FATAL_ERROR "Set NIER_ROOT to the absolute path of your Nier checkout")
+  message(FATAL_ERROR "Set NIER_ROOT to the absolute path of your NieR checkout")
 endif()
 set(NIER_BUILD_TOOL "${NIER_ROOT}/build/prealpha/nier-build"
-  CACHE FILEPATH "Nier build coordinator")
+  CACHE FILEPATH "NieR build coordinator")
 
 include("${NIER_ROOT}/sdk/share/nier/Nier.cmake")
 nier_add_publication(publish
@@ -128,7 +128,7 @@ nier_add_publication(publish
 ```
 
 Replace `TARGETS myapp` and `NATIVE_OUTPUT bin/myapp` with your native project's target and output.
-The relative source path points to your own application one directory above `nier/`; it makes no assumption about where the Nier toolchain lives.
+The relative source path points to your own application one directory above `nier/`; it makes no assumption about where the NieR toolchain lives.
 Configure and build the coordinator from your application root:
 
 ```bash
@@ -141,7 +141,7 @@ This produces `build/nier-cmake/myapp.nier`.
 Add application options through `CONFIGURE_ARGS`, for example `"-DENABLE_FEATURE=ON"`, and use `CFLAGS` for supported compiler flags.
 These are CMake argument lists, so individual arguments can be quoted.
 Do not override the SDK's profile compilers, sysroots, archiver, or native build tools.
-Your application does not need to adopt Nier's own development CMake preset.
+Your application does not need to adopt NieR's own development CMake preset.
 
 ## Compile the artifact and run the native result
 
@@ -158,21 +158,21 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD "$native_output"
 
 Removing the `.nier` suffix places the native executable beside whichever artifact you selected, with a distinct filename.
 Adjust the application's working directory and arguments as needed.
-`nierc` consumes Nier code, not your C source, Makefile, or private LLVM captures.
+`nierc` consumes NieR Code, not your C source, Makefile, or private LLVM captures.
 The native result runs without Clang, `nierc`, or the `.nier` file, but it still needs the native loader, runtime, and declared libraries chosen during compilation.
 Keep the SDK/runtime paths in place for this development setup.
 Clearing the development shell's library overrides prevents tool libraries from accidentally changing application loading; it does not remove legitimate application dependencies.
 
-## Why not globally enable Nier mode in CC?
+## Why not globally enable NieR mode in CC?
 
 Ordinary builds may compile and immediately execute configure probes or code generators.
 Those programs must be native executables, not publication artifacts.
 The SDK therefore runs two private native builds, for its x86-64 and i686 profiles, and preserves their generated inputs and selected link evidence.
-Stock Clang with the Nier plugin then publishes the selected application.
+Stock Clang with the NieR plugin then publishes the selected application.
 Private source copies, capture records, and native objects are not distributed as part of the `.nier` artifact.
 
 For a small program without build-time executables, direct `clang --config=/absolute/path/to/nier.cfg ... -o app.nier` publication is also available.
-That is a separate entry point, not a reason to inject Nier mode into every command in an existing build.
+That is a separate entry point, not a reason to inject NieR mode into every command in an existing build.
 The [Hello World pipeline chapter](08-hello-world-end-to-end.md) explains the direct compiler flow.
 
 ## Rebuilds and current limits
@@ -189,5 +189,6 @@ Direct Clang retains its own failure cleanup behavior, so use disposable output 
 
 The current native-output target is x86-64, and C/build integration coverage remains bounded.
 This workflow does not prove every C program, arbitrary CPU support, performance parity, or reverse-engineering resistance.
-Security enforcement is a separate axis and is not required to use this publication flow.
+SENieR (SEN) is the separate security platform planned above NieR.
+It is not implemented yet, and this publication flow does not require it.
 Consult the [implementation status](../../02-implementation-plan.md) and [SDK reference](../../reference/build-integration.md) before broadening deployment.

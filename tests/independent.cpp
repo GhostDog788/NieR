@@ -55,7 +55,7 @@ llvm::Error produce(const fs::path &output) {
     mlir::MLIRContext context;
     context.getOrLoadDialect<nier::ir::NIERDialect>();
     auto module = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
-    if (!module) return fail("cannot construct independent Nier fixture");
+    if (!module) return fail("cannot construct independent NieR fixture");
     module->walk([&](mlir::Operation *operation) {
       operation->setLoc(mlir::UnknownLoc::get(&context));
       for (auto &region : operation->getRegions())

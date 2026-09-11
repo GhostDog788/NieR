@@ -148,7 +148,7 @@ llvm::Expected<llvm::json::Value> validatePackage(const PackageFiles &files) {
   if (!parsed) return parsed.takeError();
   // LLVM's JSON reader retains only one value for duplicate keys. Require the
   // deterministic public encoding so discarded values cannot hide inputs.
-  if (jsonText(*parsed) != manifest->second) return fail("manifest must use canonical Nier JSON encoding (no duplicate keys)");
+  if (jsonText(*parsed) != manifest->second) return fail("manifest must use canonical NieR JSON encoding (no duplicate keys)");
   auto *object = parsed->getAsObject();
   if (!object || object->getInteger("format_version") != 1 || object->getString("contract") != Contract)
     return fail("unsupported experimental format/compiler contract");

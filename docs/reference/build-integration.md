@@ -47,7 +47,7 @@ The selected output is relative to the private CMake build directory. `OUTPUT` i
 
 ## Rebuild and execution
 
-Requesting publication again runs fresh private builds and atomically replaces a valid existing Nier output only after success.
+Requesting publication again runs fresh private builds and atomically replaces a valid existing NieR output only after success.
 Failed builds leave the previous artifact intact. The integrations do not yet cache private build trees between requests.
 Original source directories are not modified.
 
@@ -58,7 +58,7 @@ Private dependency and object provenance checks still use their original physica
 
 Run `nierc hello.nier -o hello`, then execute `./hello` directly.
 Selected ordinary shared-library links likewise produce their own artifacts and compile to native DSOs.
-Selecting a native static archive output produces its own static Nier artifact; `nierc library.nier -o library.a` restores the ordered native members, including duplicate basenames, without eagerly linking them.
+Selecting a native static archive output produces its own static NieR artifact; `nierc library.nier -o library.a` restores the ordered native members, including duplicate basenames, without eagerly linking them.
 Native runtime and dependency provisioning is separate from publication.
 
 Private native objects carry a non-executable capture reference.

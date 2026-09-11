@@ -27,7 +27,7 @@ struct Options {
   bool keepWork = false;
 };
 void usage() {
-  llvm::outs() << "Nier compiler — pre-alpha; no backward-compatibility promise\n"
+  llvm::outs() << "NieR compiler — pre-alpha; no backward-compatibility promise\n"
       "  nierc INPUT.nier -o OUTPUT [--sdk DIR] [--library-dir DIR] [--keep-work]\n"
       "  nierc inspect INPUT.nier\n"
       "  nierc lower INPUT.nier --output-dir DIR [--target x86_64|i686]\n"
@@ -83,7 +83,7 @@ llvm::Error execute(const Options &options) {
     for (auto &target : *object.getArray("targets")) admitted |= target.getAsString() == options.target;
     if (!admitted) return fail("artifact does not support requested target: " + options.target);
     if (!lower && options.target != "x86_64") return fail("native output is currently qualified only for x86_64");
-    if (!lower && object.getString("kind") == "object") return fail("relocatable Nier unit requires publication linking through stock Clang");
+    if (!lower && object.getString("kind") == "object") return fail("relocatable NieR unit requires publication linking through stock Clang");
     if (!lower) if (auto error = options.sdk.validate()) return error;
   }
   auto scratch = Scratch::create();

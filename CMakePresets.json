@@ -4,7 +4,7 @@
   "configurePresets": [
     {
       "name": "prealpha",
-      "displayName": "Nier pre-alpha (pinned SDK)",
+      "displayName": "NieR pre-alpha (pinned SDK)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/prealpha",
       "environment": {

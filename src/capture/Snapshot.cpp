@@ -23,18 +23,18 @@ struct Snapshot : llvm::PassInfoMixin<Snapshot> {
     std::error_code error;
     llvm::raw_fd_ostream stream(path, error, llvm::sys::fs::OF_None);
     if (error)
-      llvm::report_fatal_error(llvm::Twine("cannot write private Nier capture: ") + error.message());
+      llvm::report_fatal_error(llvm::Twine("cannot write private NieR capture: ") + error.message());
     llvm::WriteBitcodeToFile(module, stream);
     stream.flush();
     if (stream.has_error())
-      llvm::report_fatal_error("failed writing private Nier capture");
+      llvm::report_fatal_error("failed writing private NieR capture");
     const char *record = std::getenv("NIER_CAPTURE_RECORD");
     const char *metadata = std::getenv("NIER_BUILD_METADATA");
     if (record && *record && metadata && *metadata) {
       // Native build objects may be moved or archived before the publication
       // graph is selected. Carry an immutable private provenance reference in
       // a non-executable section. Crucially, this is added AFTER the pristine
-      // LLVM snapshot and can never enter a published Nier payload.
+      // LLVM snapshot and can never enter a published NieR payload.
       auto input = llvm::MemoryBuffer::getFile(record);
       auto captured = llvm::MemoryBuffer::getFile(path);
       if (!input || !captured)

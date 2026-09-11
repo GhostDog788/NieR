@@ -1,10 +1,10 @@
-# Hello: starter project and Nier solution
+# Hello: starter project and NieR solution
 
 The [Hello project walkthrough](../../docs/guides/02-toolchain-users/hello-project-walkthrough.md) takes the independent `hello/` starter through your choice of Make or CMake publication.
 The [general integration guide](../../docs/guides/02-toolchain-users/using-nier-with-your-c-project.md) explains how to apply the same approach to your own C project.
 Read both guides in Obsidian with `docs/` open as the vault; use VS Code for these project files.
 
-- `hello/` is an ordinary C project with native Make and CMake builds and no Nier dependency.
+- `hello/` is an ordinary C project with native Make and CMake builds and no NieR dependency.
 - `hello-nier/` contains exactly the same source and native build files, plus `nier/Makefile` and `nier/CMakeLists.txt` for publication on demand.
 
 The solution includes both independent configurations for reference.
@@ -30,7 +30,7 @@ cmake --build build/native-cmake --target hello
 ```
 
 Run your chosen commands from either copied project root.
-For Nier publication, source the toolchain's `sdk/env.sh`, then run one of these from the copied solution root:
+For NieR publication, source the toolchain's `sdk/env.sh`, then run one of these from the copied solution root:
 
 ```sh
 # Using Make
@@ -43,7 +43,7 @@ cmake --build build/nier-cmake --target publish
 
 The artifacts are `build/nier-make/hello.nier` and `build/nier-cmake/hello.nier` respectively.
 Compile an artifact with the separate `nierc` program before executing the native result; the walkthrough shows the complete commands and runtime requirements.
-The Make integration's SDK include requires a Nier checkout path without whitespace.
+The Make integration's SDK include requires a NieR checkout path without whitespace.
 If your tools use a different build directory, override `NIER_BUILD_TOOL` as a Make variable or CMake cache setting.
 
 All generated files stay under each project's ignored `build/` directory.

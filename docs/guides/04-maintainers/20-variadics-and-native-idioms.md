@@ -4,9 +4,9 @@
 
 ## Objective and prerequisites
 
-This chapter explains how Nier represents operations whose native LLVM shapes differ substantially between targets:
+This chapter explains how NieR represents operations whose native LLVM shapes differ substantially between targets:
 extracting variadic arguments, forwarding a native `va_list`, and recognizing selected compiler idioms.
-It also explains why ordinary nonlocal jumps remain native calls rather than becoming a Nier runtime feature.
+It also explains why ordinary nonlocal jumps remain native calls rather than becoming a NieR runtime feature.
 
 You should know the preceding chapter's distinction between logical and physical call signatures, and be comfortable following SSA values through a branch and join.
 The maintainer skill to develop is recognizing a *complete state transition*.
@@ -17,7 +17,7 @@ A familiar-looking instruction sequence is not enough to justify replacing a sub
 In C, the fixed parameters of a variadic function still have an ordinary prototype.
 Values in its trailing argument list undergo default argument promotions.
 In the tested cases, a `float` is passed as `double`, and the provided narrow integer values are retrieved as `int`.
-A function receiving `...` must request compatible promoted types; Nier does not make an invalid `va_arg` expression defined.
+A function receiving `...` must request compatible promoted types; NieR does not make an invalid `va_arg` expression defined.
 
 This matters before target differences enter the picture.
 A common operation returning an eight-bit integer directly from variadic state would not describe the tested C promotion contract.
@@ -55,7 +55,7 @@ For the qualified integer pattern, the general-purpose comparison uses the obser
 For the qualified `double` pattern, the floating-point threshold is 160 and the register position advances by 16;
 the overflow path advances by 8.
 These numbers belong to the pinned native ABI pattern being recognized.
-They are not public Nier operands which a future target must reproduce.
+They are not public NieR operands which a future target must reproduce.
 
 `src/ir/Varargs.cpp` first identifies candidate state objects through the native `vastart`, `vacopy` and `vaend` intrinsics.
 It then checks a whole extraction: state layout, instruction ordering, addressing, alignments, comparison, increments, successor relationships, PHI inputs, and uses.
@@ -110,7 +110,7 @@ The scalar transition proof does not cover that behavior, and passing the fixed-
 
 Memory intrinsics show a smaller but important target difference.
 LLVM's overloaded names can include a length type, such as an `i64` versus `i32` variant of `llvm.memcpy`.
-The producer recognizes the intrinsic identity and compatible signature, and Nier records the memory-intrinsic kind.
+The producer recognizes the intrinsic identity and compatible signature, and NieR records the memory-intrinsic kind.
 The consumer constructs the target's correct LLVM declaration.
 Merely treating the two spelled names as unrelated external functions would miss their shared meaning.
 Conversely, renaming arbitrary functions that resemble `memcpy` would invent that meaning without proof.
@@ -128,7 +128,7 @@ Current acceptance is the closed set implemented and tested by the producer and 
 
 ## Nonlocal jumps remain native behavior
 
-The compiler does not implement `setjmp` and `longjmp` with a Nier exception interpreter.
+The compiler does not implement `setjmp` and `longjmp` with a NieR exception interpreter.
 Qualified calls and their semantic attributes remain native.
 The nonlocal fixture (`tests/fixtures/nonlocal.c`) uses `setjmp` in a permitted `switch` expression, jumps across frames, nests live environments,
 and checks the required conversion of a zero `longjmp` argument to a nonzero return.
@@ -169,7 +169,7 @@ The useful abstraction is a proved state transition or intrinsic operation, not 
 1. **Why does the tested variadic function retrieve `double` for a supplied `float`?** Default argument promotions change the value's call-boundary type.
 2. **Why must a cursor update be included in the proof?** Extraction changes which argument the next extraction observes; the loaded value alone is not the operation's whole effect.
 3. **Why is forwarding not just passing the same pointer on every target?** The qualified wide ABI passes a state address, while the narrow ABI passes its stored cursor value.
-4. **Can a passing native aggregate-varargs baseline establish Nier support?** No. It is a reference oracle; integrated public semantics and proofs remain separate obligations.
+4. **Can a passing native aggregate-varargs baseline establish NieR support?** No. It is a reference oracle; integrated public semantics and proofs remain separate obligations.
 
 Read `src/ir/Varargs.cpp` beside `tests/varargs.cpp` and `tests/varargs.sh`.
 For idiom boundaries, compare `src/ir/ByteSwap.cpp` with `tests/byteswap.cpp`, then locate the corresponding operation branches in `src/ir/Compiler.cpp`.

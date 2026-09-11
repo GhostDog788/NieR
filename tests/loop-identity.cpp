@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
     auto branches = loopBranches(**module);
     if (branches.size() != 2 ||
         ((branches[0]->getAttr("loop_id") == branches[1]->getAttr("loop_id")) != shared)) {
-      llvm::errs() << "Shared Nier loop identities were duplicated/coalesced\n";
+      llvm::errs() << "Shared NieR loop identities were duplicated/coalesced\n";
       passed = false; break;
     }
     for (auto target : {"x86_64", "i686"}) {

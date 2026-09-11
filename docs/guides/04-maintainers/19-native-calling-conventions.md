@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-This chapter explains how one logical function becomes an ordinary native function on two targets without introducing a Nier calling convention into the installed application.
+This chapter explains how one logical function becomes an ordinary native function on two targets without introducing a NieR calling convention into the installed application.
 You should understand records, storage layout, LLVM function types, SSA uses, and the producer/consumer separation from earlier chapters.
 The new difficulty is that the function's apparent LLVM parameters are not necessarily its source-language parameters.
 
@@ -30,7 +30,7 @@ A `byval` parameter represents a by-value argument carried through memory under 
 A plain pointer parameter is not interchangeable with either.
 Replacing a by-value argument with an arbitrary pointer could make the callee modify the caller's original object, changing valid C behavior.
 
-Nier therefore separates the logical callable signature, the storage-oriented body used while representing it, and the final native function type.
+NieR therefore separates the logical callable signature, the storage-oriented body used while representing it, and the final native function type.
 The public `native_abi` type attribute describes the logical signature.
 It is not a C source annotation, a profile-specific LLVM function body, or a request for a runtime wrapper.
 
@@ -96,7 +96,7 @@ Once both captures satisfy these rules, the merger can describe a common storage
 
 Fifth, the language-blind consumer specializes that signature for a target.
 NativeABIBridge (`src/ir/NativeABIBridge.cpp`) materializes the native entry, call and return forms inside the original functions.
-The result is not `transform` calling a Nier adapter which then calls a second function.
+The result is not `transform` calling a NieR adapter which then calls a second function.
 There is no additional callable wrapper, trampoline or boxed-argument runtime.
 
 Finally, the producer's inverse check independently recognizes the regenerated native forms
@@ -120,7 +120,7 @@ Copying the definition's entire attribute list onto every call strengthens claim
 Typed `sret` and `byval`, alignment, `noundef`, `writable`, and other admitted properties need their own validated mapping.
 
 An indirect callee is an opaque LLVM pointer, but “pointer” is not a callable signature.
-Nier's indirect-call operation carries an explicit type; aggregate normalization additionally proves the full logical native signature.
+NieR's indirect-call operation carries an explicit type; aggregate normalization additionally proves the full logical native signature.
 A symbol name, debug hint, or one nearby record store cannot establish that contract.
 
 ## A rejected case that prevents a real miscompile
@@ -161,7 +161,7 @@ printf 'Lab files: %s\n' "$abi_lab"
 The executable should report that the fixed aggregate matrix passed.
 Inspect the lowered files for hidden result parameters and expanded arguments.
 The `lower` command demonstrates diagnostic specialization; it does not claim an installed i686 native-output product.
-For the stronger external-caller case, read `tests/aggregate-pipeline.sh`, which also builds a Nier DSO and an independently compiled native caller at O0 and O2.
+For the stronger external-caller case, read `tests/aggregate-pipeline.sh`, which also builds a NieR DSO and an independently compiled native caller at O0 and O2.
 
 ## Recap and questions
 

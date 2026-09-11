@@ -24,7 +24,7 @@ for profile in x86_64 i686; do
             "$llvm_bin/clang" "${flags[@]}" -c "$lane/$source.regenerated.ll" -o "$lane/$source.o"
         done
         # These remain ordinary native dependencies. Aggregate variadic-tail
-        # extraction is not being advertised as a Nier qualification by this
+        # extraction is not being advertised as a NieR qualification by this
         # fixed-boundary helper test.
         for source in native_bridge varargs; do
             "$llvm_bin/clang" "${flags[@]}" -c "$fixture_root/$source.c" -o "$lane/$source.o"

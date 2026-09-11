@@ -29,7 +29,7 @@ if grep -q 'private publication\|/home/builder' "$work/version.script"; then
 fi
 
 # An explicit native dependency used only for constructors must survive
-# destination linking. This fixture is a conventional native DSO, not Nier IR.
+# destination linking. This fixture is a conventional native DSO, not NieR IR.
 "$llvm/clang" --target=x86_64-linux-gnu --sysroot="$sdk/sysroots/x86_64-linux-gnu" \
   -resource-dir="$sdk/host/usr/lib/llvm-18/lib/clang/18" --ld-path="$llvm/ld.lld" \
   -O2 -shared -fPIC -nostdlib "$fixture/constructor.c" \

@@ -1,4 +1,4 @@
-Nier Hello demo — actual terminal transcript
+NieR Hello demo — actual terminal transcript
 
 Reproduce: bash scripts/record-hello-demo.sh
 Prerequisites: built SDK/publisher, Python 3, Pillow, DejaVu fonts, file.
@@ -25,7 +25,7 @@ $ clang --config="$NIER_CONFIG" -O2 main.c hello.c -o hello.nier
 $ file hello.nier
 hello.nier: POSIX tar archive
 $ nierc hello.nier -o hello
-Native output: /tmp/nier-demo-7s8mbk48/hello
+Native output: /tmp/nier-demo-35h6vt0h/hello
 $ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./hello
 Hello world
 $

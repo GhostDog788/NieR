@@ -28,7 +28,7 @@ using namespace nier::driver;
 namespace {
 void diagnose(clang::CompilerInstance &compiler, llvm::Error error) {
   unsigned id = compiler.getDiagnostics().getCustomDiagID(
-      clang::DiagnosticsEngine::Error, "Nier: %0");
+      clang::DiagnosticsEngine::Error, "NieR: %0");
   compiler.getDiagnostics().Report(id) << llvm::toString(std::move(error));
 }
 
@@ -70,7 +70,7 @@ void clearFrontendPlugins(clang::CompilerInvocation &invocation) {
 }
 
 // The only language-aware component here is the stock-Clang invocation adapter.
-// It does not inspect the AST or implement a C-to-Nier lowering.
+// It does not inspect the AST or implement a C-to-NieR lowering.
 llvm::Error captureSource(const clang::CompilerInvocation &original,
                           const Sdk &sdk, llvm::StringRef profile,
                           const fs::path &capture, const fs::path &object,
@@ -166,14 +166,14 @@ class NierAction final : public clang::PluginASTAction {
       return fail("publication requires a file output (-o)");
     if (sameFile(frontend.OutputFile, getCurrentFile().str()) ||
         (!peer.empty() && sameFile(frontend.OutputFile, peer)))
-      return fail("the Nier output must not overwrite a compiler input");
+      return fail("the NieR output must not overwrite a compiler input");
     for (const auto *inputs : {&groupLeft, &groupRight})
       for (const auto &input : *inputs)
         if (sameFile(frontend.OutputFile, input)) return fail("grouped output aliases a native capture");
     auto scratch = Scratch::create();
     if (!scratch) return scratch.takeError();
     scratch->keep = keepWork;
-    if (keepWork) llvm::errs() << "Private Nier producer workspace: " << scratch->path.string() << '\n';
+    if (keepWork) llvm::errs() << "Private NieR producer workspace: " << scratch->path.string() << '\n';
     fs::path left, right;
     std::string dependencyText;
     std::string opt = optimization(invocation.getCodeGenOpts());
@@ -273,14 +273,14 @@ public:
       else if (arg == "keep-work") keepWork = true;
       else {
         unsigned id = compiler.getDiagnostics().getCustomDiagID(
-            clang::DiagnosticsEngine::Error, "unknown Nier plugin argument: %0");
+            clang::DiagnosticsEngine::Error, "unknown NieR plugin argument: %0");
         compiler.getDiagnostics().Report(id) << argument;
         return false;
       }
     }
     if (mode != "source" && mode != "pair" && mode != "group") {
       unsigned id = compiler.getDiagnostics().getCustomDiagID(
-          clang::DiagnosticsEngine::Error, "unsupported Nier producer mode: %0");
+          clang::DiagnosticsEngine::Error, "unsupported NieR producer mode: %0");
       compiler.getDiagnostics().Report(id) << mode;
       return false;
     }
@@ -554,7 +554,7 @@ public:
 };
 
 static clang::FrontendPluginRegistry::Add<NierAction> producer(
-    "nier", "emit a standalone architecture-neutral Nier object");
+    "nier", "emit a standalone architecture-neutral NieR object");
 static clang::FrontendPluginRegistry::Add<NativeCaptureAction> capture(
     "niercapture", "observe private native SDK build captures");
 static clang::FrontendPluginRegistry::Add<NativeCaptureFinishAction> finish(

@@ -37,7 +37,7 @@ finish_report() {
 }
 trap finish_report EXIT
 {
-  printf 'Nier configured upstream corpus qualification\nStarted UTC: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'NieR configured upstream corpus qualification\nStarted UTC: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'Selected projects: %s\nNative profiles: x86_64, i686\nDestination: x86_64\n' "$selected_project"
   printf 'Replay:'
   printf ' %q' bash "$corpus_root/qualify.sh" "$build_tool" "$nierc" "$NIER_SDK_ROOT"
@@ -208,7 +208,7 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD make -C "$destination" -o all -o static -o 
   | tee "$corpus_work/zlib-destination.log"
 fi
 if test "$selected_project" = all; then
-  echo 'All pinned native references and destination Nier corpus tests passed.'
+  echo 'All pinned native references and destination NieR corpus tests passed.'
 else
   echo "Pinned $selected_project native references and destination tests passed; the other project was not run."
 fi

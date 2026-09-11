@@ -186,7 +186,7 @@ public:
       }
       auto inserted = recordIdentities.emplace(identity.str(), input);
       if (!inserted.second && inserted.first->second != input) {
-        fail("conflicting definitions of a Nier storage identity"); return nullptr;
+        fail("conflicting definitions of a NieR storage identity"); return nullptr;
       }
       auto alternatives = overlap.getAlternatives();
       auto domains = overlap.getDomains();
@@ -221,7 +221,7 @@ public:
       if (!identity.empty()) {
         auto inserted = recordIdentities.emplace(identity.str(), input);
         if (!inserted.second && inserted.first->second != input) {
-          fail("conflicting definitions of a Nier record identity"); return nullptr;
+          fail("conflicting definitions of a NieR record identity"); return nullptr;
         }
       }
       llvm::SmallVector<llvm::Type *> fields;
@@ -1226,28 +1226,28 @@ void summarize(mlir::ModuleOp module, ArtifactSummary &summary) {
 llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> readArtifact(
     StringRef path, mlir::MLIRContext &context) {
   context.getOrLoadDialect<ir::NIERDialect>();
-  if (path.contains('\0')) return failure("invalid Nier input pathname");
+  if (path.contains('\0')) return failure("invalid NieR input pathname");
   struct Descriptor { int value; ~Descriptor() { if (value >= 0) ::close(value); } };
   Descriptor descriptor{::open(path.str().c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC)};
-  if (descriptor.value < 0) return failure("cannot open Nier bytecode input");
+  if (descriptor.value < 0) return failure("cannot open NieR bytecode input");
   struct stat status;
   if (::fstat(descriptor.value, &status) || !S_ISREG(status.st_mode) ||
       status.st_size < 0 || uint64_t(status.st_size) > 64 * 1024 * 1024)
-    return failure("Nier bytecode input must be a bounded regular file");
+    return failure("NieR bytecode input must be a bounded regular file");
   auto buffer = llvm::WritableMemoryBuffer::getNewUninitMemBuffer(status.st_size, path);
-  if (!buffer) return failure("cannot allocate bounded Nier input buffer");
+  if (!buffer) return failure("cannot allocate bounded NieR input buffer");
   size_t offset = 0;
   while (offset < buffer->getBufferSize()) {
     auto count = ::read(descriptor.value, buffer->getBufferStart() + offset, buffer->getBufferSize() - offset);
     if (count < 0 && errno == EINTR) continue;
-    if (count <= 0) return failure("Nier bytecode input was truncated or unreadable");
+    if (count <= 0) return failure("NieR bytecode input was truncated or unreadable");
     offset += size_t(count);
   }
   char extra;
   ssize_t tail;
   do { tail = ::read(descriptor.value, &extra, 1); } while (tail < 0 && errno == EINTR);
   if (tail != 0 || ::fstat(descriptor.value, &status) || uint64_t(status.st_size) != offset)
-    return failure("Nier bytecode input changed size while reading");
+    return failure("NieR bytecode input changed size while reading");
   if (!mlir::isBytecode(buffer->getMemBufferRef()))
     return failure("expected bounded MLIR bytecode, not textual IR");
   llvm::SourceMgr manager;
@@ -1262,13 +1262,13 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> readArtifact(
 
 llvm::Error verifyModule(mlir::ModuleOp module, llvm::ArrayRef<StringRef> targets) {
   if (mlir::failed(mlir::verify(module)))
-    return failure("Nier structural verification failed");
+    return failure("NieR structural verification failed");
   if (auto error = validateSchema(module)) return error;
-  if (targets.empty()) return failure("Nier validation requires a semantic target domain");
+  if (targets.empty()) return failure("NieR validation requires a semantic target domain");
   std::set<std::string> seen;
   for (auto target : targets) {
     if ((target != "x86_64" && target != "i686") || !seen.insert(target.str()).second)
-      return failure("unsupported or duplicate Nier semantic target");
+      return failure("unsupported or duplicate NieR semantic target");
     llvm::LLVMContext context;
     Lowerer lowerer(context, target == "x86_64");
     lowerer.lower(module);
@@ -1284,9 +1284,9 @@ llvm::Error writeModule(mlir::ModuleOp module, StringRef bytecodeOutput,
   llvm::raw_fd_ostream output(bytecodeOutput, ec, llvm::sys::fs::OF_None);
   if (ec) return llvm::errorCodeToError(ec);
   if (mlir::failed(mlir::writeBytecodeToFile(module, output)))
-    return failure("cannot serialize Nier module");
+    return failure("cannot serialize NieR module");
   output.flush();
-  if (output.has_error()) return failure("failed writing Nier bytecode");
+  if (output.has_error()) return failure("failed writing NieR bytecode");
   return llvm::Error::success();
 }
 

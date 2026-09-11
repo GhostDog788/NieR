@@ -39,10 +39,10 @@ llvm::Error build(int argc, char **argv) {
     return fail("artifact output cannot be a directory or symlink");
   if (fs::exists(output)) {
     auto previous = readPackage(output);
-    if (!previous) return fail("refusing to overwrite a non-Nier build input/output: " +
+    if (!previous) return fail("refusing to overwrite a non-NieR build input/output: " +
                                llvm::toString(previous.takeError()));
     auto manifest = validatePackage(*previous);
-    if (!manifest) return fail("refusing to replace an invalid existing Nier artifact: " +
+    if (!manifest) return fail("refusing to replace an invalid existing NieR artifact: " +
                                llvm::toString(manifest.takeError()));
   }
   if (!fs::is_directory(output.parent_path())) return fail("artifact output directory does not exist");
@@ -76,7 +76,7 @@ llvm::Error build(int argc, char **argv) {
     pluginArgument("optimization=" + unit.optimization);
     command.insert(command.end(), {"-x", "ir", "-c", unit.x64Paths.front().string(), "-o", artifact.string()});
     if (auto error = run(command)) return error;
-    if (!fs::is_regular_file(artifact)) return fail("stock Clang did not emit paired Nier unit");
+    if (!fs::is_regular_file(artifact)) return fail("stock Clang did not emit paired NieR unit");
     link.push_back(artifact.string());
   }
   if (captured->kind == "shared") link.push_back("-shared");

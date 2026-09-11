@@ -1,4 +1,4 @@
-# 24. Maintaining and evolving Nier
+# 24. Maintaining and evolving NieR
 
 [Series](../README.md) · [Previous: SDK and compiler distribution](23-sdk-and-compiler-distribution.md) · [Next: Series index](../README.md)
 
@@ -8,7 +8,7 @@ This final chapter turns the implementation model into a maintenance method.
 You should now be able to follow source publication, shared IR, native specialization, build selection, validation and distribution.
 The objective is to decide what evidence a change needs, which layer should own it, and what claims remain unjustified after a green test run.
 
-Nier is pre-alpha. The user explicitly permits breaking changes everywhere without backward compatibility until that policy changes.
+NieR is pre-alpha. The user explicitly permits breaking changes everywhere without backward compatibility until that policy changes.
 That freedom removes compatibility engineering from the immediate design, but it does not remove semantic contracts, reproducibility obligations, or the need to explain what was and was not validated.
 
 ## Begin with a claim, not a patch
@@ -42,12 +42,12 @@ For file operations, check that failure does not overwrite an earlier valid outp
 “It returns an error” is only part of the expected behavior.
 
 A **native differential test** uses stock Clang as a reference for actual target signatures, layouts and execution.
-Inverse checks then specialize common Nier back to both private native profiles and compare justified normalized contracts.
+Inverse checks then specialize common NieR back to both private native profiles and compare justified normalized contracts.
 This is strong evidence within the admitted rules, not a general theorem prover for arbitrary program equivalence.
 
 An **end-to-end test** crosses the public boundaries:
 stock Clang produces an independent artifact, `nierc` consumes it, and the resulting native program executes.
-A native caller of a Nier-built DSO checks an ABI boundary that two pieces of identically mistaken generated code might otherwise conceal.
+A native caller of a NieR-built DSO checks an ABI boundary that two pieces of identically mistaken generated code might otherwise conceal.
 A consumer-only independent-producer test checks that the device did not quietly acquire a Clang dependency.
 
 A **corpus qualification** runs unchanged configured upstream projects, their native references and their original tests.
@@ -147,8 +147,8 @@ Regenerate fixtures and rebuild dependent tools when an intentional contract cha
 Compatibility freedom is not permission for producer and consumer to disagree within one checkout.
 
 A new producer must obey the same public verification and publication rules.
-Supporting another language means mapping its semantics and required runtime behavior into admitted Nier operations and native dependencies.
-A language which needs garbage collection, exceptions or a runtime does not lose those requirements merely because it emits Nier.
+Supporting another language means mapping its semantics and required runtime behavior into admitted NieR operations and native dependencies.
+A language which needs garbage collection, exceptions or a runtime does not lose those requirements merely because it emits NieR.
 The consumer can remain language-blind while compiling runtime code or linking explicitly qualified native runtime components; the current C implementation does not claim those language integrations already exist.
 
 A new target needs more than a pointer width.
@@ -159,7 +159,8 @@ Update the admitted target domain and exercise independent lowering rather than 
 ## Keep product claims separated
 
 [01](../../01-architecture-design.md) owns requirements; [02](../../02-implementation-plan.md) owns the implementation offer and status.
-The toolchain's next steps do not silently convert the later security platform into a prerequisite for compiling ordinary programs.
+SENieR (SEN) names the separate security platform planned above NieR; it is not implemented yet.
+NieR's next steps do not silently convert SENieR into a prerequisite for compiling ordinary programs.
 The pure toolchain may produce programs which use ordinary dynamic loading.
 Future signed-code, executable-mapping, closure and revocation policies are a separate enforcement axis with their own threat model and qualification.
 
@@ -170,7 +171,7 @@ Both performance and RE remain explicit acceptance work rather than consequences
 
 ## Recap and questions
 
-Maintain Nier by making claims small enough to test, proofs strong enough to reject misleading near-matches, and status reports precise enough to survive a change of compiler, target or developer machine.
+Maintain NieR by making claims small enough to test, proofs strong enough to reject misleading near-matches, and status reports precise enough to survive a change of compiler, target or developer machine.
 
 1. **Can a negative test complete an unsupported feature?** No. It proves safe rejection; feature completion also requires positive admitted behavior.
 2. **What does byte-identical retained replay omit?** Fresh source compilation, configure decisions, native reference rebuilding and upstream test execution.

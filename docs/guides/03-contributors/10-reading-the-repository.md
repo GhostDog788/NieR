@@ -1,10 +1,10 @@
 # 10 — Reading the repository as a C developer
 
-[Series](../README.md) · [Previous: Beyond Hello World](../02-toolchain-users/09-beyond-hello-world.md) · [Next: Implementing the Nier contract](11-implementing-the-nier-contract.md)
+[Series](../README.md) · [Previous: Beyond Hello World](../02-toolchain-users/09-beyond-hello-world.md) · [Next: Implementing the NieR contract](11-implementing-the-nier-contract.md)
 
 ## Objective and prerequisites
 
-This chapter builds the bridge from ordinary C development to reading Nier's C++17 and LLVM/MLIR implementation.
+This chapter builds the bridge from ordinary C development to reading NieR's C++17 and LLVM/MLIR implementation.
 You should understand pointers, structs, functions, and separate compilation in C. You do not need to learn all of C++ before making a useful contribution.
 Focus first on ownership, checked errors, and the boundaries between components.
 
@@ -19,8 +19,8 @@ The directory layout encodes a real architectural separation:
 | --- | --- |
 | What does `nierc` accept and run? | `src/consumer/Main.cpp` |
 | What belongs in a standalone archive? | `src/artifact/Artifact.cpp` |
-| What does valid Nier code mean? | `include/nier/IR` and `src/ir/Compiler.cpp` |
-| How does stock Clang emit Nier? | `src/publisher/ClangPlugin.cpp` |
+| What does valid NieR Code mean? | `include/nier/IR` and `src/ir/Compiler.cpp` |
+| How does stock Clang emit NieR? | `src/publisher/ClangPlugin.cpp` |
 | How are native LLVM profiles merged? | `src/ir/Producer.cpp` |
 | How are existing builds coordinated? | `src/cli/Build.cpp` and SDK integrations |
 | Which libraries may depend on which others? | `CMakeLists.txt` |
@@ -62,7 +62,7 @@ Saving such a callback and invoking it after its captured variables die would be
 C often pairs allocation and cleanup explicitly: `malloc/free`, `open/close`, or an initialization function and a matching destroy function.
 C++ commonly uses **RAII**: resource acquisition is initialization. An object's destructor releases its resource when the object leaves scope, including on an early return.
 
-Nier's `Scratch` type is a small example.
+NieR's `Scratch` type is a small example.
 `Scratch::create()` returns an owned temporary workspace. Its destructor normally removes that workspace; a `keep` flag retains it for diagnostics.
 Copying is disabled, and moving transfers ownership. Otherwise two objects might both try to clean up the same directory.
 

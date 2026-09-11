@@ -17,7 +17,7 @@ for level in O0 O2; do
     "$llvm_bin/clang" --config="$config" "-$level" "$fixture_root/fixed_main.c" \
         "$fixture_root/boundaries.c" "$fixture_root/native_bridge.c" -o "$lane/fixed.nier"
     "$nierc" "$lane/fixed.nier" --sdk "$sdk_root" -o "$lane/fixed"
-    test "$(env -u LD_LIBRARY_PATH "$lane/fixed")" = 'Nier fixed aggregate ABI matrix passed'
+    test "$(env -u LD_LIBRARY_PATH "$lane/fixed")" = 'NieR fixed aggregate ABI matrix passed'
     "$llvm_bin/clang" --config="$config" "-$level" -shared "$fixture_root/boundaries.c" \
         -Wl,-soname,libnier-abi.so -o "$lane/shared.nier"
     "$nierc" "$lane/shared.nier" --sdk "$sdk_root" -o "$lane/libnier-abi.so"
@@ -28,4 +28,4 @@ for level in O0 O2; do
         -Wl,-rpath,"$lane" -o "$lane/native-client"
     test "$(env -u LD_LIBRARY_PATH "$lane/native-client")" = 'Native aggregate ABI matrix passed'
 done
-printf 'Published Nier aggregate application/DSO and stock native caller/callback gates passed: %s\n' "$abi_work"
+printf 'Published NieR aggregate application/DSO and stock native caller/callback gates passed: %s\n' "$abi_work"

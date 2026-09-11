@@ -52,7 +52,7 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   llvm::outs() << "Retained replay evidence: " << scratch->path.string() << '\n';
   std::string receipt = "Retained native-capture regression replay\n"
       "No source compilation, configure, native reference build or upstream test was rerun.\n"
-      "Strict inverse verification is performed by the current stock-Clang Nier plugin.\n"
+      "Strict inverse verification is performed by the current stock-Clang NieR plugin.\n"
       "Prior publication and evidence remain unchanged; all replay outputs are new.\n"
       "Retained workspace: " + retained.string() + "\nSelected lane output: " + laneOutput.string() +
       "\nPrior publication: " + published.string() + "\n";

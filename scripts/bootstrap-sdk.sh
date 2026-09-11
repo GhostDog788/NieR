@@ -23,7 +23,7 @@ exec 9>"$sdk_root/bootstrap.lock"
 flock 9
 lock_digest=$(sha256sum "$lock" | cut -d ' ' -f 1)
 if [[ -f $sdk_root/sdk-lock.sha256 ]] && [[ $(< "$sdk_root/sdk-lock.sha256") != "$lock_digest" ]]; then
-  echo 'Pre-alpha SDK lock changed: extracting current pinned packages; rebuild Nier tools afterward.' >&2
+  echo 'Pre-alpha SDK lock changed: extracting current pinned packages; rebuild NieR tools afterward.' >&2
 fi
 while read -r lane package arch version digest filename extra; do
   [[ -z ${lane:-} || $lane == \#* ]] && continue

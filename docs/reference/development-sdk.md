@@ -104,5 +104,5 @@ Native compiler errors never finalize that hash, and publication additionally re
 
 Private objects carry a readonly `.nier.capture` reference added **after** the LLVM snapshot.
 Copying, moving and ordinary archiving preserve provenance; postprocessing that changes object bytes is rejected when selecting build inputs.
-The marker never enters public Nier code or the on-device executable.
+The marker never enters public NieR Code or the on-device executable.
 These checks protect build correspondence, not against a hostile process able to rewrite the entire private build workspace; they are not security signing.

@@ -15,7 +15,7 @@ Omitting the result type of an addition leaves the consumer guessing whether ove
 Omitting a memory layout relationship leaves it guessing which field an access refers to.
 A successful neutral representation preserves meaning while postponing only the decisions it explicitly models.
 
-Nier distinguishes at least three ideas you should never merge into one:
+NieR distinguishes at least three ideas you should never merge into one:
 
 - a fixed-width integer such as `i32`;
 - a native-width integer such as `!nier.word`;
@@ -102,7 +102,7 @@ On the current x86-64 Linux profile, the common C data model is LP64: `long` and
 On i686 it is ILP32: those three categories are 32 bits.
 The names summarize widths; they do not specify every ABI detail.
 
-You must not define Nier's meaning as “every C `long` is always a pointer-sized integer on every platform.”
+You must not define NieR's meaning as “every C `long` is always a pointer-sized integer on every platform.”
 That relationship holds for these particular models, not all possible C targets.
 The neutral type has its own semantics; the producer is responsible for expressing source types correctly within the supported domain.
 
@@ -126,7 +126,7 @@ In the ordinary unpacked layout, the field lies at offset eight on x86-64 and of
 
 If public code described only “load the bytes at offset eight,” the i686 consumer could access the wrong storage.
 The representation needs sufficient type/layout relationships to recover the correct address.
-Nier record and array types, storage operations, and `nier.gep` participate in that work.
+NieR record and array types, storage operations, and `nier.gep` participate in that work.
 Later chapters show exactly which shapes the current importer can prove.
 
 The example is about ordinary unpacked storage.
@@ -139,7 +139,7 @@ At the source level you might describe a function as “take an `Item`, return a
 The native calling convention decides whether those values travel in registers, stack slots, pieces, or storage passed through an implicit pointer.
 The complete signature and surrounding native rules influence that decision.
 
-Nier must preserve a logical callable contract while `nierc` materializes the correct physical native form.
+NieR must preserve a logical callable contract while `nierc` materializes the correct physical native form.
 This is why language-blind compilation still needs ABI knowledge.
 The consumer does not ask “what did C mean by struct?” but it must know how the represented aggregate participates in a native call.
 
@@ -192,4 +192,4 @@ Layouts, calls, and dependencies cannot be reduced to one pointer-width substitu
 - Core target definitions (`src/ir/Compiler.cpp`): `configureModule` and `Lowerer` reveal the actual target domain, data layouts, and symbolic-expression handling.
 - Record/layout types (`include/nier/IR/Dialect.h`) describe relationships rather than embedding only one host's byte offsets.
 
-[Next: From Nier Code to a Publication Artifact](06-publication-artifacts.md)
+[Next: From NieR Code to a Publication Artifact](06-publication-artifacts.md)

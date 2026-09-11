@@ -37,7 +37,7 @@ for fixture in build generated file-identity; do
     fi
   done
 done
-# A normal existing build's selected shared link remains its own Nier artifact.
+# A normal existing build's selected shared link remains its own NieR artifact.
 make -f "$test_root/sdk/share/nier/Nier.mk" NIER_BUILD_TOOL="$build_tool" \
   NIER_SOURCE_DIR="$test_root/tests/fixtures/shared-build" NIER_NATIVE_OUTPUT=libnierfixture.so \
   NIER_TARGETS=libnierfixture.so NIER_ARTIFACT="$test_work/shared.nier"

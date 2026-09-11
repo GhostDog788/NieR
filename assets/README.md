@@ -1,4 +1,4 @@
-# Nier presentation assets
+# NieR presentation assets
 
 The root README uses the original `nier-logo.png`, editable `nier-flow.svg`, and real `hello-demo.gif` recording.
 `social-preview.svg` is the editable source for the 1280 × 640 `social-preview.png` GitHub card.

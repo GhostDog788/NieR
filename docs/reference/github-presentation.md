@@ -4,7 +4,7 @@
 
 The root README is the short public introduction.
 Detailed compiler behavior belongs in the guides and reference pages, with visible links from that introduction.
-Keep the distinction between the Nier format's general vision and the qualified C/Linux pre-alpha explicit.
+Keep the distinction between the NieR format's general vision and the qualified C/Linux pre-alpha explicit.
 
 ## Repository settings to finish on GitHub
 
@@ -13,7 +13,7 @@ After reviewing and pushing the changes to `GhostDog788/NIER`, complete these st
 The repository is already public; no visibility or collaborator-permission change is needed to apply the Apache-2.0 license.
 
 1. Open **Settings → General → Social preview**, choose **Edit → Upload an image**, and upload `assets/social-preview.png` from the checkout.
-   It is 1280 × 640, below GitHub's 1 MB limit, and uses the supplied Nier logo.
+   It is 1280 × 640, below GitHub's 1 MB limit, and uses the supplied NieR logo.
    See [GitHub's social-preview instructions](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview).
 2. Open **Settings → Advanced Security** and enable **Private vulnerability reporting** if it is not already enabled.
    Confirm that **Security → Advisories → Report a vulnerability** is available to reporters.
@@ -29,7 +29,7 @@ The repository is already public; no visibility or collaborator-permission chang
 Suggested description:
 
 ```text
-Architecture-neutral Nier artifacts, compiled into ordinary native binaries. An open-source, pre-alpha C/LLVM toolchain.
+Architecture-neutral NieR artifacts, compiled into ordinary native binaries. An open-source, pre-alpha C/LLVM toolchain.
 ```
 
 Suggested topics:
@@ -72,7 +72,7 @@ The recorder uses a fresh temporary copy of the Hello C sources and the existing
 It does not rebuild those tools or copy application build caches.
 
 The optional recording tools are Python 3, Pillow, DejaVu Sans/Mono fonts, and the host `file` utility.
-They are presentation-maintenance dependencies, not prerequisites for compiling or using Nier.
+They are presentation-maintenance dependencies, not prerequisites for compiling or using NieR.
 Build a coherent SDK and pre-alpha toolchain first; do not relink it while recording.
 
 ```bash
@@ -100,7 +100,7 @@ bash scripts/ci-smoke.sh
 
 It expects the standard publisher-enabled `build/prealpha` build and checks that all nine named smoke tests exist before running them.
 An optional argument selects another configured build directory.
-It does not configure or compile Nier, run the full corpus, or claim security/performance acceptance.
+It does not configure or compile NieR, run the full corpus, or claim security/performance acceptance.
 The hosted workflow bootstraps and builds on Ubuntu 24.04 with two build jobs, a 30-minute job limit, and bounded individual steps and tests.
 
 The SDK archive cache is keyed by the package lock; every archive is still hash-verified during bootstrap.

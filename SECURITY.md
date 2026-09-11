@@ -1,11 +1,11 @@
 # Security policy
 
-Nier is pre-alpha software, not a hardened production compiler or sandbox.
+NieR is pre-alpha software, not a hardened production compiler or sandbox.
 Development and fixes target the current `main` branch; older commits and pre-alpha artifacts have no maintained compatibility or security-support guarantee.
 No response deadline or supported release series is promised.
 
 Artifact validation, input bounds, digest checks, and output staging are correctness and robustness measures.
-They do not implement the separately planned trusted-publisher, signed-code, or executable-memory enforcement platform.
+They do not implement SENieR (SEN), the separately planned security platform for trusted publishers, signed code, and executable-memory enforcement.
 Do not rely on the current toolchain to safely isolate hostile compiler inputs.
 
 ## Report a suspected vulnerability privately

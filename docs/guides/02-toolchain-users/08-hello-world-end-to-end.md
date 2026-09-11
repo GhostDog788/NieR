@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-This chapter follows one small program across the complete implemented boundary: C source, a standalone Nier artifact, destination compilation, and ordinary native execution.
+This chapter follows one small program across the complete implemented boundary: C source, a standalone NieR artifact, destination compilation, and ordinary native execution.
 You should already know how to compile a C program and have a working SDK plus publisher build in `build/prealpha`.
 The lab is independent of every earlier lab and writes only to a newly created scratch directory.
 
@@ -23,7 +23,7 @@ void hello(void) {
 }
 ```
 
-There are no Nier application APIs, special entry points, or runtime registration calls.
+There are no NieR application APIs, special entry points, or runtime registration calls.
 The header declares a function shared between the two C files. It is not compiled independently.
 Each C file, together with the headers it includes, forms a **translation unit**: one source unit processed by the C frontend.
 
@@ -35,17 +35,17 @@ This chapter instead follows the starter's C files directly to explain what happ
 
 ## The three commands that define the workflow
 
-The publication command is actual stock `clang`, configured with the generated `nier.cfg`. The configuration loads the Nier frontend adapter and selects the internal publication linker.
+The publication command is actual stock `clang`, configured with the generated `nier.cfg`. The configuration loads the NieR frontend adapter and selects the internal publication linker.
 The developer still supplies normal C source paths and a normal `-o` output path.
 
-The output named `hello.nier` is an archive, not an executable. It contains the Nier representation and public metadata needed to compile the output.
+The output named `hello.nier` is an archive, not an executable. It contains the NieR representation and public metadata needed to compile the output.
 Its metadata declares target constraints, modules, optimization settings, and native dependencies. It does not point back to this example's source files.
 
-The second command, `nierc hello.nier -o hello`, specializes Nier code for the destination, optimizes the resulting LLVM IR, generates native objects, and links them.
+The second command, `nierc hello.nier -o hello`, specializes NieR Code for the destination, optimizes the resulting LLVM IR, generates native objects, and links them.
 **Specialization** means resolving an abstract choice—such as native word size—using the destination's supported target contract.
 It is not a second C compilation. There is no C source input at this stage.
 
-Finally, executing `hello` asks the operating system to run an ordinary native program. The Nier compiler does not remain resident.
+Finally, executing `hello` asks the operating system to run an ordinary native program. The NieR compiler does not remain resident.
 The publication artifact is not interpreted during execution. The application still uses normal native runtime components such as the supplied glibc and its stock loader.
 
 ## Optional lab: publish, inspect, compile, run
@@ -95,10 +95,10 @@ Leaving it set could make the loader search tool-library directories before the 
 Clearing it does not make the application static or eliminate its native dependencies.
 
 The `lower` command exposes diagnostic LLVM files without running the native backend.
-`opt -passes=verify` checks LLVM's structural rules for one such file. That is a useful additional check, not a replacement for Nier's own validation.
+`opt -passes=verify` checks LLVM's structural rules for one such file. That is a useful additional check, not a replacement for NieR's own validation.
 
-The final pipeline prints the bytecode through stock MLIR tooling. Its `--allow-unregistered-dialect` option is essential because this stock `mlir-opt` does not register Nier's dialect.
-It can display the representation; it does **not** validate Nier's semantic contract.
+The final pipeline prints the bytecode through stock MLIR tooling. Its `--allow-unregistered-dialect` option is essential because this stock `mlir-opt` does not register NieR's dialect.
+It can display the representation; it does **not** validate NieR's semantic contract.
 Use `nierc inspect` for that public validation path.
 Being able to print an operation is not proof that its meaning is supported.
 
@@ -108,7 +108,7 @@ It does not prove the complete deployment requirements, performance limits, or f
 ## The same flow with separate compilation
 
 Many real Makefiles compile one source file at a time.
-Nier's stock-Clang mode supports that shape. Here is a separate, independently runnable lab:
+NieR's stock-Clang mode supports that shape. Here is a separate, independently runnable lab:
 
 ```bash
 source sdk/env.sh
@@ -129,18 +129,18 @@ env -u LD_LIBRARY_PATH "$guide_work/separate"
 printf 'Separate-compilation workspace: %s\n' "$guide_work"
 ```
 
-The `.o` suffix here is a build convention. These particular `.o` files contain relocatable **Nier object artifacts**, not native ELF object code.
+The `.o` suffix here is a build convention. These particular `.o` files contain relocatable **NieR object artifacts**, not native ELF object code.
 They are inputs to the publication link step.
 `nierc` deliberately rejects an object-kind artifact as a complete native output request: first finish publication linking through Clang.
 The final archive embeds the required modules, not references to the intermediate `.o` filenames.
 
 This does not mean every existing build works by globally replacing `CC` with this configuration. A configure probe may immediately execute its compiler output.
-A Nier archive cannot serve as that native probe. The next chapter introduces the SDK integration that keeps such build-time programs native.
+A NieR archive cannot serve as that native probe. The next chapter introduces the SDK integration that keeps such build-time programs native.
 
 ## What a failure tells you
 
 A source error belongs to Clang. An unsupported neutral transformation belongs to the producer.
-A malformed artifact, unsupported target, or invalid Nier operation belongs to the consumer's validation path. A missing declared native library belongs to dependency resolution or linking.
+A malformed artifact, unsupported target, or invalid NieR operation belongs to the consumer's validation path. A missing declared native library belongs to dependency resolution or linking.
 Distinguishing these stages makes a failure actionable.
 
 Never reuse a source or input pathname as `-o`. The internal writer and consumer have alias checks, but a direct stock-Clang driver retains its own failed-job cleanup and may delete its requested output after an error.
@@ -161,7 +161,7 @@ There are two C translation units. The header contributes declarations to each u
 <details>
 <summary>Can the output from clang's publication command be executed directly?</summary>
 
-No. It is a Nier archive.
+No. It is a NieR archive.
 The separate `nierc` step creates native output, which the OS can execute using the selected native runtime.
 
 </details>
@@ -169,8 +169,8 @@ The separate `nierc` step creates native output, which the OS can execute using 
 <details>
 <summary>Why is stock mlir-opt not the artifact validator?</summary>
 
-It can decode generic MLIR structure with unknown dialects allowed, but it does not know Nier's allowed operations, attributes, privacy rules, or target semantics.
-The Nier consumer performs those checks.
+It can decode generic MLIR structure with unknown dialects allowed, but it does not know NieR's allowed operations, attributes, privacy rules, or target semantics.
+The NieR consumer performs those checks.
 
 </details>
 

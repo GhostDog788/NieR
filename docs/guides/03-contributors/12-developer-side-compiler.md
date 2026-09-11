@@ -1,15 +1,15 @@
 # 12 — The developer-side compiler
 
-[Series](../README.md) · [Previous: Implementing the Nier contract](11-implementing-the-nier-contract.md) · [Next: Following nierc](13-following-nierc.md)
+[Series](../README.md) · [Previous: Implementing the NieR contract](11-implementing-the-nier-contract.md) · [Next: Following nierc](13-following-nierc.md)
 
 ## Objective and prerequisites
 
 This chapter follows the reference C producer closely enough that you can locate a publication failure and understand what a correct fix must preserve.
-You should understand translation units, native targets, Nier modules, and the basic C++ reading conventions from earlier chapters.
+You should understand translation units, native targets, NieR modules, and the basic C++ reading conventions from earlier chapters.
 The optional lab needs the pinned SDK and existing `build/prealpha` publisher tools.
 
 The key boundary is unchanged: the developer invokes **stock Clang** to publish C.
-`nierc` is a separate, language-blind consumer. The two native LLVM profiles described here are private inputs to this reference producer, not requirements imposed on every future producer of Nier code.
+`nierc` is a separate, language-blind consumer. The two native LLVM profiles described here are private inputs to this reference producer, not requirements imposed on every future producer of NieR Code.
 
 ## Why the Clang executable stays stock
 
@@ -19,10 +19,10 @@ Plugins extend supported points in that process without changing the installed C
 The generated `nier.cfg` selects target development paths, loads `libnier-clang.so`, explicitly selects the `nier` frontend action, and points the link stage to `nier-ld`.
 The `-Xclang` spelling forwards an argument through the driver to its frontend. The configuration is generated with paths to the matching build and SDK; it is not a universal file to copy between unrelated installations.
 
-When invoked with `-c`, this selected action writes an object-kind Nier archive.
+When invoked with `-c`, this selected action writes an object-kind NieR archive.
 Without `-c`, the driver passes the produced units to the publication linker, which creates the requested complete artifact.
 The usual developer-facing compile/link sequence is preserved, but the intermediate output format changes.
-`nier-ld` packages and validates Nier inputs; it is not the native LLD backend used later by the destination compiler.
+`nier-ld` packages and validates NieR inputs; it is not the native LLD backend used later by the destination compiler.
 
 This distinction avoids a misleading shortcut: renaming a custom wrapper `clang` would not satisfy the chosen developer interface.
 The implementation uses actual Clang extension interfaces, and the source compilation inside the producer is also performed by stock Clang.
@@ -30,7 +30,7 @@ The implementation uses actual Clang extension interfaces, and the source compil
 ## Direct source mode: one translation unit, two private captures
 
 In `ClangPlugin.cpp`, `NierAction` handles the selected publication action. The default mode accepts ordinary C source.
-It does not implement its own C-to-Nier compiler by walking Clang's abstract syntax tree.
+It does not implement its own C-to-NieR compiler by walking Clang's abstract syntax tree.
 Instead, `captureSource` clones the relevant compiler invocation,
 configures each native profile, and delegates real source compilation to stock Clang's `-cc1` frontend.
 
@@ -56,7 +56,7 @@ The final artifact is not a tar file containing these two native LLVM modules.
 
 ## Shared merging and the inverse check
 
-`nier::mergeProfiles` in `src/ir/Producer.cpp` receives the two captures. It checks their expected target contracts and LLVM validity, applies narrowly proved normalizations, and constructs a common Nier graph.
+`nier::mergeProfiles` in `src/ir/Producer.cpp` receives the two captures. It checks their expected target contracts and LLVM validity, applies narrowly proved normalizations, and constructs a common NieR graph.
 
 **Normalization** means expressing equivalent behavior in a consistent form that can be compared. For example, the two targets may expand a byte reversal into different mask/shift/or sequences.
 The byte-swap helper proves a supported idiom before replacing it with a common primitive. It does not recognize a function by its source name and replace its body on trust.
@@ -88,8 +88,8 @@ clang --config="$guide_config" -O2 \
   -c tests/fixtures/width.c -o "$guide_work/width.o" \
   2> "$guide_work/publisher.log"
 
-rg 'Private Nier producer workspace:' "$guide_work/publisher.log"
-guide_private=$(sed -n 's/^Private Nier producer workspace: //p' \
+rg 'Private NieR producer workspace:' "$guide_work/publisher.log"
+guide_private=$(sed -n 's/^Private NieR producer workspace: //p' \
   "$guide_work/publisher.log")
 test -d "$guide_private"
 llvm-dis "$guide_private/x86_64.bc" -o "$guide_work/wide-capture.ll"
@@ -107,18 +107,18 @@ printf 'Public output and diagnostic copies: %s\n' "$guide_work"
 printf 'Additional retained private workspace: %s\n' "$guide_private"
 ```
 
-The capture files expose different target layouts and private debug information. The final artifact listing contains the manifest and common Nier bytecode, not those capture paths.
+The capture files expose different target layouts and private debug information. The final artifact listing contains the manifest and common NieR bytecode, not those capture paths.
 Keep both printed directories private. They are useful for diagnosis but are not suitable files to attach indiscriminately to a public bug report.
 
 The lab uses `keep-work`, a current pre-alpha plugin diagnostic option. Its existence does not create a stable capture interchange format.
-An independent producer should use the public Nier API, not depend on this workspace layout.
+An independent producer should use the public NieR API, not depend on this workspace layout.
 
 ## Existing-build mode: observe native work before publishing it
 
 Direct mode can compile the C files the developer names. It cannot reproduce an arbitrary project's configure probes, generators, archive extraction, or profile-selected source list merely by inspecting that command.
 The SDK integration therefore runs the project's normal native build twice privately.
 
-Here the plugin is loaded as an **observer**, not selected as the main Nier publication action.
+Here the plugin is loaded as an **observer**, not selected as the main NieR publication action.
 Native compilation must continue to produce real objects and executables. The before-main observer collects dependencies and creates a capture journal.
 The snapshot writes pristine LLVM first, then adds a readonly, non-executable `.nier.capture` reference to the private native object.
 
@@ -133,7 +133,7 @@ Object postprocessing that changes bytes while retaining a marker is rejected.
 Unused generators and unselected archive members do not become application payload just because their compilation was observed.
 
 The internal coordinator then invokes actual stock Clang with `mode=pair` and LLVM input, or a bounded `mode=group` for qualified unequal translation-unit partitions.
-Both paths use the shared LLVM-to-Nier producer. The destination does not receive these private modes or learn which source language generated the artifact.
+Both paths use the shared LLVM-to-NieR producer. The destination does not receive these private modes or learn which source language generated the artifact.
 
 ## Preserve units and failure semantics
 
@@ -172,7 +172,7 @@ Many captures belong to generators, probes, or unselected library members. The n
 <details>
 <summary>Does an inverse-check failure justify shipping both native LLVM profiles?</summary>
 
-No. Ordinary application code must use the common Nier representation. A failed proof is a diagnostic and possibly unfinished required scope, not permission to create a disguised collection of per-target programs.
+No. Ordinary application code must use the common NieR representation. A failed proof is a diagnostic and possibly unfinished required scope, not permission to create a disguised collection of per-target programs.
 
 </details>
 

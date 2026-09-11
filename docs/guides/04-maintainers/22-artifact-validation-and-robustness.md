@@ -4,14 +4,15 @@
 
 ## Objective and prerequisites
 
-This chapter explains how bytes become an admitted Nier artifact and how a failed compilation avoids damaging existing files.
+This chapter explains how bytes become an admitted NieR artifact and how a failed compilation avoids damaging existing files.
 You should understand the artifact's shared modules and compilation-unit plans, basic Unix file types, and the difference between a parser accepting syntax and a compiler accepting semantics.
 
 The maintainer objective is to reason about boundaries in their actual order:
 open a bounded input safely, decode its container, validate its declared contents,
 verify its IR, perform compilation privately, and publish only a successful result.
 Each step has a different failure mode.
-None should be confused with the future security platform's executable authorization policy.
+None should be confused with the planned executable authorization policy of SENieR (SEN), the separate security platform above NieR.
+SENieR is not implemented yet; these checks establish toolchain correctness and robustness, not security enforcement.
 
 ## The archive is a closed envelope
 
@@ -28,10 +29,10 @@ Unknown manifest fields, unknown module fields, and undeclared archive members r
 An extra field could express a semantic requirement the consumer does not understand, or carry private source information which a superficial reader ignores.
 “Ignore what you do not recognize” is not this format's extension strategy.
 
-The same principle applies inside Nier IR.
+The same principle applies inside NieR IR.
 The core validates operation and attribute names, admitted types and relationships, source-location policy and target specialization.
 The archive validator does not claim to understand every bytecode instruction.
-`tests/package.cpp` deliberately uses opaque placeholder module bytes for some envelope tests; those tests are not evidence that the core would accept those bytes as Nier code.
+`tests/package.cpp` deliberately uses opaque placeholder module bytes for some envelope tests; those tests are not evidence that the core would accept those bytes as NieR Code.
 
 ## Bound the input before decoding it
 
@@ -63,7 +64,7 @@ Second, libarchive must decode valid headers and complete member bodies.
 These steps might succeed: a corrupted module payload need not corrupt tar's structure.
 
 Third, manifest parsing checks the experimental format and runtime contract, the allowed field set, target identifiers and artifact kind.
-The current canonical JSON requirement compares the parsed value's deterministic Nier encoding with the original manifest text.
+The current canonical JSON requirement compares the parsed value's deterministic NieR encoding with the original manifest text.
 LLVM's JSON object parser otherwise retains only one value for duplicate keys; canonical encoding prevents a discarded duplicate from hiding a competing declaration.
 
 Fourth, the validator looks up the module at its required indexed path and compares its SHA-256 digest with the declared digest.
@@ -78,7 +79,7 @@ Static outputs additionally need bounded native member identities.
 A plan cannot drop a module on one target, duplicate its effects, or attach a private side payload to a unit.
 
 This ordering makes diagnostics meaningful.
-A missing member is an envelope error; a bad digest is a consistency error; an unsupported Nier operation is an IR contract error.
+A missing member is an envelope error; a bad digest is a consistency error; an unsupported NieR operation is an IR contract error.
 Suppressing all three under “invalid file” makes future maintenance harder and can conceal which boundary was actually exercised by a negative test.
 
 ## Schema validation is more than JSON validation

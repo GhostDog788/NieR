@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title description">
-  <title id="title">Nier — architecture-neutral code, native execution</title>
-  <desc id="description">The Nier wordmark, the tagline Architecture-neutral code. Native execution., and a highlighted .nier portable artifact. Pre-alpha open-source toolchain, Apache-2.0.</desc>
+  <title id="title">NieR — architecture-neutral code, native execution</title>
+  <desc id="description">The NieR wordmark, the tagline Architecture-neutral code. Native execution., and a highlighted .nier portable artifact. Pre-alpha open-source toolchain, Apache-2.0.</desc>
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0b1422"/>

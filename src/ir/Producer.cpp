@@ -1065,7 +1065,7 @@ public:
       auto *b = llvm::cast<llvm::BinaryOperator>(&right);
       if (llvm::isa<llvm::FPMathOperator>(a) &&
           (a->getFastMathFlags().any() || b->getFastMathFlags().any())) {
-        fail("fast-math flags require an explicitly supported Nier representation"); return;
+        fail("fast-math flags require an explicitly supported NieR representation"); return;
       }
       auto valueType = type(a->getType(), b->getType());
       auto x = operand(a->getOperand(0), b->getOperand(0));

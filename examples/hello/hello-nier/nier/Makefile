@@ -1,5 +1,5 @@
 ifndef NIER_ROOT
-$(error Set NIER_ROOT to the absolute path of your Nier checkout)
+$(error Set NIER_ROOT to the absolute path of your NieR checkout)
 endif
 
 NIER_BUILD_TOOL ?= $(NIER_ROOT)/build/prealpha/nier-build

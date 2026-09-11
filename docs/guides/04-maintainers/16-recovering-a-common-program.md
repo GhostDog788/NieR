@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-This chapter explains the reference producer's central algorithm: turning two private native LLVM observations into one public Nier program.
+This chapter explains the reference producer's central algorithm: turning two private native LLVM observations into one public NieR program.
 You should understand SSA, native-width types, capture provenance, and the integer flags introduced in [chapter 14](../03-contributors/14-testing-debugging-and-features.md).
 
 The result is neither a source reconstruction nor a general equivalence proof.
@@ -15,7 +15,7 @@ The algorithm fails when it cannot establish that relationship. Those failures a
 
 `mergeProfiles` accepts an x86-64 LLVM capture, an i686 LLVM capture, and a bytecode output path.
 Its optional summary is descriptive, not a proof token.
-On success, the output is Nier bytecode; capture paths and mandatory producer provenance are not part of the public module contract.
+On success, the output is NieR bytecode; capture paths and mandatory producer provenance are not part of the public module contract.
 
 Each capture is first checked for the pinned target assumptions and verified as LLVM.
 The producer then applies specific private normalizations, constructs the common module, lowers it back for each profile,
@@ -25,7 +25,7 @@ The essential shape is:
 
 ```text
 left capture  ----\                 /---- reconstructed left
-                  common Nier code
+                  common NieR Code
 right capture ----/                 \---- reconstructed right
         |                                    |
         +---- compare each corresponding ----+
@@ -43,7 +43,7 @@ The native result types are `i64` on x86-64 and `i32` on i686. The merger can pa
 For the first function, the native values 8 and 4 become the symbolic `pointer_bytes` expression.
 For the second, equal values 8 and 8 become a fixed literal.
 
-These are valid generic Nier fragments inside functions; `%width` and `%eight` are different values even on a target where they happen to agree:
+These are valid generic NieR fragments inside functions; `%width` and `%eight` are different values even on a target where they happen to agree:
 
 ```mlir
 %width = "nier.constant"() {value = "pointer_bytes"} : () -> !nier.word

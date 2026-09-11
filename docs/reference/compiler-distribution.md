@@ -1,4 +1,4 @@
-# Nier compiler-only distribution prototype
+# NieR compiler-only distribution prototype
 
 This pre-alpha bundle runs on **x86-64 Ubuntu 24.04**.
 It includes independent `bin/nierc`, unmodified LLVM 18 `opt`, `llc`, `ld.lld`, and `llvm-ar`, their runtime library closure,
@@ -33,9 +33,9 @@ This prototype does not relocate already compiled output when its runtime direct
 Keep that directory in place; production runtime installation and lifecycle management remain future work.
 
 `sdk/packages.lock` and `sdk/sdk-lock.sha256` record the development SDK contract; `payload.sha256` records copied file contents. These receipts are not signatures or tamper-resistant security enforcement.
-The root `LICENSE` carries Nier's Apache-2.0 terms and is included in the payload checksums.
+The root `LICENSE` carries NieR's Apache-2.0 terms and is included in the payload checksums.
 Ubuntu package copyright notices for included components are retained under `licenses`.
 Release license/source-offer review remains a distribution-release task.
 
 This is not a minimum-footprint SDK: the stock monolithic LLVM library retains unused backends, and the native x86-64 library set is intentionally preserved.
-Removing publication components does not impose an additional language subset on Nier input. The compiler's existing semantic and native-target qualification limits still apply; this prototype does not claim every C ABI construct is already supported.
+Removing publication components does not impose an additional language subset on NieR input. The compiler's existing semantic and native-target qualification limits still apply; this prototype does not claim every C ABI construct is already supported.

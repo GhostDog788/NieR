@@ -18,7 +18,7 @@ struct NativeOverlap {
 };
 using NativeOverlaps = llvm::DenseMap<llvm::StructType *, NativeOverlap>;
 
-// Publisher-only debug association. Debug names never enter Nier code.
+// Publisher-only debug association. Debug names never enter NieR Code.
 llvm::Expected<NativeOverlaps> discoverNativeOverlaps(llvm::Module &module);
 llvm::Expected<ir::OverlapType> mergeNativeOverlap(
     const NativeOverlap &left, const NativeOverlap &right,

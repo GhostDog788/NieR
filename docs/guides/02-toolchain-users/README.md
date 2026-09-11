@@ -12,7 +12,7 @@ No compiler-internals knowledge or earlier course chapters are required.
 
 ## Have an existing Make or CMake project?
 
-Use [Publish your C project with Nier](using-nier-with-your-c-project.md). It is a standalone practical guide with copy/paste examples, application settings, native compilation, and troubleshooting.
+Use [Publish your C project with NieR](using-nier-with-your-c-project.md). It is a standalone practical guide with copy/paste examples, application settings, native compilation, and troubleshooting.
 No earlier course chapters are required.
 
 ## Following the course?

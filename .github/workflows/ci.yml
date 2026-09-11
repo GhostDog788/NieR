@@ -59,13 +59,13 @@ jobs:
         timeout-minutes: 5
         run: bash sdk/check-sdk.sh
 
-      - name: Configure Nier
+      - name: Configure NieR
         timeout-minutes: 3
         run: |
           source sdk/env.sh
           cmake --preset prealpha
 
-      - name: Build Nier with two jobs
+      - name: Build NieR with two jobs
         timeout-minutes: 12
         run: |
           source sdk/env.sh

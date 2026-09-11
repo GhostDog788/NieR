@@ -18,4 +18,4 @@ for optimization in O0 O2; do
   "$nierc" "$work/scalars.nier" --sdk "$sdk" -o "$work/scalars"
   test "$(env -u LD_LIBRARY_PATH "$work/scalars")" = "$expected"
 done
-echo "$expected at O0 and O2 through the Nier pipeline"
+echo "$expected at O0 and O2 through the NieR pipeline"

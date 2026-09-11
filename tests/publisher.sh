@@ -82,7 +82,7 @@ readelf -d "$test_work/libwidth.so" | rg -q 'SONAME.*\[libwidth.so\]'
 
 # The native-build observer does not replace ordinary Clang actions. Its
 # readonly provenance section survives stock archives but is absent from the
-# pristine LLVM capture that is later merged into public Nier code.
+# pristine LLVM capture that is later merged into public NieR Code.
 plugin_dir=$(dirname -- "$config")
 llvm_bin="$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin"
 native_lane="$test_work/native"

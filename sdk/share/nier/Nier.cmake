@@ -35,6 +35,6 @@ function(nier_add_publication name)
   add_custom_target("${name}"
     COMMAND "${NIER_BUILD_TOOL}" ${nier_arguments}
     BYPRODUCTS "${nier_output}"
-    COMMENT "Publishing ${name} through stock Clang and Nier"
+    COMMENT "Publishing ${name} through stock Clang and NieR"
     VERBATIM USES_TERMINAL)
 endfunction()

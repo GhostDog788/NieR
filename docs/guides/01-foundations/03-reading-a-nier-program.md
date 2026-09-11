@@ -1,10 +1,10 @@
-# 03. Reading a Nier Program
+# 03. Reading a NieR Program
 
 [Series](../README.md) · [Previous](02-compiler-foundations.md) · [Next](04-values-control-flow-and-memory.md)
 
 ## What you will understand
 
-You will read an actual small Nier module rather than a made-up assembly notation.
+You will read an actual small NieR module rather than a made-up assembly notation.
 You will distinguish operation names, runtime values, types, attributes, and function metadata.
 Read chapters 01–02 first; you do not need an SDK to follow the example.
 
@@ -19,9 +19,9 @@ int fixed_eight(void) {
 ```
 
 Its interesting contract is small: no parameters, a 32-bit result in our current native profiles, and a returned value of eight.
-We can express that contract directly in Nier without asking a C frontend to produce it.
+We can express that contract directly in NieR without asking a C frontend to produce it.
 
-The following is a **complete textual Nier module** adapted from the helper module in the independent-producer test.
+The following is a **complete textual NieR module** adapted from the helper module in the independent-producer test.
 It is a compiler representation, not a complete `.nier` package or an executable.
 A programmatically parsed module also needs its source locations normalized before publication, as chapter 11 explains.
 
@@ -92,7 +92,7 @@ The distinction becomes even clearer with a symbolic constant:
 ```
 
 This real **operation excerpt** encodes a target property instead of an integer literal.
-`!nier.word` is a Nier type whose width is selected for the target.
+`!nier.word` is a NieR type whose width is selected for the target.
 Chapter 05 explains that selection.
 The attribute is descriptive information; `%size` is the resulting program value.
 
@@ -119,7 +119,7 @@ A declaration can name a function implemented elsewhere.
 `internal` and `dso_local` express different native linkage/resolution facts; they are not source-language tags.
 Later linking chapters unpack them.
 
-The `attributes = [[], []]` field is the Nier function's encoded native attribute list:
+The `attributes = [[], []]` field is the NieR function's encoded native attribute list:
 function attributes followed by return attributes, then parameter slots when parameters exist.
 Here the slots are empty, not omitted by guesswork.
 Do not remove bookkeeping from a real module merely because the function body seems obvious.
@@ -148,7 +148,7 @@ The `flags` field supplies additional arithmetic constraints; zero here does not
 Chapter 16 explains why those flags must be preserved rather than treated as optimization hints that can be invented freely.
 
 An optimizer may eventually return three directly.
-Nier is still a useful representation before that optimization: it records enough meaning to make the transformation legitimate.
+NieR is still a useful representation before that optimization: it records enough meaning to make the transformation legitimate.
 A printed instruction count is not the same as the final machine instruction count.
 
 ## How to read a larger dump
@@ -165,7 +165,7 @@ The latter needs a semantic argument.
 
 Textual IR is a view of a structured compiler object.
 Our publication stores modules as bytecode.
-A tool that can print the structure with unregistered dialects is useful for inspection, but it does not thereby know whether Nier's specific rules hold.
+A tool that can print the structure with unregistered dialects is useful for inspection, but it does not thereby know whether NieR's specific rules hold.
 Chapter 08 separates viewing from validation explicitly.
 
 ## Optional paper exercise

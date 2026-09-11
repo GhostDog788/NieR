@@ -14,9 +14,9 @@ llvm::Error inspect(const fs::path &input, const fs::path &dump) {
   auto &record = *manifest->getAsObject();
   auto *modules = record.getArray("modules");
   if (!modules || modules->size() != 1 || files->size() != 2)
-    return fail("conditional fixture must contain one shared Nier module and its manifest only");
+    return fail("conditional fixture must contain one shared NieR module and its manifest only");
   auto path = (*modules)[0].getAsObject()->getString("path");
-  if (!path || !path->ends_with(".nierbc")) return fail("conditional fixture is not Nier bytecode");
+  if (!path || !path->ends_with(".nierbc")) return fail("conditional fixture is not NieR bytecode");
   auto scratch = Scratch::create();
   if (!scratch) return scratch.takeError();
   auto bytecode = scratch->path / "fixture.nierbc";

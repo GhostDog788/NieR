@@ -9,7 +9,7 @@ Its objective is to explain what our C producer captures, why the capture point 
 and how a private native build supplies evidence without becoming the published application.
 You should understand the stock-Clang entry point, LLVM IR, and the difference between publication and native execution.
 
-Remember the direction of dependency: Nier defines a public contract, and our LLVM merger is one producer of it.
+Remember the direction of dependency: NieR defines a public contract, and our LLVM merger is one producer of it.
 Independent producers do not need Clang captures.
 Everything in this chapter is machinery for **our reference producer**, not a requirement to identify a source language on the device.
 
@@ -42,7 +42,7 @@ It is marked as a required pass so the intended observation also occurs for the 
 
 The pass observes the module; stock Clang still continues producing the ordinary native object.
 This distinction is especially important for existing builds. A configure probe must run as a native program.
-Replacing its output with a Nier archive would break the build before publication selection even begins.
+Replacing its output with a NieR archive would break the build before publication selection even begins.
 
 The requested optimization setting is not discarded.
 An O0 capture can carry attributes such as `optnone`; an O2 invocation has different code-generation settings even though the snapshot precedes the main optimizer pipeline.
@@ -55,7 +55,7 @@ The native reference is not fabricated by disabling optimization everywhere.
 ## The direct source path
 
 When a developer uses the supplied `nier.cfg`, stock Clang selects our publication frontend action.
-That action does not translate a C AST into Nier.
+That action does not translate a C AST into NieR.
 Its `captureSource` helper copies a Clang invocation and asks unmodified Clang to compile for each qualified native profile.
 
 The helper must distinguish project choices from target configuration.
@@ -70,7 +70,7 @@ A precise rejection is therefore the correct behavior until that configuration i
 Private full debug information is useful here.
 Native lowering may turn a source aggregate argument into several scalar arguments or a hidden pointer; debug type and parameter records can propose the relationship.
 Those records are hints to be checked against layouts and actual instructions, not authority to rewrite a program.
-They are not copied into the public Nier module as a source-language dependency.
+They are not copied into the public NieR module as a source-language dependency.
 
 After both captures exist, the action calls the shared merger and packages the resulting common bytecode.
 The stock driver invokes the internal publication linker for normal separate compilation and final publication.
@@ -98,7 +98,7 @@ source/configuration/dependencies
               |
       actual native selection
               |
-         Nier publication
+         NieR publication
 ```
 
 During integrated native capture, the snapshot is written **before** the private object-provenance marker is added.
@@ -171,7 +171,7 @@ rg -n 'target triple|target datalayout|pointer_size|ret i(32|64) [48]' \
 printf 'Private lab evidence: %s\n' "$guide15_work"
 ```
 
-The captures are LLVM bitcode, not Nier bytecode. They intentionally contain private debug information.
+The captures are LLVM bitcode, not NieR bytecode. They intentionally contain private debug information.
 Observe that the native-width function changes width and value. Do not distribute this directory as an application artifact.
 
 ## Recap and questions
@@ -180,9 +180,9 @@ The capture layer provides native observations with a precise configuration and 
 It cannot recover information the frontend already erased, and it does not establish a common program by itself.
 
 1. **Why is preoptimization LLVM still target-specific?** Frontend constant evaluation, preprocessing, layout and ABI lowering have already occurred.
-2. **Why keep native outputs during a Nier build?** Probes and generators must run, and actual native selection provides evidence for publication.
+2. **Why keep native outputs during a NieR build?** Probes and generators must run, and actual native selection provides evidence for publication.
 3. **Why add the private marker after writing the snapshot?** The marker is build provenance, not application semantics to be merged and published.
-4. **Can an independent producer omit all this machinery?** Yes. It can emit valid Nier directly, provided it satisfies the public semantic and dependency contract.
+4. **Can an independent producer omit all this machinery?** Yes. It can emit valid NieR directly, provided it satisfies the public semantic and dependency contract.
 
 ## Guided source and evidence
 

@@ -93,7 +93,7 @@ llvm::Error link(int argc, char **argv) {
       bothHashStyles = arg == "--hash-style=both";
     else if (arg == "--undefined-version") linkOptions.push_back(arg.str());
     else if (arg == "--as-needed")
-      return fail("direct Nier linking cannot yet resolve --as-needed; use the paired native SDK build integration");
+      return fail("direct NieR linking cannot yet resolve --as-needed; use the paired native SDK build integration");
     else if (arg == "-pie" || arg == "--eh-frame-hdr" || arg == "--build-id" ||
              arg == "--no-as-needed") {
       // Clang's host linker defaults are not the destination's runtime paths.
@@ -123,7 +123,7 @@ llvm::Error link(int argc, char **argv) {
         ? "/lib/ld-linux.so.2" : "/lib64/ld-linux-x86-64.so.2"))
     return fail("unqualified native dynamic interpreter " + interpreter);
   if (bothHashStyles) linkOptions.push_back("--hash-style=both");
-  if (inputs.empty() && kind != "static") return fail("publication link has no Nier object inputs");
+  if (inputs.empty() && kind != "static") return fail("publication link has no NieR object inputs");
   // Check the entire inventory before creating or writing private work files.
   for (const auto &input : inputs)
     if (auto error = rejectInputAlias(input, output)) return error;
@@ -135,11 +135,11 @@ llvm::Error link(int argc, char **argv) {
   if (!scratch) return scratch.takeError();
   for (auto &input : inputs) {
     auto files = readPackage(input);
-    if (!files) return fail("expected a Nier object at " + input.string() + ": " + llvm::toString(files.takeError()));
+    if (!files) return fail("expected a NieR object at " + input.string() + ": " + llvm::toString(files.takeError()));
     auto manifest = validatePackage(*files);
     if (!manifest) return manifest.takeError();
     auto &object = *manifest->getAsObject();
-    if (object.getString("kind") != "object") return fail("publication link requires relocatable Nier inputs: " + input.string());
+    if (object.getString("kind") != "object") return fail("publication link requires relocatable NieR inputs: " + input.string());
     std::vector<std::string> admitted;
     for (auto &entry : *object.getArray("targets")) admitted.push_back(entry.getAsString()->str());
     llvm::SmallVector<llvm::StringRef> domain;
@@ -163,7 +163,7 @@ llvm::Error link(int argc, char **argv) {
       auto &record = *entry.getAsObject();
       auto &bytes = files->at(record.getString("path")->str());
       if (modules.size() >= 510 || bytes.size() > 64 * 1024 * 1024 - aggregateBytes)
-        return fail("linked Nier artifact exceeds module or byte limits");
+        return fail("linked NieR artifact exceeds module or byte limits");
       aggregateBytes += bytes.size();
       auto staged = scratch->path / "unit.nierbc";
       if (auto error = write(staged, bytes)) return error;

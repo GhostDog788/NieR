@@ -112,7 +112,7 @@ A **static archive** is an ordered collection of native object members. A native
 Two members may even have the same basename.
 Preserving only a set of unique filenames would lose observable native behavior.
 
-The SDK can select a static-library output and publish a static-kind Nier artifact.
+The SDK can select a static-library output and publish a static-kind NieR artifact.
 `nierc` restores ordered native members with stock `llvm-ar`. This differs from publishing an executable that happened to use a static archive: that executable's selected graph contains the members the native link actually chose.
 Selection and complete archive preservation are different tasks.
 
@@ -123,7 +123,7 @@ Dependent applications declare native libraries.
 In this prototype, separately publish and compile application libraries, then provide their native directory with `nierc --library-dir DIR`.
 Missing declared libraries fail; arbitrary host libraries are not an automatic fallback. This is useful manual dependency provisioning, not the automatic package installer and updater required by the full product.
 
-Dynamic loading is not prohibited merely because code was published through Nier. The standalone toolchain remains under ordinary OS rules.
+Dynamic loading is not prohibited merely because code was published through NieR. The standalone toolchain remains under ordinary OS rules.
 A future security policy that constrains executable admission is a separate axis, not a hidden assumption behind these library examples.
 
 ## Know which boundary a test actually covers

@@ -18,4 +18,4 @@ if rg '\.nier"|nier-capture|bin/clang|bin/opt|bin/llc|bin/ld.lld' "$test_work/ru
     printf 'ERROR: native executable needed artifact/compiler inputs\n' >&2; exit 1
 fi
 rg -F "$NIER_SDK_ROOT/sysroots/x86_64-linux-gnu/lib/x86_64-linux-gnu/libc.so.6" "$test_work/run.trace"
-printf 'Independent Nier compiler and native execution access checks passed.\n'
+printf 'Independent NieR compiler and native execution access checks passed.\n'

@@ -26,7 +26,7 @@ Each selected publication currently repeats fresh native builds; this qualificat
 
 Retain the complete runner log, downloaded archives, every per-publication log and private capture lane, destination test/loader logs, and artifact hashes.
 The runner writes `qualification.txt`, recording the exact replay command and terminal pass/fail status
-plus SHA-256 hashes of the actual publisher, consumer, plugins, linker helpers, Clang configuration, SDK lock and corpus recipes, every Nier artifact and destination output.
+plus SHA-256 hashes of the actual publisher, consumer, plugins, linker helpers, Clang configuration, SDK lock and corpus recipes, every NieR artifact and destination output.
 It uses the explicit `nier.cfg` beside the supplied built publisher and records each private native configuration.
 Use one coherent publisher build directory for the helper, plugins, linker and configuration. A git revision alone does not identify binaries built from a dirty pre-alpha worktree.
 The initial passing runs also have retrospective local `qualification.txt` reports alongside this evidence; reports are not publication recipes or security attestations.
@@ -43,13 +43,13 @@ Native reference tests use this same configuration; neither upstream sources nor
 ## cJSON 1.7.19
 
 Run two independent CMake Release configurations, initialized with `corpus/cjson-static.cmake` and `corpus/cjson-shared.cmake`.
-Use the same preset and effective compiler options for native references and Nier publication.
+Use the same preset and effective compiler options for native references and NieR publication.
 Each configuration builds the upstream default targets and runs **all 19 registered CTests** with `ctest --output-on-failure`, without filters.
 The default test-enabled build also builds `fuzz_main`; it does not register that target as a CTest.
 
 The shared configuration must preserve `libcjson.so.1`, public API visibility, native imports, and the actual libc/libm dependencies selected by stock LLVM/LLD.
 The static configuration must exercise real archive extraction. The runner also compares the original demonstration program's native-reference and destination output byte-for-byte.
-In the shared configuration a separately linked native caller verifies the Nier-produced DSO's C ABI; loader traces verify that both callers resolve that exact destination DSO.
+In the shared configuration a separately linked native caller verifies the NieR-produced DSO's C ABI; loader traces verify that both callers resolve that exact destination DSO.
 
 Unity's default `setjmp`/`longjmp` assertion control remains enabled.
 Defining `UNITY_EXCLUDE_SETJMP_H` changes test semantics and is not an allowed shortcut.
@@ -82,7 +82,7 @@ This selected Make suite is not a claim to qualify zlib's separate CMake package
 
 ## Destination execution
 
-Every selected executable/shared-library link and static-library output produces its own Nier artifact.
+Every selected executable/shared-library link and static-library output produces its own NieR artifact.
 Compile those artifacts with `nierc`, then stage native dependencies in the qualified fixture library root and run the original selected tests against them.
 Only test data and the ordinary native runtime/dependencies accompany execution; compiler capture data and build-time generators remain private.
 Native x86-64 and i686 reference runs are separate from initial x86-64 product execution support.

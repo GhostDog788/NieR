@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/nier-logo.png" alt="Nier" width="439">
+  <img src="assets/nier-logo.png" alt="NieR" width="439">
 </p>
 
 <h1 align="center">Architecture-neutral code. Native execution.</h1>
 
 <p align="center">
-  Publish a standalone Nier artifact. Compile it into an ordinary native binary on the target.
+  Publish a standalone NieR artifact. Compile it into an ordinary native binary on the target.
 </p>
 
 <p align="center">
@@ -23,18 +23,22 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-## What is Nier?
+## What is NieR?
 
-Nier is an open-source native publication toolchain built around **Nier code**: an independent, architecture-neutral intermediate representation implemented with MLIR.
+NieR is an open-source native publication toolchain built around **NieR Code**: an independent, architecture-neutral intermediate representation implemented with MLIR.
 A language producer emits one `.nier` artifact; the separate, language-blind `nierc` compiler turns it into native output using LLVM.
 
-- **A portable publication format.** Publish Nier code independently of the language frontend and device compiler.
-- **Ordinary native execution.** Run the compiled program without a Nier interpreter, JIT, or resident compiler.
+- **A portable publication format.** Publish NieR Code independently of the language frontend and device compiler.
+- **Ordinary native execution.** Run the compiled program without a NieR interpreter, JIT, or resident compiler.
 - **Familiar C projects.** The current producer uses stock Clang with a plugin, with Make or CMake integration for qualified projects.
 
-Nier's goal is a shared format that many languages can target.
+NieR's goal is a shared format that many languages can target.
 Today's working implementation is a bounded C/Linux toolchain, not every language, program, or CPU.
 This is **pre-alpha**: artifacts and APIs may change completely between commits, with no backward-compatibility guarantees.
+
+**SENieR**, shortened to **SEN**, is the planned security platform layered above NieR.
+The `SE` prefix follows the naming pattern of SELinux.
+NieR works independently; SEN will add security enforcement without becoming a requirement for publication, compilation, or native execution.
 
 ## How it works
 
@@ -83,7 +87,7 @@ Expected application output: `Hello world`.
 
 This quickstart uses one machine for both separate compiler invocations.
 Keep the SDK/runtime in place when running the executable.
-For an existing application, use [Publish your C project with Nier](docs/guides/02-toolchain-users/using-nier-with-your-c-project.md), which preserves native build-time probes and generators.
+For an existing application, use [Publish your C project with NieR](docs/guides/02-toolchain-users/using-nier-with-your-c-project.md), which preserves native build-time probes and generators.
 
 ## Project status
 
@@ -93,11 +97,11 @@ For an existing application, use [Publish your C project with Nier](docs/guides/
 | C publication | Stock-Clang plugin; qualified Make/CMake builds; executable, shared-library, and static-archive outputs. |
 | Native target | Linux x86-64 on the documented Ubuntu 24.04 baseline. Private i686 reference builds are not a second deployment product. |
 | Still being qualified | General C/ABI coverage, broader build semantics, native-equivalent performance, and reverse-engineering resistance. |
-| Planned | More languages and targets; production distribution; signing and executable-memory security enforcement. |
+| Planned | More languages and targets; production distribution; SENieR (SEN) for signing and executable-memory security enforcement. |
 
 The [current status reference](docs/reference/toolchain-status.md) explains the boundaries and failure behavior.
 The [qualification reference](docs/reference/qualification-corpus.md) records passing cJSON and zlib checkpoints; it does not imply that every later commit has rerun the full corpus.
-Security enforcement is a separate axis, not a requirement for using today's toolchain.
+SEN security enforcement is a separate axis, not a requirement for using today's NieR toolchain.
 
 Run the focused CI smoke suite after building:
 
@@ -112,7 +116,7 @@ See the [requirements](docs/01-architecture-design.md), [implementation plan](do
 
 - [Hello project walkthrough](docs/guides/02-toolchain-users/hello-project-walkthrough.md) — try the starter project and compare your chosen integration with the solution.
 - [Publish your own C project](docs/guides/02-toolchain-users/using-nier-with-your-c-project.md) — integrate an existing Make or CMake build.
-- [Guide series](docs/guides/README.md) — learn Nier code, then follow the implementation.
+- [Guide series](docs/guides/README.md) — learn NieR Code, then follow the implementation.
 - [Build and VS Code setup](docs/reference/building-nier.md) — configure the SDK and editor.
 - [Compiler-only distribution](docs/reference/compiler-distribution.md) — package the independent consumer.
 - [Contributing](CONTRIBUTING.md) — development expectations, tests, and pull requests.
@@ -123,8 +127,8 @@ The guides retain their vault-local Markdown links; source paths are for the cod
 
 ## License
 
-Nier's project-owned code and documentation are available under the [Apache License 2.0](LICENSE).
+NieR's project-owned code and documentation are available under the [Apache License 2.0](LICENSE).
 Use, modify, and redistribute them, including commercially, under that license's terms.
 Third-party components retain their own licenses and notices.
 
-“Source-private” means published application artifacts exclude the original source; the Nier toolchain itself is open source.
+“Source-private” means published application artifacts exclude the original source; the NieR toolchain itself is open source.

@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-This chapter follows an existing native build into a Nier publication.
+This chapter follows an existing native build into a NieR publication.
 You should understand compilation versus linking, static archives, shared libraries, the capture/merger boundary, and native specialization.
 The new maintainer question is not merely “which source files exist?” It is “which native inputs actually contributed to this selected output,
 in what order, under which settings, and with which translation-unit boundaries?”
@@ -15,18 +15,18 @@ Configure probes, generated headers, archive extraction and platform-selected so
 
 ## Inputs, outputs, and responsibilities
 
-The SDK integration receives an unchanged source directory, a build system, selected native targets, a relative native output path, and a destination Nier artifact path.
+The SDK integration receives an unchanged source directory, a build system, selected native targets, a relative native output path, and a destination NieR artifact path.
 `sdk/share/nier/Nier.mk` and `sdk/share/nier/Nier.cmake` are small coordination interfaces.
 The public CMake helper is `nier_add_publication`.
 The internal `nier-build` service runs the private builds and assembles publication commands; it is not a new C frontend or a replacement language compiler.
 
 Both private lanes use actual stock Clang with the appropriate SDK profile.
 Native preprocessing, configure probes and generators must still work as native operations.
-Replacing the compiler with a wrapper which emits Nier whenever it sees C would break probes that need to execute their result.
+Replacing the compiler with a wrapper which emits NieR whenever it sees C would break probes that need to execute their result.
 The native capture observer therefore accompanies normal code generation; direct publication uses the distinct Clang publication action.
 
 The selected output may be an executable, shared library, or static archive.
-The portable result is an independent Nier artifact for that output.
+The portable result is an independent NieR artifact for that output.
 Native objects and private LLVM captures remain build evidence, not alternate executable payloads hidden in the artifact.
 When paired or grouped capture units are emitted and finally assembled, the coordinator still invokes stock Clang.
 Its configured linker selects `nier-ld` for publication assembly.
@@ -92,7 +92,7 @@ The permutation path preserves that fact without making all translation units us
 
 Selecting a static archive as the *output* means publishing every physical member, in order, including duplicate basenames.
 There is no application link yet to decide which members will later be extracted.
-Nier's static compilation plan therefore associates each native unit with its archive-member identity.
+NieR's static compilation plan therefore associates each native unit with its archive-member identity.
 
 The consumer stages identically named members in separate ordinal directories, compiles them independently,
 and uses ordinary `llvm-ar` quick append followed by indexing.
@@ -143,7 +143,7 @@ Unsupported meaningful linker options must reject; ignoring them can change the 
 
 The coordinator also stages its final Clang output privately.
 Stock Clang may delete its `-o` path when a link fails.
-Pointing that cleanup at a user's previous valid Nier artifact would defeat an atomic writer inside `nier-ld`.
+Pointing that cleanup at a user's previous valid NieR artifact would defeat an atomic writer inside `nier-ld`.
 Only a successful, validated staged artifact replaces the requested publication.
 
 ## Optional independent lab
@@ -175,7 +175,7 @@ Keep both when diagnosing an ordering regression.
 ## Recap and questions
 
 The native build is an oracle for selected inputs, not a source-file scanner.
-Nier must preserve selection, identity, physical order, per-unit settings and native dependencies while publishing only the common program.
+NieR must preserve selection, identity, physical order, per-unit settings and native dependencies while publishing only the common program.
 
 1. **Why not merge every archive member?** Native lazy extraction may exclude members whose inclusion changes symbols, errors or behavior.
 2. **Why is a marker not a signature?** It binds ordinary build evidence, but a workspace writer can rewrite that evidence; no trusted signing boundary has been established.

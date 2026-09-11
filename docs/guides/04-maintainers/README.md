@@ -2,7 +2,7 @@
 
 [All guides](../README.md) · [Glossary](../reference/glossary.md)
 
-These chapters explain the algorithms, rejection boundaries, and evidence needed to maintain Nier.
+These chapters explain the algorithms, rejection boundaries, and evidence needed to maintain NieR.
 They build on the [contributor section](../03-contributors/README.md).
 Read them in order for the full story, or use the groups below to find a particular subsystem.
 
@@ -23,6 +23,6 @@ Read them in order for the full story, or use the groups below to find a particu
 21. [Preserving Build and Link Semantics](21-build-and-link-semantics.md) — selected inputs, archives, and compilation boundaries.
 22. [Artifact Validation and Compiler Robustness](22-artifact-validation-and-robustness.md) — bounded readers, validation, and failure behavior.
 23. [The SDK and Compiler Distribution](23-sdk-and-compiler-distribution.md) — pinned dependencies, compiler bundles, and native runtime paths.
-24. [Maintaining and Evolving Nier](24-maintaining-and-evolving-nier.md) — qualification, format changes, and future security work.
+24. [Maintaining and Evolving NieR](24-maintaining-and-evolving-nier.md) — qualification, format changes, and future security work.
 
 Return to the [full course index](../README.md) to revisit earlier topics.

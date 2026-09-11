@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in the current Nier pre-alpha.
+description: Report a reproducible problem in the current NieR pre-alpha.
 title: "[Bug]: "
 body:
   - type: markdown

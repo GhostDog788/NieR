@@ -2,7 +2,7 @@
 
 [All guides](../README.md)
 
-Use the [glossary](glossary.md) to look up compiler and Nier terminology.
+Use the [glossary](glossary.md) to look up compiler and NieR terminology.
 Each definition links back to the chapter explaining it in context.
 
 For tasks and commands, use the [C-project guide](../02-toolchain-users/using-nier-with-your-c-project.md).

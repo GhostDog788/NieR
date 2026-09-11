@@ -1,4 +1,4 @@
-# Nier: Project Requirements
+# NieR: Project Requirements
 
 This document defines what the product must achieve. Its companion,
 `02-implementation-plan.md`, proposes how to achieve it and must demonstrate
@@ -8,10 +8,14 @@ demonstrated by the implementation proposal and the resulting product.
 
 ## 1. Purpose and product boundary
 
-The flagship product is **Nier code**: an independently usable,
+**NieR** names the standalone toolchain and its portable code format.
+**SENieR**, shortened to **SEN**, names the security platform layered above NieR.
+The `SE` prefix follows the naming pattern of SELinux.
+
+The flagship product is **NieR Code**: an independently usable,
 architecture-neutral publication format. Any producer that can represent its
-program semantics and required runtime/dependency contract in Nier must be able
-to use the same Nier compiler without adding language-specific consumer support.
+program semantics and required runtime/dependency contract in NieR must be able
+to use the same NieR compiler without adding language-specific consumer support.
 This is an extensibility requirement, not a claim that the current prototype
 already represents every language or operating system.
 
@@ -28,14 +32,14 @@ native components are an explicit exception, defined in T3.
 
 The product has two separately scoped and independently testable subsystems:
 
-- **The standalone publication toolchain** produces, distributes, installs, and
+- **NieR, the standalone publication toolchain,** produces, distributes, installs, and
   executes native applications. The complete flow must work without a store,
-  permission enforcement, or the security subsystem.
-- **The security platform** adds admission rules, a closed application contract,
+  permission enforcement, or SEN.
+- **SENieR (SEN), the security platform,** adds admission rules, a closed application contract,
   executable integrity, and resource permissions around that toolchain.
 
 **Development priority: complete the working standalone toolchain first, then
-add and refine security.** Adding security must preserve the toolchain's
+add and refine SEN.** Adding security must preserve the toolchain's
 independent usability. Security restrictions must not become hidden
 prerequisites or limitations of the standalone toolchain. The standalone
 toolchain remains subject to the ordinary rules of its host OS.
@@ -65,7 +69,7 @@ possible, without requiring application logic to be rewritten around a new
 execution framework.
 
 C publication must use the actual unmodified Clang command-line compiler,
-configured for Nier. Developers must not need a separate publication command
+configured for NieR. Developers must not need a separate publication command
 or a replacement executable masquerading as Clang. Existing qualifying
 Make/CMake projects must require only small SDK configuration, not rewritten
 application logic or per-target build rules. The acceptance target is at most
@@ -109,7 +113,7 @@ implementation for a particular CPU. Those components carry explicit target
 compatibility requirements and form an exception to ordinary code's portable
 publication path.
 
-Nier code and the public metadata required to compile one published output must
+NieR Code and the public metadata required to compile one published output must
 be delivered as one standalone artifact; an archive satisfies this requirement.
 Compilation must not depend on the publisher's source tree, recipes, captures,
 or intermediate outputs. Explicit native dependencies remain governed by T4.
@@ -138,11 +142,11 @@ on ordinary dynamic loading in the standalone toolchain.
 
 ### T5. Native execution and OS transparency
 
-The Nier compiler must be an independent program, separate from publication.
+The NieR compiler must be an independent program, separate from publication.
 Shared libraries between implementations are permitted; requiring the publisher
 to be installed or run on the destination is not. Platform-specific compiler
 distributions may omit irrelevant platform components, but must implement the
-same supported Nier semantics rather than language-specific feature subsets.
+same supported NieR semantics rather than language-specific feature subsets.
 
 Installed applications must be ordinary native executables and libraries,
 loaded and executed through normal OS mechanisms. Their process behavior,
@@ -169,7 +173,7 @@ at run time, must remain available under the host OS's normal rules.
 
 The absence of a publication-specific JIT is not a toolchain policy banning an
 application's own native facilities or code-generation behavior. Restrictions
-on generating or admitting executable code belong to the security platform.
+on generating or admitting executable code belong to SEN.
 The toolchain must remain usable independently of those restrictions.
 
 ### T7. Installation priorities
@@ -220,12 +224,12 @@ is defined in A2.
 
 ## 3. Security platform requirements
 
-The requirements in this section apply when security is enforced. They must
-not restrict the independently usable toolchain defined in section 2.
+The requirements in this section define SENieR (SEN) and apply when its security is enforced.
+They must not restrict the independently usable NieR toolchain defined in section 2.
 
 ### S1. Deployment and trust scope
 
-There is one product with two deployment scopes:
+SEN is one security product with two deployment scopes:
 
 - **Integration into an existing OS:** enforce security over applications
   managed by the platform. The platform is a guest and does not govern the
@@ -383,9 +387,8 @@ programs rather than require one target's behavior on every CPU.
 
 ### A4. Independent acceptance and implementation accountability
 
-The complete standalone publication-to-native-execution flow must pass its
-acceptance criteria without the security subsystem. Security must then have
-separate acceptance coverage for release admission, native exceptions,
+The complete standalone NieR publication-to-native-execution flow must pass its acceptance criteria without SEN.
+SEN must then have separate acceptance coverage for release admission, native exceptions,
 executable integrity, permissions and recoverable denials, compatible
 dependency updates, offline execution, and revocation in both deployment
 scopes. Adding security must preserve the standalone flow's usability.

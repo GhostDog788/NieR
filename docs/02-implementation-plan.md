@@ -1,4 +1,4 @@
-# Nier: Implementation Plan
+# NieR: Implementation Plan
 
 ## 1. Authority, scope, and current status
 
@@ -7,7 +7,12 @@ requirements contract. This document specifies the selected implementation
 direction, the C MVP, and the subsequent work required to satisfy all of 01.
 It does not change those requirements.
 
-**Status on 2026-09-11:** the independent Nier publication/compiler flow works,
+**NieR** is the standalone toolchain and portable code format.
+**SENieR**, shortened to **SEN**, is the security platform layered above NieR;
+the `SE` prefix follows the naming pattern of SELinux.
+This plan delivers the independent NieR flow first, then implements SEN after standalone acceptance.
+
+**Status on 2026-09-11:** the independent NieR publication/compiler flow works,
 including stock-Clang publication, native ABI/build fixtures, and the complete
 configured cJSON/zlib corpus. The previous combined program and publication
 recipes have been removed. This is a qualified pre-alpha C implementation,
@@ -29,7 +34,7 @@ The next deliverable is a working C MVP, not the complete product:
    integration and the configured cJSON/zlib corpus.
 3. Complete the remaining C facilities, languages, targets, platform services,
    release lifecycle, and full standalone acceptance gates.
-4. Only after complete standalone acceptance, implement and qualify security.
+4. Only after complete standalone acceptance, implement and qualify SEN.
 
 The first C work does **not** wait for Rust, Go, all four runtime targets, or
 full A1/A2 acceptance. Conversely, completing Hello World does **not** complete
@@ -38,7 +43,7 @@ the C MVP; completing the C MVP does **not** complete T1-T9.
 All compiler and linker infrastructure is used unmodified. Do not fork or
 patch existing compilers. Reuse supported tools, plugins, extension interfaces,
 and libraries. Writing replacement source-language compilers would defeat the
-chosen reuse strategy. The security platform is not a dependency of any
+chosen reuse strategy. SEN is not a dependency of any
 standalone build, publication, compilation, or execution command.
 
 ## 2. Selected architecture and boundaries
@@ -79,36 +84,36 @@ It must not dispatch to rustc, a Go compiler, or language-specific dialects to
 finish compilation. Normal language runtimes may remain native dependencies
 or linked native code; that does not make the device compiler language-specific.
 
-### 2.2 Nier as the independent public boundary
+### 2.2 NieR as the independent public boundary
 
-Nier code is the flagship format and pre-alpha standard. It consists of defined
+NieR Code is the flagship format and pre-alpha standard. It consists of defined
 source-language-independent semantics, public construction/validation APIs,
 bytecode, artifact rules, and conformance tests. MLIR supplies infrastructure;
-arbitrary MLIR dialects are not automatically Nier.
+arbitrary MLIR dialects are not automatically NieR.
 
-Our shared LLVM-to-Nier merger is one reference producer, not a mandatory
-admission path. Independent producers may emit Nier directly without Clang,
+Our shared LLVM-to-NieR merger is one reference producer, not a mandatory
+admission path. Independent producers may emit NieR directly without Clang,
 native profile captures, or merger provenance. They must represent all required
 semantics and provision their language runtime/dependency contract. No
 language-specific importer, frontend, or extension implementation is required
-on the destination for already-supported Nier semantics.
+on the destination for already-supported NieR semantics.
 
-Producer-local extensions must lower to supported Nier before publication.
-New required generic semantics evolve Nier itself; unknown required operations
+Producer-local extensions must lower to supported NieR before publication.
+New required generic semantics evolve NieR itself; unknown required operations
 fail. Platform-specific distributions implement the same supported semantics,
 not language-specific feature subsets. They may omit publisher tools and
 irrelevant target components.
 
-For C, developers invoke actual stock Clang with a Nier configuration. A
+For C, developers invoke actual stock Clang with a NieR configuration. A
 replacement frontend action delegates source compilation to stock Clang,
 captures both native LLVM profiles, and calls the shared merger. It does not
-implement AST-to-Nier lowering. The stock driver invokes internal `nier-ld`
-to combine Nier objects into the final artifact. Clang plugins and native
+implement AST-to-NieR lowering. The stock driver invokes internal `nier-ld`
+to combine NieR objects into the final artifact. Clang plugins and native
 compiler inputs are confined to publisher-side targets.
 
-The independent `nierc` links the Nier core, artifact support, and native
+The independent `nierc` links the NieR core, artifact support, and native
 lowering, never the LLVM-capture producer or Clang plugin. Producer APIs live
-separately from consumer/direct-Nier APIs. Consumer-only builds must work with
+separately from consumer/direct-NieR APIs. Consumer-only builds must work with
 `NIER_BUILD_PUBLISHER=OFF`.
 
 ### 2.3 Why capture multiple native profiles
@@ -232,13 +237,13 @@ The logical components are:
 | Device compiler | Read common IR and emit target-specific LLVM IR |
 | Stock LLVM tools/libraries | Native optimization and object generation |
 | Stock LLD | Final native ELF linking |
-| Stock-Clang adapter / publication linker | Emit Nier units and standalone executable/shared-library artifacts |
-| Independent nierc | Inspect Nier and manually produce native output without the publisher |
+| Stock-Clang adapter / publication linker | Emit NieR units and standalone executable/shared-library artifacts |
+| Independent nierc | Inspect NieR and manually produce native output without the publisher |
 | SDK/corpus/test support | Pinned inputs, native references, fixtures, and reproducible checks |
 
 Shared libraries are permitted, but publication and native compilation are
-independent programs and build targets from the first Nier checkpoint. Keep
-Nier core/artifact/target lowering separate from LLVM-to-Nier capture merging.
+independent programs and build targets from the first NieR checkpoint. Keep
+NieR core/artifact/target lowering separate from LLVM-to-NieR capture merging.
 Only publisher builds require Clang development libraries.
 
 ### 4.2 Prebuilt SDK supply
@@ -375,8 +380,8 @@ the original native object hash after successful code generation. Private
 native lanes use `-fno-temp-file` so that output is available at this point.
 These checks establish build correspondence, not hostile-workspace security.
 
-The SDK then invokes stock Clang on selected paired LLVM inputs to emit Nier
-units, and invokes stock Clang again for the final Nier publication link.
+The SDK then invokes stock Clang on selected paired LLVM inputs to emit NieR
+units, and invokes stock Clang again for the final NieR publication link.
 Build-generated headers remain profile-specific: a pointer-width generator
 must produce 8 for x86-64 and 4 for i686. No third source build or destination
 execution of private generators is needed.
@@ -526,7 +531,7 @@ archive or JSON parsers.
 The envelope is explicitly pre-alpha, with only a current-contract discriminator
 and no historical readers. Pin the implementation's LLVM/MLIR dependency, but
 do not make Clang identity or capture provenance an artifact admission rule.
-Document the Nier encoding and canonical JSON rules for independent producers.
+Document the NieR encoding and canonical JSON rules for independent producers.
 
 A representative logical layout is:
 
@@ -602,7 +607,7 @@ nierc hello.nier --sdk /device-sdk -o hello
 ~~~
 
 Normal separate compilation is also required: stock Clang `-c` emits
-relocatable Nier objects, and its ordinary link invocation combines them into
+relocatable NieR objects, and its ordinary link invocation combines them into
 one final archive. `-shared` selects shared-library publication. Each selected
 executable or shared library has one standalone artifact containing all its
 ordinary code and required public metadata; external native dependencies remain
@@ -710,7 +715,7 @@ resident.
 
 Hash/version checks before compilation validate inputs. They do not protect
 files against later modification, authenticate executable pages, or enforce
-application permissions. Those are security-platform obligations, not implicit
+application permissions. Those are SEN obligations, not implicit
 properties of the C SDK.
 
 ## 9. First implementation checkpoints
@@ -1079,7 +1084,7 @@ later security attachments materially change.
 
 ## 15. Security roadmap after standalone acceptance
 
-This section is a later implementation proposal for S1-S5, not part of the
+This section proposes the later SENieR (SEN) implementation for S1-S5, not part of the
 C MVP or a hidden restriction on standalone applications. Detailed mechanisms
 must be validated and reviewed when this phase begins. They do not authorize
 compiler forks, a custom application loader, or a language-specific device path.
@@ -1206,7 +1211,7 @@ revocations; that limitation does not excuse ignoring a received one.
 
 ### 15.5 Guest and supplied-OS deployment
 
-Use one security model and product in two qualified deployment scopes:
+Use the same SEN security model and product in two qualified deployment scopes:
 
 - Guest integration governs managed applications on an existing OS, without
   claiming control of the whole host.
@@ -1257,7 +1262,7 @@ attack fixtures alone do not establish the product.
 | S2-stage | Supplied OS/system-wide product accepted, including update/recovery |
 | Extensions | Kotlin/Native and further languages/targets evaluated against the same contracts |
 
-Do not implement the production security/store stack before P3 acceptance.
+Do not implement the production SEN security/store stack before P3 acceptance.
 Security planning and identifying eventual integration boundaries are not
 permission to make C work depend on it.
 
@@ -1275,12 +1280,12 @@ container project.
 
 ## 17. Implementation-status record
 
-The Nier migration replaces the old combined program and publication recipes;
+The NieR migration replaces the old combined program and publication recipes;
 old prototype artifact hashes and measurements are not evidence for the new
 implementation. The implementation and tests, not this roadmap, determine
 which gates have passed.
 
-Verified checkpoints include separate core/producer targets, public Nier APIs,
+Verified checkpoints include separate core/producer targets, public NieR APIs,
 bounded artifact handling, direct stock-Clang publication, and multi-file
 Hello World. Positive tests now cover matching CFG/SSA, scalar floating point,
 native-width/fixed-width controls, record and array storage, mutable globals,
@@ -1305,7 +1310,7 @@ source files selected into corresponding object roles, genuinely unequal
 three-versus-two translation-unit inventories, ordinary/thin/group/
 whole-archive extraction, shared-library outputs and native callers, and
 static outputs with duplicate member names. Static tests check observable
-member order and lazy extraction with both stock-native and Nier-produced
+member order and lazy extraction with both stock-native and NieR-produced
 callers. Shared-link tests check SONAME, versioned exports, dynamic visibility,
 constructor-only dependencies, and failed-link output preservation. Per-target
 archive extraction order and independent per-TU optimization settings are
@@ -1321,17 +1326,17 @@ The unchanged pinned cJSON static and shared configurations each pass all 19
 native-reference tests on both private profiles. Pinned zlib's original
 `make test` and `make test64` likewise pass both native profiles. The cJSON
 static/shared libraries and demonstration program additionally publish,
-compile, and run through Nier with reference-identical stdout. A stock-native
-caller also loads the Nier-produced DSO and matches the native reference.
-The complete zlib gate now also passes through Nier: its static archive,
+compile, and run through NieR with reference-identical stdout. A stock-native
+caller also loads the NieR-produced DSO and matches the native reference.
+The complete zlib gate now also passes through NieR: its static archive,
 versioned shared library, and all six test programs are independently
 published and compiled. The original `make test` and `make test64` recipes run
 successfully in a source-free destination with build tools disabled. Loader
-diagnostics confirm the shared tests use the Nier-generated `libz.so.1`.
+diagnostics confirm the shared tests use the NieR-generated `libz.so.1`.
 The complete cJSON gate also passes: each static/shared configuration produces
-21 Nier artifacts and its source-free destination passes all 19 original
+21 NieR artifacts and its source-free destination passes all 19 original
 CTests. Unity retains its normal `setjmp`/`longjmp` assertion control. Native
-and Nier callers both load the destination `libcjson.so.1`; demonstration
+and NieR callers both load the destination `libcjson.so.1`; demonstration
 stdout matches the native reference byte-for-byte.
 The reproducible gate is `corpus/qualify.sh`; its original
 test staging has been checked separately with native reference binaries.
@@ -1341,7 +1346,7 @@ artifact, `nierc` builds the native executable and a separate native DSO, and
 a stock-native caller/bridge verifies ordinary native calls and callbacks.
 Qualified records include integer pairs, mixed integer/double values, and
 larger native-width records, with register pressure and hidden-result storage.
-The same shared Nier units also pass private core-only native execution on
+The same shared NieR units also pass private core-only native execution on
 both widths. Classifier-only and normalization-only tests remain separately
 identified; neither is substituted for this artifact-pipeline evidence.
 

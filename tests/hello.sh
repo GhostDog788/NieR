@@ -46,4 +46,4 @@ if tar -xOf "$test_work/hello.nier" | strings | rg 'hello\.c|main\.c|DICompileUn
 fi
 mv "$test_work/hello.nier" "$test_work/hello.nier.offline"
 test "$(env -u LD_LIBRARY_PATH "$test_work/hello")" = 'Hello world'
-printf 'Stock-Clang multi-file Nier pipeline passed. Workspace: %s\n' "$test_work"
+printf 'Stock-Clang multi-file NieR pipeline passed. Workspace: %s\n' "$test_work"

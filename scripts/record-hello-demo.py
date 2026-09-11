@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record real stock-Clang/Nier commands, then render their PTY output.
+"""Record real stock-Clang/NieR commands, then render their PTY output.
 
 Run from any directory: bash /path/to/nier/scripts/record-hello-demo.sh
 Requires the built publisher, SDK, Python 3, Pillow, DejaVu fonts, and file.
@@ -225,7 +225,7 @@ def render(events, metadata, output, font_directory):
         draw = ImageDraw.Draw(canvas)
         draw.rounded_rectangle((14, 14, WIDTH - 15, HEIGHT - 15), radius=16,
                                fill=panel, outline="#24344b", width=1)
-        draw.text((36, 30), "C → Nier → native", font=fonts["title"], fill=foreground)
+        draw.text((36, 30), "C → NieR → native", font=fonts["title"], fill=foreground)
         badge = "REAL TERMINAL RECORDING"
         badge_width = draw.textlength(badge, font=fonts["small"])
         draw.text((WIDTH - badge_width - 36, 37), badge, font=fonts["small"], fill=accent)
@@ -269,12 +269,12 @@ def main():
         cast = {"version": 2, "width": COLUMNS, "height": ROWS,
                 "timestamp": metadata["recorded_at_unix"],
                 "duration": metadata["playback"]["duration_seconds"],
-                "title": "Nier: C source to artifact to native executable",
+                "title": "NieR: C source to artifact to native executable",
                 "env": {"TERM": "dumb", "SHELL": "/bin/bash"}}
         (scratch / "hello-demo.cast").write_text(
             "\n".join(json.dumps(item) for item in [cast, *events]) + "\n", encoding="utf-8")
         (scratch / "hello-demo.txt").write_text(
-            "Nier Hello demo — actual terminal transcript\n\n"
+            "NieR Hello demo — actual terminal transcript\n\n"
             "Reproduce: bash scripts/record-hello-demo.sh\n"
             "Prerequisites: built SDK/publisher, Python 3, Pillow, DejaVu fonts, file.\n"
             "The recorder copies the existing Hello C sources to fresh temporary storage.\n"

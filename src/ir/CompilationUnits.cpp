@@ -15,7 +15,7 @@ llvm::Error lowerCompilationUnit(llvm::ArrayRef<llvm::StringRef> fragments,
   };
   if (fragments.empty() || fragments.size() > 512 ||
       (profile != "x86_64" && profile != "i686"))
-    return fail("invalid Nier compilation-unit contract");
+    return fail("invalid NieR compilation-unit contract");
   mlir::MLIRContext context;
   llvm::LLVMContext nativeContext;
   std::unique_ptr<llvm::Module> result;
@@ -33,14 +33,14 @@ llvm::Error lowerCompilationUnit(llvm::ArrayRef<llvm::StringRef> fragments,
         if (global.isDeclaration()) continue;
         if (global.hasLocalLinkage() || !global.hasExternalLinkage() ||
             !definitions.insert(global.getName().str()).second)
-          return fail("grouped Nier units require unique external definition identities");
+          return fail("grouped NieR units require unique external definition identities");
       }
     }
     if (!result) result = std::move(*lowered);
     else if (llvm::Linker::linkModules(*result, std::move(*lowered)))
-      return fail("cannot reconstruct declared Nier translation unit");
+      return fail("cannot reconstruct declared NieR translation unit");
   }
-  if (llvm::verifyModule(*result)) return fail("reconstructed Nier translation unit is invalid");
+  if (llvm::verifyModule(*result)) return fail("reconstructed NieR translation unit is invalid");
   std::error_code error;
   llvm::raw_fd_ostream output(llvmIROutput, error, llvm::sys::fs::OF_Text);
   if (error) return llvm::errorCodeToError(error);

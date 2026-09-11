@@ -5,7 +5,7 @@
 ## Objective and prerequisites
 
 This is the contributor checkpoint. You should be able to trace a small semantic feature through its public contract, producer, consumer, and tests; then explain what evidence a safe change would require.
-You should know basic SSA and how the two sides of Nier connect. This chapter introduces the integer semantic details needed for its worked example.
+You should know basic SSA and how the two sides of NieR connect. This chapter introduces the integer semantic details needed for its worked example.
 
 We will follow **the existing `nier.bswap` feature**. It is already implemented.
 The exercise is not to add a fictional missing operation or copy a recipe without understanding it.
@@ -100,7 +100,7 @@ Interior expression nodes cannot have users outside the candidate graph. Otherwi
 Relevant loads from the admitted slot must also belong to the graph.
 
 Only after these checks does the code ask LLVM's idiom recognizer for help. It probes a temporary module, not the real capture, because the upstream recognizer can insert trial instructions and can recognize forms broader than our contract.
-Nier accepts exactly the complete, same-width byte swap here, not a masked or partial swap.
+NieR accepts exactly the complete, same-width byte swap here, not a masked or partial swap.
 
 Commit is small: insert the intrinsic, replace the root's uses, and delete only the now-dead proved expression.
 The allocation and initializing store remain.
@@ -138,7 +138,7 @@ When a program fails, first distinguish these situations:
 
 - Clang could not produce an admitted capture.
 - Native profiles could not be correlated or normalized.
-- The resulting Nier program violated its public contract.
+- The resulting NieR program violated its public contract.
 - Target lowering or native LLVM verification failed.
 - Native tools failed, or the executed program behaved incorrectly.
 

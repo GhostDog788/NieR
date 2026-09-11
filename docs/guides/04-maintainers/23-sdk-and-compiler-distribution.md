@@ -1,11 +1,11 @@
 # 23. SDK and compiler distribution
 
-[Series](../README.md) · [Previous: Artifact validation and robustness](22-artifact-validation-and-robustness.md) · [Next: Maintaining and evolving Nier](24-maintaining-and-evolving-nier.md)
+[Series](../README.md) · [Previous: Artifact validation and robustness](22-artifact-validation-and-robustness.md) · [Next: Maintaining and evolving NieR](24-maintaining-and-evolving-nier.md)
 
 ## Objective and prerequisites
 
 This chapter explains which dependencies belong to the developer's SDK, which belong to an on-device compiler, and which the resulting native application still needs.
-You should understand ELF interpreters and shared libraries, Clang/LLVM's frontend and backend roles, and the independent Nier producer and consumer programs.
+You should understand ELF interpreters and shared libraries, Clang/LLVM's frontend and backend roles, and the independent NieR producer and consumer programs.
 
 The maintainer objective is to follow dependencies through three different executions: building the publisher, running `nierc`, and running its output.
 Successfully moving the compiler directory does not automatically make every already-compiled application relocatable.
@@ -14,18 +14,18 @@ Likewise, downloading pinned tools does not make the publisher a fully hermetic 
 ## Three dependency sets, not one toolchain blob
 
 The development SDK contains the stock Clang frontend, matching Clang plugin development interfaces, LLVM, MLIR, LLD, compiler-rt, build utilities, and native development/runtime sysroots for the two private profiles.
-These are inputs to building Nier and compiling normal C source.
+These are inputs to building NieR and compiling normal C source.
 Headers and configure tools make sense here because this side is allowed to know that it is compiling C.
 
 The compiler-only distribution needs a different set:
-`nierc`, the core Nier semantics, ordinary native optimization/code generation/linking tools,
+`nierc`, the core NieR semantics, ordinary native optimization/code generation/linking tools,
 their host runtime libraries, and the selected target's native link/runtime files.
 It does not need Clang, the producer merger, C source headers or the publication capture plugins.
 The absence of those components is a functional boundary, not just a reduction in archive size.
 
 The application needs a third set. It is an ordinary native executable or library.
 A dynamically linked executable still needs its ELF interpreter, libc, declared native dependencies and any application resources.
-It must not need the Nier artifact, `nierc`, `opt`, `llc`, Clang, or a publication-time source tree merely to execute.
+It must not need the NieR artifact, `nierc`, `opt`, `llc`, Clang, or a publication-time source tree merely to execute.
 
 One directory may temporarily contain components from several sets during development.
 That convenience must not erase the distinctions.
@@ -46,7 +46,7 @@ It does not patch the loader, rewrite LLVM executables, or edit those linker scr
 This is why distinguishing a filesystem layout adjustment from a compiler fork matters during review.
 
 The SDK is nevertheless not a hermetic publisher image.
-Building Nier still uses host C++ standard-library headers and startup files.
+Building NieR still uses host C++ standard-library headers and startup files.
 Publisher executables use the host glibc/loader, and CMake depends on the host networking-library family.
 Pinning the extracted package inputs narrows variability; it does not pin every transitive host input or prove bit-reproducible application builds.
 
@@ -133,7 +133,7 @@ A successful `Hello World` under a richly configured developer shell would not e
 
 ## Optional independent lab
 
-This lab copies a substantial runtime bundle but does not rebuild Nier.
+This lab copies a substantial runtime bundle but does not rebuild NieR.
 Run it from the repository root after preparing the SDK and Release build:
 
 ```bash
@@ -171,4 +171,4 @@ Their tests should prove those distinctions even when development happens in one
 Read [development SDK reference](../../reference/development-sdk.md) for host assumptions, [compiler distribution reference](../../reference/compiler-distribution.md) for the bundle's supported contract,
 `src/consumer/Main.cpp` for SDK discovery and overrides, and `src/support/Support.cpp` for subprocess environments and native link construction.
 
-[Previous: Artifact validation and robustness](22-artifact-validation-and-robustness.md) · [Next: Maintaining and evolving Nier](24-maintaining-and-evolving-nier.md)
+[Previous: Artifact validation and robustness](22-artifact-validation-and-robustness.md) · [Next: Maintaining and evolving NieR](24-maintaining-and-evolving-nier.md)

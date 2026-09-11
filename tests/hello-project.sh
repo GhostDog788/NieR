@@ -188,7 +188,7 @@ for system in make cmake; do
   # Request publication again without modifying or reconfiguring the adapter.
   # Existing artifacts and old executables must not hide the changed source.
   cp -- "$project/build/nier-$system/hello.nier" "$test_work/$system.before.nier"
-  greeting="Hello Nier $system rebuild"
+  greeting="Hello NieR $system rebuild"
   sed "s/Hello world/$greeting/" "$project/hello.c" > "$project/hello.c.updated"
   mv -- "$project/hello.c.updated" "$project/hello.c"
   grep -q "$greeting" "$project/hello.c"

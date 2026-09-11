@@ -1,4 +1,4 @@
-# Building Nier and setting up VS Code
+# Building NieR and setting up VS Code
 
 [Documentation home](../README.md) · [Project reference](README.md)
 
@@ -18,7 +18,7 @@ source sdk/env.sh
 
 Bootstrap creates the repository-local `.sdk` by default.
 Source `sdk/env.sh` again in each new terminal session used for these commands.
-The pinned Clang, LLVM, MLIR, and LLD versions must stay coordinated with the Nier build.
+The pinned Clang, LLVM, MLIR, and LLD versions must stay coordinated with the NieR build.
 
 ## Build the publisher and consumer
 
@@ -53,15 +53,15 @@ cmake --build build/consumer-only --parallel 2
 ctest --test-dir build/consumer-only --output-on-failure
 ```
 
-This excludes the Clang frontend plugin, capture/replay tools, and LLVM-to-Nier producer from the configured product.
-Stock Clang may still compile Nier's own C++ sources; that does not make a language frontend an input to the resulting `nierc`.
+This excludes the Clang frontend plugin, capture/replay tools, and LLVM-to-NieR producer from the configured product.
+Stock Clang may still compile NieR's own C++ sources; that does not make a language frontend an input to the resulting `nierc`.
 Use this build's own CTest inventory, not the publisher-only CI smoke selection.
 See the [compiler distribution reference](compiler-distribution.md) to assemble its independent runtime bundle.
 
 ## Configure VS Code
 
 Open the repository root and enable the recommended **clangd** and **CMake Tools** extensions.
-Select **Nier pre-alpha (pinned SDK)** if CMake Tools asks for a configure preset.
+Select **NieR pre-alpha (pinned SDK)** if CMake Tools asks for a configure preset.
 You do not need to launch VS Code from a shell that sourced `sdk/env.sh`: the checked-in CMake/CTest launchers load the SDK environment for the editor.
 
 clangd reads the real compile database at `build/prealpha/compile_commands.json`.

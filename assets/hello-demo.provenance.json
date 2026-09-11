@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "recorded_at_unix": 1789158669,
+  "recorded_at_unix": 1789159657,
   "host": {
     "system": "Linux",
     "machine": "x86_64",
@@ -9,7 +9,7 @@
   "method": "Actual interactive Bash PTY output; no fabricated compiler output",
   "playback": {
     "speed": 1.0,
-    "duration_seconds": 21.8009,
+    "duration_seconds": 21.688695,
     "gif_fps": 10,
     "initial_pause_seconds": 1.0,
     "typing_interval_seconds": 0.024,
@@ -25,41 +25,41 @@
     {
       "title": "C source",
       "command": "cat main.c hello.c",
-      "started_at_seconds": 1.002975,
+      "started_at_seconds": 1.003123,
       "exit_status": 0,
-      "execution_seconds": 0.00106,
+      "execution_seconds": 0.001037,
       "reading_pause_seconds": 4.5
     },
     {
       "title": "Publish with stock Clang",
       "command": "clang --config=\"$NIER_CONFIG\" -O2 main.c hello.c -o hello.nier",
-      "started_at_seconds": 5.938458,
+      "started_at_seconds": 5.938123,
       "exit_status": 0,
-      "execution_seconds": 0.260799,
+      "execution_seconds": 0.150882,
       "reading_pause_seconds": 2.5
     },
     {
       "title": "One standalone artifact",
       "command": "file hello.nier",
-      "started_at_seconds": 10.194492,
+      "started_at_seconds": 10.083216,
       "exit_status": 0,
-      "execution_seconds": 0.001525,
+      "execution_seconds": 0.001433,
       "reading_pause_seconds": 2.0
     },
     {
       "title": "Compile independently",
       "command": "nierc hello.nier -o hello",
-      "started_at_seconds": 12.558159,
+      "started_at_seconds": 12.446107,
       "exit_status": 0,
-      "execution_seconds": 0.077259,
+      "execution_seconds": 0.075979,
       "reading_pause_seconds": 2.5
     },
     {
       "title": "Run the native executable",
       "command": "env -u LD_LIBRARY_PATH -u LD_PRELOAD ./hello",
-      "started_at_seconds": 15.738519,
+      "started_at_seconds": 15.625655,
       "exit_status": 0,
-      "execution_seconds": 0.001326,
+      "execution_seconds": 0.001315,
       "reading_pause_seconds": 5.0
     }
   ],
@@ -70,10 +70,10 @@
   },
   "tool_sha256": {
     "clang": "8ef402d453d1ba4902e4ee0f0f847f6cfa01400c95aa43c24e97818b9c0e3f45",
-    "nierc": "b9c2817a4c3582b134e65aee0bc6dcbb41b362c8ac9a91a2815acc67dc20aadc",
+    "nierc": "ebd66fb357a821d8508616068a2679f1bebf448648ff200594f9c3d7b022dcc0",
     "nier.cfg": "e6fbd555870e59df8ca345f471f32a6f472a535ee52ac2a4e459a42945aaaeae",
-    "libnier-clang.so": "65309a58f7fb59c1adef0a30d9391008606610994fa3a57b3387189de2c9e61b",
-    "nier-ld": "4012f3e5db636da84195bb52f6029b44d486dc84e3c52b6666ae36d94916749b"
+    "libnier-clang.so": "7742f53c69a22dc1cb4e75fe3332c99a303af3d1b687e9a99a8fed7940b3327b",
+    "nier-ld": "665d13ef885f6b060c82c338e612671428e8577cf957ec6f3dd73cf01e817e3f"
   },
   "output_sha256": {
     "hello.nier": "bad22d44ef1b058f329f0ae864fcfd0e8ac440e29b4540c97f217bb2b129d971",
@@ -81,7 +81,7 @@
   },
   "clang_version": "Ubuntu clang version 18.1.3 (1ubuntu1)",
   "renderer": {
-    "script_sha256": "be9e9a76d4f5f8a89999bf0ba6bc4d24c5cad4078f9baea5e4bed0e735668e3d",
+    "script_sha256": "8a6d2071f2af8406a871eb467ec38424fba8cefa4c2873ec7413da1ba3a2d976",
     "python_version": "3.12.3",
     "pillow_version": "10.2.0",
     "canvas_pixels": [
@@ -95,8 +95,8 @@
     }
   },
   "assets_sha256": {
-    "hello-demo.cast": "ed29ec8d8f0cd84eb48000416ceb3fa5c3baf3f3c0fb6078ad8e2bc39b007a7a",
-    "hello-demo.txt": "a2621b4aeed19b11898ea3480edec02c837dea214607a9910e34c22b690c1d27",
-    "hello-demo.gif": "1acf3d440a4240c1badde19c4597305116bb49b00004778e759d2e78fb83b26f"
+    "hello-demo.cast": "7c181c59a9c4973a07383c0bff5e44e72c9ef6795fe16a25dfc8fed7d90299a4",
+    "hello-demo.txt": "1681375f73bfef8717f8afd34c0aa8762ae37acb972f75a6d8d9a9e8b54dd5c4",
+    "hello-demo.gif": "a1d9552b78df086d085f99ec83396fc8fa3055b0d4a367030b273df2458496fe"
   }
 }

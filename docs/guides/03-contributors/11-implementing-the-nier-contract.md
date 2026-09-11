@@ -1,25 +1,25 @@
-# 11 — Implementing the Nier contract
+# 11 — Implementing the NieR contract
 
 [Series](../README.md) · [Previous: Reading the repository](10-reading-the-repository.md) · [Next: The developer-side compiler](12-developer-side-compiler.md)
 
 ## Objective and prerequisites
 
-This chapter shows how Nier's public representation becomes an implemented, checked contract rather than just a file extension.
-You will read a small Nier function, distinguish parsing from semantic validation, and follow the public API used by an independent producer.
+This chapter shows how NieR's public representation becomes an implemented, checked contract rather than just a file extension.
+You will read a small NieR function, distinguish parsing from semantic validation, and follow the public API used by an independent producer.
 Basic C++ ownership and LLVM error handling from the preceding chapter are enough; no Clang frontend knowledge is required.
 The optional lab uses the already built independent-producer fixture and `nierc` in `build/prealpha`.
 
 ## A dialect supplies vocabulary; the contract supplies meaning
 
 MLIR is infrastructure for representing and transforming intermediate code. A **dialect** is a registered family of operation and type names.
-Nier's dialect uses the `nier` namespace: examples include `nier.func`, `nier.load`, and `!nier.word`. Its registration is visible in `src/ir/Dialect.cpp`.
+NieR's dialect uses the `nier` namespace: examples include `nier.func`, `nier.load`, and `!nier.word`. Its registration is visible in `src/ir/Dialect.cpp`.
 
 An **operation** has operands, results, attributes, and possibly nested regions or successor blocks.
 Operands are values it uses; results are values it defines.
 Attributes describe information attached to the operation rather than values computed at runtime. A region contains blocks, and a block contains operations.
 This is enough vocabulary to read a tiny function without knowing MLIR's full framework.
 
-Nier deliberately uses MLIR's generic operation syntax.
+NieR deliberately uses MLIR's generic operation syntax.
 Quoted operation names are not an opaque escape hatch: they name real registered operations.
 Custom type syntax is parsed by `NIERDialect::parseType`; the operation definitions declare structural properties such as result count and whether an operation terminates a block.
 
@@ -42,13 +42,13 @@ module attributes {nier.schema = 1 : i32} {
 }
 ```
 
-The module carries the current Nier schema number.
+The module carries the current NieR schema number.
 `nier.func` has no ordinary operands or results of its own; its region holds the function body.
 Its `type` attribute says the function accepts no arguments and returns an `i32` value. The `id` is the linkable function identity.
 
 `%zero` is an SSA value: its definition occurs once, and later operations refer to that value rather than reassigning a source-language variable.
 Its printed name is not an application variable that must be preserved.
-The constant's attribute is stored as an `i64` integer attribute here, while the operation's declared result is `i32`; the verifier and lowerer interpret that combination according to Nier's constant rules.
+The constant's attribute is stored as an `i64` integer attribute here, while the operation's declared result is `i32`; the verifier and lowerer interpret that combination according to NieR's constant rules.
 
 `nier.return` consumes that `i32` and produces no result. It ends the block.
 The function-level `attributes` array contains the supported function/return/parameter attribute slots; the zero-argument example has two empty slots.
@@ -67,7 +67,7 @@ By contrast, an `i32` constant eight remains fixed. This distinction is the repr
 ## Validation happens at several levels
 
 Parsing checks whether bytes or text can form an MLIR structure. MLIR's structural verifier checks framework invariants.
-Nier's schema checks then reject unknown operation/attribute combinations, disallowed private locations, and other violations of the publication contract.
+NieR's schema checks then reject unknown operation/attribute combinations, disallowed private locations, and other violations of the publication contract.
 
 `nier::verifyModule` goes further: for each declared semantic target, it attempts the supported lowering and verifies the specialized LLVM result.
 An operation that is legal for one target but invalid for another cannot be published with both targets merely because the generic syntax parsed.
@@ -88,7 +88,7 @@ Digests detect inconsistent bytes; they are not signatures establishing who publ
 
 ## The independent-producer API, worked through
 
-A producer does not have to generate LLVM captures. It can construct registered MLIR operations directly, or parse known Nier text into an MLIR module.
+A producer does not have to generate LLVM captures. It can construct registered MLIR operations directly, or parse known NieR text into an MLIR module.
 The public headers expose the same validation and serialization path in either case.
 
 The following function illustrates the complete packaging portion, using real current APIs. The caller supplies a constructed module and keeps its context alive.
@@ -117,7 +117,7 @@ llvm::Error emitOneModule(mlir::ModuleOp module,
     return scratch.takeError();
   auto bytecodePath = scratch->path / "module.nierbc";
 
-  // writeModule validates before serializing the current Nier contract.
+  // writeModule validates before serializing the current NieR contract.
   if (auto error = nier::writeModule(module, bytecodePath.string()))
     return error;
 
@@ -185,7 +185,7 @@ A maintainer should ask: can an independent producer express this feature, can e
 
 ## Recap and check your understanding
 
-MLIR supplies representation machinery. Nier supplies the vocabulary and checked semantics.
+MLIR supplies representation machinery. NieR supplies the vocabulary and checked semantics.
 The public boundary is usable without Clang, but every producer must obey the current contract and honestly declare its supported target domain.
 
 <details>
@@ -198,7 +198,7 @@ No. Structural registration must be accompanied by schema rules, semantics, targ
 <details>
 <summary>Why does the independent producer call writeModule before createArtifact?</summary>
 
-`writeModule` validates and serializes the Nier module.
+`writeModule` validates and serializes the NieR module.
 `createArtifact` packages those byte strings with public metadata.
 Code semantics and archive structure are different layers.
 
