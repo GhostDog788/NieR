@@ -4,6 +4,12 @@
 
 This section is for developers who want to publish and run C applications.
 
+## Want a small project to work through?
+
+Follow the [Hello project walkthrough](hello-project-walkthrough.md).
+Start with the ordinary Make/CMake project in `examples/hello/hello/`, then follow its publication and native execution.
+No compiler-internals knowledge or earlier course chapters are required.
+
 ## Have an existing Make or CMake project?
 
 Use [Publish your C project with Nier](using-nier-with-your-c-project.md). It is a standalone practical guide with copy/paste examples, application settings, native compilation, and troubleshooting.

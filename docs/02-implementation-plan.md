@@ -1364,7 +1364,7 @@ cmake -S . -B build/prealpha -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/prealpha --parallel 2
 ctest --test-dir build/prealpha --output-on-failure
 mkdir -p artifacts
-clang --config="$PWD/build/prealpha/nier.cfg" -O2 examples/hello/main.c examples/hello/hello.c -o artifacts/hello.nier
+clang --config="$PWD/build/prealpha/nier.cfg" -O2 examples/hello/hello/main.c examples/hello/hello/hello.c -o artifacts/hello.nier
 build/prealpha/nierc artifacts/hello.nier -o artifacts/hello
 env -u LD_LIBRARY_PATH artifacts/hello
 ~~~

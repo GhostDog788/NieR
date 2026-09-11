@@ -25,6 +25,9 @@ Already have a C project? [Use Nier with Make or CMake](docs/guides/02-toolchain
 shows the complete path from your existing build to a `.nier` artifact and a
 native executable, without requiring compiler-internals knowledge.
 
+Want a small project to work through first? Follow the [Hello project walkthrough](docs/guides/02-toolchain-users/hello-project-walkthrough.md),
+starting with the ordinary Make/CMake project in `examples/hello/hello/`.
+
 New to Nier or compiler internals? Start with the
 [Nier guide series](docs/guides/README.md): 24 read-first chapters for Linux C
 developers, with stopping points at foundations, practical use, contributor,
@@ -80,13 +83,14 @@ folder open, run **Developer: Reload Window** once to pick up the workspace sett
 
 ## Multi-file Hello World
 
-The example has `main.c`, `hello.h`, and `hello.c`. From the repository root,
-after sourcing the SDK environment:
+The starter in `examples/hello/hello/` is a normal Make/CMake project with `main.c`, `hello.h`, and `hello.c`.
+The [Hello project walkthrough](docs/guides/02-toolchain-users/hello-project-walkthrough.md) explains the project-based route.
+For direct stock-Clang publication, run from the repository root after sourcing the SDK environment:
 
 ```sh
 mkdir -p artifacts
 clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
-  examples/hello/main.c examples/hello/hello.c -o artifacts/hello.nier
+  examples/hello/hello/main.c examples/hello/hello/hello.c -o artifacts/hello.nier
 build/prealpha/nierc inspect artifacts/hello.nier
 build/prealpha/nierc artifacts/hello.nier -o artifacts/hello
 env -u LD_LIBRARY_PATH artifacts/hello
@@ -101,8 +105,8 @@ native application objects, or whole per-target program copies.
 Normal separate compilation works too:
 
 ```sh
-clang --config="$PWD/build/prealpha/nier.cfg" -O2 -c examples/hello/main.c -o artifacts/main.o
-clang --config="$PWD/build/prealpha/nier.cfg" -O2 -c examples/hello/hello.c -o artifacts/hello.o
+clang --config="$PWD/build/prealpha/nier.cfg" -O2 -c examples/hello/hello/main.c -o artifacts/main.o
+clang --config="$PWD/build/prealpha/nier.cfg" -O2 -c examples/hello/hello/hello.c -o artifacts/hello.o
 clang --config="$PWD/build/prealpha/nier.cfg" artifacts/main.o artifacts/hello.o -o artifacts/hello.nier
 ```
 

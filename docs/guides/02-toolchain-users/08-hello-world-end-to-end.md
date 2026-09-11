@@ -13,8 +13,9 @@ That does not make publication and consumption the same program: `clang` and `ni
 
 ## Start with a genuinely normal C program
 
-The example deliberately has three files. `examples/hello/main.c` includes `examples/hello/hello.h`, calls `hello()`, and returns zero.
-`examples/hello/hello.c` includes `<stdio.h>` and defines:
+The starter in `examples/hello/hello/` is a normal Make/CMake project.
+Its program has two C source files and one header. `examples/hello/hello/main.c` includes `examples/hello/hello/hello.h`, calls `hello()`, and returns zero.
+`examples/hello/hello/hello.c` includes `<stdio.h>` and defines:
 
 ```c
 void hello(void) {
@@ -28,6 +29,9 @@ Each C file, together with the headers it includes, forms a **translation unit**
 
 That distinction will matter later. A translation unit is an optimization and symbol-visibility boundary, not just an arbitrary packaging choice.
 Publishing two units does not authorize combining the program into one large optimization unit with different behavior.
+
+For the hands-on project route, follow the [Hello project walkthrough](hello-project-walkthrough.md).
+This chapter instead follows the starter's C files directly to explain what happens at each publication and compilation boundary.
 
 ## The three commands that define the workflow
 
@@ -55,7 +59,7 @@ guide_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide08-XXXXXX")
 guide_config="$PWD/build/prealpha/nier.cfg"
 
 clang --config="$guide_config" -O2 \
-  examples/hello/main.c examples/hello/hello.c \
+  examples/hello/hello/main.c examples/hello/hello/hello.c \
   -o "$guide_work/hello.nier"
 
 build/prealpha/nierc inspect "$guide_work/hello.nier"
@@ -111,9 +115,9 @@ source sdk/env.sh
 guide_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide08-separate-XXXXXX")
 guide_config="$PWD/build/prealpha/nier.cfg"
 
-clang --config="$guide_config" -O2 -c examples/hello/main.c \
+clang --config="$guide_config" -O2 -c examples/hello/hello/main.c \
   -o "$guide_work/main.o"
-clang --config="$guide_config" -O2 -c examples/hello/hello.c \
+clang --config="$guide_config" -O2 -c examples/hello/hello/hello.c \
   -o "$guide_work/hello.o"
 tar -tf "$guide_work/main.o"
 
@@ -148,7 +152,7 @@ The result is ordinary native execution reached through an independent publicati
 Nothing in the C example knows it is being published. The successful experiment establishes this flow for the current qualified environment, not for every C program or CPU.
 
 <details>
-<summary>Why are there two modules although there are three source-tree files?</summary>
+<summary>Why are there two modules although the program uses two C files and a header?</summary>
 
 There are two C translation units. The header contributes declarations to each unit that includes it; it is not a separately compiled unit.
 

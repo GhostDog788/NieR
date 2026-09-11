@@ -6,13 +6,13 @@ config=$3
 test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 test_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-hello-XXXXXX")
 clang="$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/clang"
-"$clang" --config="$config" -O2 "$test_root/examples/hello/main.c" "$test_root/examples/hello/hello.c" -o "$test_work/hello.nier"
+"$clang" --config="$config" -O2 "$test_root/examples/hello/hello/main.c" "$test_root/examples/hello/hello/hello.c" -o "$test_work/hello.nier"
 "$nierc" inspect "$test_work/hello.nier"
 "$nierc" "$test_work/hello.nier" -o "$test_work/hello"
 test "$(env -u LD_LIBRARY_PATH "$test_work/hello")" = 'Hello world'
 readelf -l "$test_work/hello" | rg -F "$NIER_SDK_ROOT/sysroots/x86_64-linux-gnu/"
-"$clang" --config="$config" -O2 -c "$test_root/examples/hello/main.c" -o "$test_work/main.o"
-"$clang" --config="$config" -O2 -c "$test_root/examples/hello/hello.c" -o "$test_work/hello.o"
+"$clang" --config="$config" -O2 -c "$test_root/examples/hello/hello/main.c" -o "$test_work/main.o"
+"$clang" --config="$config" -O2 -c "$test_root/examples/hello/hello/hello.c" -o "$test_work/hello.o"
 "$clang" --config="$config" "$test_work/main.o" "$test_work/hello.o" -o "$test_work/separate.nier"
 cmp "$test_work/hello.nier" "$test_work/separate.nier"
 mv "$test_work/main.o" "$test_work/main.private"
@@ -20,7 +20,7 @@ mv "$test_work/hello.o" "$test_work/hello.private"
 "$nierc" "$test_work/separate.nier" -o "$test_work/separate"
 test "$(env -u LD_LIBRARY_PATH "$test_work/separate")" = 'Hello world'
 # Normal compiler rebuild semantics; no compatibility with previous formats.
-"$clang" --config="$config" -O2 "$test_root/examples/hello/main.c" "$test_root/examples/hello/hello.c" -o "$test_work/hello.nier"
+"$clang" --config="$config" -O2 "$test_root/examples/hello/hello/main.c" "$test_root/examples/hello/hello/hello.c" -o "$test_work/hello.nier"
 "$nierc" "$test_work/hello.nier" -o "$test_work/hello"
 "$clang" --config="$config" -O2 "$test_root/tests/fixtures/width.c" -o "$test_work/width.nier"
 "$nierc" "$test_work/width.nier" -o "$test_work/width"

@@ -134,7 +134,7 @@ Run it from the repository root:
 source sdk/env.sh
 validation_lab=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide-validation-XXXXXX")
 clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
-  examples/hello/main.c examples/hello/hello.c \
+  examples/hello/hello/main.c examples/hello/hello/hello.c \
   -o "$validation_lab/hello.nier"
 build/prealpha/nierc inspect "$validation_lab/hello.nier"
 before=$(sha256sum "$validation_lab/hello.nier")

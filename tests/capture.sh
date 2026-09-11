@@ -15,7 +15,7 @@ for level in 0 1 2 3 s z; do
         NIER_CAPTURE_PATH="$capture" "$llvm_bin/clang" --target="$triple" \
             --sysroot="$sdk_root/sysroots/$sysroot" -O"$level" -fPIC -g \
             -fstandalone-debug -fpass-plugin="$capture_plugin" \
-            -c "$test_root/examples/hello/hello.c" -o "$test_work/$profile-O$level.o"
+            -c "$test_root/examples/hello/hello/hello.c" -o "$test_work/$profile-O$level.o"
         "$llvm_bin/llvm-dis" "$capture" -o "$test_work/capture.ll"
         rg -q 'call i32 \(ptr, \.\.\.\) @printf' "$test_work/capture.ll"
         if [[ $level == 0 ]]; then

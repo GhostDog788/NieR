@@ -16,6 +16,9 @@ It is a standalone, command-oriented guide for existing Make and CMake applicati
 You do not need to read the compiler course first or rewrite your application's build files.
 The examples include the current pre-alpha limitations and runtime requirements.
 
+For a small project you can work through first, follow the [Hello project walkthrough](02-toolchain-users/hello-project-walkthrough.md).
+It starts with the ordinary Make/CMake project in `examples/hello/hello/` and follows publication through native execution.
+
 ## Choose how far to go
 
 | Reading path | Chapters | You should be able to… |
@@ -36,7 +39,7 @@ The files are grouped by learning stage.
 Each folder has its own short index; chapter numbers preserve the full reading order across folders.
 
 - [01-foundations](01-foundations/README.md) — chapters 01–06: Nier code and compiler concepts.
-- [02-toolchain-users](02-toolchain-users/README.md) — chapters 07–09 and the standalone Make/CMake project guide.
+- [02-toolchain-users](02-toolchain-users/README.md) — chapters 07–09, the Hello project walkthrough, and the standalone Make/CMake project guide.
 - [03-contributors](03-contributors/README.md) — chapters 10–14: repository, APIs, implementation flow, and testing.
 - [04-maintainers](04-maintainers/README.md) — chapters 15–24: compiler algorithms, robustness, distribution, and qualification.
 - [reference](reference/README.md) — glossary and quick terminology lookup.

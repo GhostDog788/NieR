@@ -140,7 +140,7 @@ Run it from the repository root after preparing the SDK and Release build:
 source sdk/env.sh
 distribution_lab=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide-distribution-XXXXXX")
 clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
-  examples/hello/main.c examples/hello/hello.c \
+  examples/hello/hello/main.c examples/hello/hello/hello.c \
   -o "$distribution_lab/hello.nier"
 bash scripts/package-consumer.sh build/prealpha \
   "$distribution_lab/original" "$NIER_SDK_ROOT"

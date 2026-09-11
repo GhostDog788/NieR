@@ -166,6 +166,6 @@ Portability, native dependencies, source privacy, and security remain different 
 
 - [Requirements, purpose and product boundary](../../01-architecture-design.md) states the intended product; read its standalone and security sections separately.
 - Independent producer (`tests/independent.cpp`) is the concrete example of creating Nier without our Clang pipeline. You will read its API use in chapter 11.
-- Hello source (`examples/hello/main.c`) is deliberately ordinary C, not a program rewritten for a special runtime.
+- Hello source (`examples/hello/hello/main.c`) is deliberately ordinary C, not a program rewritten for a special runtime.
 
 [Next: The Compiler Foundations](02-compiler-foundations.md)

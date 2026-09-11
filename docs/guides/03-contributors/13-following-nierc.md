@@ -132,7 +132,7 @@ source sdk/env.sh
 set -euo pipefail
 guide13_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide13-XXXXXX")
 clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
-  examples/hello/main.c examples/hello/hello.c -o "$guide13_work/hello.nier"
+  examples/hello/hello/main.c examples/hello/hello/hello.c -o "$guide13_work/hello.nier"
 build/prealpha/nierc inspect "$guide13_work/hello.nier"
 build/prealpha/nierc lower "$guide13_work/hello.nier" \
   --target x86_64 --output-dir "$guide13_work/native-ir"

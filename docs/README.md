@@ -6,6 +6,7 @@ The checked-in Obsidian settings belong to this documentation vault; there is no
 
 ## Start here
 
+- [Work through the Hello project](guides/02-toolchain-users/hello-project-walkthrough.md) — start with a normal Make/CMake project and follow its Nier publication and native execution.
 - [Publish your C project](guides/02-toolchain-users/using-nier-with-your-c-project.md) — the practical Make/CMake route from an existing application to a Nier artifact and native executable.
 - [Learn Nier](guides/README.md) — the complete course, from Nier code fundamentals to compiler-maintainer details.
 - [Build Nier](reference/building-nier.md) — prepare the SDK, build the tools, and set up VS Code.
