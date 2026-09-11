@@ -2,7 +2,9 @@
 
 [Guide series](../README.md) · [Publish your own C project](using-nier-with-your-c-project.md) · [Build instructions](../../reference/building-nier.md)
 
-Start with a normal Clang C project, add two small configuration files, and produce a `.nier` artifact using either Make or CMake.
+Start with a normal Clang C project, choose **Make or CMake**, and add one small publication configuration file.
+These are two supported alternatives: you need only one, not both.
+Your chosen approach produces a `.nier` artifact.
 Then compile that artifact with the independent `nierc` program and run the resulting native executable.
 Every application run in this walkthrough should print:
 
@@ -22,6 +24,10 @@ The repository contains two independently usable projects:
 - `examples/hello/hello` is the starter: ordinary C sources and native Make/CMake builds, with no Nier dependency.
 - `examples/hello/hello-nier` is the solution: exactly the same six files, plus `nier/Makefile` and `nier/CMakeLists.txt`.
 
+The solution includes both alternatives for reference, not because publication requires both files.
+In your practice copy, add only `nier/Makefile` for Make or only `nier/CMakeLists.txt` for CMake.
+The comparison below checks your chosen configuration against that solution.
+
 The shared files are `main.c`, `hello.c`, `hello.h`, `Makefile`, `CMakeLists.txt`, and `.gitignore`.
 `main.c` calls `hello()`, `hello.h` declares it, and `hello.c` prints the message through the normal C library.
 Neither project reads source files or build rules from a parent directory.
@@ -32,7 +38,9 @@ We will work in a fresh copy, so the checked-in starter and solution stay untouc
 
 ## 1. Copy the starter into a fresh workspace
 
-Start **Bash in the Nier repository root** and run the following blocks in that same shell, in order.
+Start **Bash in the Nier repository root** and keep using that shell throughout the exercise.
+After this setup, follow either step 2A for Make or step 2B for CMake, then continue at step 3.
+Skip the other approach entirely; if you later want to try it too, start with a fresh practice copy.
 The `nier_repo` variable records the toolchain's absolute location before we change directory.
 Use a Nier checkout and scratch path without whitespace for this simple Make integration and traditional configure tools.
 
@@ -41,18 +49,26 @@ nier_repo="$PWD"
 source "$nier_repo/sdk/env.sh"
 hello_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-hello-project-XXXXXX")
 practice_project="$hello_work/hello"
-cp -a "$nier_repo/examples/hello/hello" "$practice_project"
+mkdir "$practice_project"
+cp -a "$nier_repo/examples/hello/hello/"{main.c,hello.c,hello.h,Makefile,CMakeLists.txt,.gitignore} \
+  "$practice_project/"
 cd "$practice_project"
 printf 'Practice project: %s\nToolchain: %s\n' "$practice_project" "$nier_repo"
 ```
 
+Copy only the six project files, not any existing `build/` outputs from earlier experiments.
+In particular, a copied CMake cache would still refer to the old source and build directories.
+These commands leave the original project's build outputs untouched.
 The source command selects the SDK's stock Clang and other build tools for this shell; it does not replace a system compiler.
 Keep this shell open and retain the printed directory if you want to inspect or rerun your results later.
 All generated project files will go under its ignored `build/` directory.
 
-## 2. Check the ordinary native builds
+## 2A. Make approach
 
-First use the starter's existing Makefile, without any Nier configuration:
+Choose this approach if you want to publish through Make.
+You will add only `nier/Makefile`; no CMake configuration or CMake commands are needed for this route.
+
+First check the starter's existing native Makefile, without any Nier configuration:
 
 ```bash
 make hello
@@ -63,32 +79,18 @@ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./build/native-make/hello
 The Makefile uses `clang`, now selected from the SDK by `PATH`.
 It compiles `main.c` and `hello.c` separately, then links their native objects.
 
-Check the independent native CMake build as well:
+The application should print `Hello world`.
+If the build or run fails, resolve it before adding publication.
+The `env` command clears development-shell library overrides; the binary still uses its ordinary native runtime dependencies.
 
-```bash
-cmake -S . -B build/native-cmake -G Ninja -DCMAKE_C_COMPILER=clang
-cmake --build build/native-cmake --target hello
-env -u LD_LIBRARY_PATH -u LD_PRELOAD ./build/native-cmake/hello
-```
-
-Both commands should print `Hello world`.
-If either build or run fails, stop and resolve it before adding publication.
-The `env` commands clear development-shell library overrides for the application; the binaries still use their ordinary native runtime dependencies.
-
-Nothing you have done so far is Nier publication.
-This baseline shows that the application is a normal C project with two normal build-system choices.
-
-## 3. Add only the publication configuration
-
-Create one directory in the copied project:
+Create the publication directory in the copied project:
 
 ```bash
 mkdir nier
 ```
 
-Use your editor to create the following two files exactly as shown.
-Do not change the application sources, its original Makefile, or its original `CMakeLists.txt`.
-You are adding an optional publication path, not converting the ordinary build into something else.
+Use your editor to create only the file below, exactly as shown.
+Leave the C sources and original native build files unchanged.
 
 ### Create `nier/Makefile`
 
@@ -123,6 +125,42 @@ The included SDK file supplies the publication recipe.
 `nier-build` is its internal coordinator, not a new public C compiler to use instead of Clang.
 The default tool location is the current development build, and an explicit `NIER_BUILD_TOOL` override is available for other build directories.
 
+Publish from the copied project root, then record the artifact path for the shared steps:
+
+```bash
+make -f nier/Makefile NIER_ROOT="$nier_repo"
+artifact=build/nier-make/hello.nier
+```
+
+The artifact is `build/nier-make/hello.nier`.
+Continue at step 3; do not create the CMake configuration below.
+
+## 2B. CMake approach
+
+Choose this approach if you want to publish through CMake.
+You will add only `nier/CMakeLists.txt`; no Make publication configuration or Make commands are needed for this route.
+
+First check the starter's existing native CMake project, without any Nier configuration:
+
+```bash
+cmake -S . -B build/native-cmake -G Ninja -DCMAKE_C_COMPILER=clang
+cmake --build build/native-cmake --target hello
+env -u LD_LIBRARY_PATH -u LD_PRELOAD ./build/native-cmake/hello
+```
+
+The application should print `Hello world`.
+If the build or run fails, resolve it before adding publication.
+The `env` command clears development-shell library overrides; the binary still uses its ordinary native runtime dependencies.
+
+Create the publication directory in the copied project:
+
+```bash
+mkdir nier
+```
+
+Use your editor to create only the file below, exactly as shown.
+Leave the C sources and original native build files unchanged.
+
 ### Create `nier/CMakeLists.txt`
 
 ```cmake
@@ -152,43 +190,64 @@ There is no dependency on where this project happens to sit inside the example r
 
 `TARGETS hello` selects the original application's native target.
 Here `NATIVE_OUTPUT hello` is relative to its private CMake binary directory, whereas `OUTPUT hello.nier` is relative to the coordinator's binary directory.
-The two build systems therefore select the same program through different native output paths.
+The SDK environment selects the matching CMake and Ninja.
+This copied application does not need a Nier development preset.
 
-## 4. Compare your work with the supplied solution
-
-From the copied project root, run:
+Configure the publication project by selecting `nier` as the source directory, not `.`.
+Publish, then record the artifact path for the shared steps:
 
 ```bash
-diff -ru --exclude=build "$nier_repo/examples/hello/hello-nier" "$practice_project"
+cmake -S nier -B build/nier-cmake -G Ninja -DNIER_ROOT="$nier_repo"
+cmake --build build/nier-cmake --target publish
+artifact=build/nier-cmake/hello.nier
 ```
 
-No output and a successful exit mean your project matches the solution, ignoring generated build directories.
-If there is a difference, inspect it before continuing.
-This comparison includes the unchanged C sources and native build files as well as the two new configurations.
-Editor backup files inside the project will also appear in the comparison.
+The artifact is `build/nier-cmake/hello.nier`.
+The target `publish` belongs to the coordinator; it tells the SDK to build the application's native target `hello` privately.
+Continue at step 3; you do not need the Make approach as well.
 
-You have now made the entire integration change: two added files, zero modified application or native build files.
-For a real project, you normally add only the adapter for the build system you use.
+## 3. Compare your chosen approach with the solution
 
-## 5. Publish with Make, then compile and run
+You have made the entire integration change: one added file, zero modified application or native build files.
+The checked-in solution contains both alternatives, so compare the shared project and your selected configuration separately.
 
-Still in the copied project root, invoke the new Make configuration:
+First check the unchanged project files, excluding generated outputs and the publication directory:
 
 ```bash
-make -f nier/Makefile NIER_ROOT="$nier_repo"
+diff -ru --exclude=build --exclude=nier "$nier_repo/examples/hello/hello-nier" "$practice_project"
 ```
 
-The artifact is `build/nier-make/hello.nier`.
-Publication may take longer than the initial native build because the SDK runs fresh private x86-64 and i686 builds, checks their captured program representations, and invokes stock Clang's Nier publication path.
-The `.nier` output is a standalone artifact, not a renamed executable and not a package of your private native objects.
+Then run only the comparison for your chosen approach.
 
-Inspect it, compile it with the independent device compiler, and run the resulting native file:
+For Make, ignore the solution's unused CMake publication file:
 
 ```bash
-"$nier_repo/build/prealpha/nierc" inspect build/nier-make/hello.nier
-"$nier_repo/build/prealpha/nierc" build/nier-make/hello.nier \
-  -o build/nier-make/hello
-env -u LD_LIBRARY_PATH -u LD_PRELOAD ./build/nier-make/hello
+diff -ru --exclude=CMakeLists.txt "$nier_repo/examples/hello/hello-nier/nier" "$practice_project/nier"
+```
+
+For CMake, ignore the solution's unused Make publication file:
+
+```bash
+diff -ru --exclude=Makefile "$nier_repo/examples/hello/hello-nier/nier" "$practice_project/nier"
+```
+
+No output and successful exits mean your files match the chosen solution.
+If there is a difference, inspect it before continuing; editor backup files may also appear.
+The missing configuration for the other approach is intentional, not an unfinished step.
+
+## 4. Compile your artifact and run the native result
+
+Both approaches now reach this same step.
+Your chosen branch set `artifact` to its `.nier` output; keep using the same shell.
+The `.nier` file is a standalone artifact, not a renamed executable and not a package of your private native objects.
+
+Inspect it, compile it with the independent device compiler, and run the native output beside the artifact:
+
+```bash
+native_output="${artifact%.nier}"
+"$nier_repo/build/prealpha/nierc" inspect "$artifact"
+"$nier_repo/build/prealpha/nierc" "$artifact" -o "$native_output"
+env -u LD_LIBRARY_PATH -u LD_PRELOAD "./$native_output"
 ```
 
 The final command should print `Hello world`.
@@ -196,46 +255,35 @@ Do not try to execute `hello.nier`: only the output of `nierc` is the native pro
 Although this exercise runs both compilers on one machine, these are separate program invocations separated by a file.
 The device compiler does not read the C sources or know that the artifact originated in C.
 
-## 6. Publish with CMake, then compile and run
+## 5. Repeat publication through your chosen approach
 
-Configure the **publication** project by selecting `nier` as the source directory, not `.`:
-
-```bash
-cmake -S nier -B build/nier-cmake -G Ninja -DNIER_ROOT="$nier_repo"
-cmake --build build/nier-cmake --target publish
-"$nier_repo/build/prealpha/nierc" inspect build/nier-cmake/hello.nier
-"$nier_repo/build/prealpha/nierc" build/nier-cmake/hello.nier \
-  -o build/nier-cmake/hello
-env -u LD_LIBRARY_PATH -u LD_PRELOAD ./build/nier-cmake/hello
-```
-
-This independently produces `build/nier-cmake/hello.nier`, then `build/nier-cmake/hello`, which also prints `Hello world`.
-The CMake target `publish` belongs to the coordinator; its configuration tells the SDK to build the application's native target `hello` privately.
-The SDK environment selects the matching CMake and Ninja.
-This copied application does not need a Nier development preset.
-
-## 7. Repeat publication and keep the boundaries clear
-
-Request both publications again to exercise the rebuild path, then recompile their native outputs:
+To republish, run only the command for your chosen approach.
+For Make:
 
 ```bash
 make -f nier/Makefile NIER_ROOT="$nier_repo"
-cmake --build build/nier-cmake --target publish
-"$nier_repo/build/prealpha/nierc" build/nier-make/hello.nier \
-  -o build/nier-make/hello
-"$nier_repo/build/prealpha/nierc" build/nier-cmake/hello.nier \
-  -o build/nier-cmake/hello
-env -u LD_LIBRARY_PATH -u LD_PRELOAD ./build/nier-make/hello
-env -u LD_LIBRARY_PATH -u LD_PRELOAD ./build/nier-cmake/hello
-diff -ru --exclude=build "$nier_repo/examples/hello/hello-nier" "$practice_project"
 ```
 
-Both executions print the message, and the final comparison is still empty.
+Or, for CMake:
+
+```bash
+cmake --build build/nier-cmake --target publish
+```
+
+Then, for either approach, refresh and run the native executable:
+
+```bash
+"$nier_repo/build/prealpha/nierc" "$artifact" -o "$native_output"
+env -u LD_LIBRARY_PATH -u LD_PRELOAD "./$native_output"
+```
+
+The execution prints the message again, and the comparisons from step 3 remain empty.
 These commands intentionally replace only outputs you created in this disposable project's `build/` directory.
-The SDK adapter runs fresh private builds for each request; a failed publication preserves the previous successful artifact.
+The SDK adapter runs fresh private x86-64 and i686 builds for each request, checks their captured program representations, and invokes stock Clang's Nier publication path.
+This can take longer than the initial native build; a failed publication preserves the previous successful artifact.
 This is not yet an incremental publication cache.
 
-The ordinary builds remain available too: `make hello` and `cmake --build build/native-cmake --target hello` still use the unchanged native build files.
+Your ordinary build remains available too: `make hello` for the Make approach, or `cmake --build build/native-cmake --target hello` for CMake.
 There is no need to make every compiler call emit Nier.
 The adapter keeps configure probes and build-time generators native, then publishes the selected result; Hello is simply the smallest project exercising that integration.
 
@@ -248,24 +296,42 @@ This walkthrough demonstrates publication and native compilation, not signing en
 
 ## Use the finished solution without doing the exercise
 
-You can also start from the ready-made solution.
-In a new Bash shell at the Nier repository root, copy it to a new scratch directory and publish directly:
+You can also start from the ready-made solution, which includes both configurations so you can choose either one.
+In a new Bash shell at the Nier repository root, copy it to a new scratch directory:
 
 ```bash
 nier_repo="$PWD"
 source "$nier_repo/sdk/env.sh"
 solution_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-hello-solution-XXXXXX")
-cp -a "$nier_repo/examples/hello/hello-nier" "$solution_work/project"
+mkdir -p "$solution_work/project/nier"
+cp -a "$nier_repo/examples/hello/hello-nier/"{main.c,hello.c,hello.h,Makefile,CMakeLists.txt,.gitignore} \
+  "$solution_work/project/"
+cp -a "$nier_repo/examples/hello/hello-nier/nier/"{Makefile,CMakeLists.txt} \
+  "$solution_work/project/nier/"
 cd "$solution_work/project"
-make -f nier/Makefile NIER_ROOT="$nier_repo"
-"$nier_repo/build/prealpha/nierc" build/nier-make/hello.nier \
-  -o build/nier-make/hello
-env -u LD_LIBRARY_PATH -u LD_PRELOAD ./build/nier-make/hello
 printf 'Solution copy: %s\n' "$solution_work/project"
 ```
 
-The same solution copy also supports the native builds from step 2 and the CMake publication commands from step 6.
-It does not depend on anything you created in the practice directory.
+As in the practice setup, copy only project files so old build caches cannot follow you into the new directory.
+
+Choose Make:
+
+```bash
+make -f nier/Makefile NIER_ROOT="$nier_repo"
+artifact=build/nier-make/hello.nier
+```
+
+Or choose CMake:
+
+```bash
+cmake -S nier -B build/nier-cmake -G Ninja -DNIER_ROOT="$nier_repo"
+cmake --build build/nier-cmake --target publish
+artifact=build/nier-cmake/hello.nier
+```
+
+Then use step 4 to compile and run your selected artifact.
+You do not need to create either configuration file or execute the other approach.
+The solution copy does not depend on anything you created in the practice directory.
 
 If a command fails, check the first diagnostic rather than continuing with a stale output.
 An absent selected output usually means a target/path mismatch; an SDK or plugin mismatch means the toolchain needs a matching build.

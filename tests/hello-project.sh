@@ -14,7 +14,8 @@ test_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-hello-project-XXXXXX")
 # SDK/scratch-path contract used by native configure scripts.
 starter="$test_work/starter project"
 solution="$test_work/solution project"
-practice="$test_work/practice project"
+practice_make="$test_work/practice make project"
+practice_cmake="$test_work/practice cmake project"
 clang="$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/clang"
 cmake="$NIER_SDK_ROOT/host/usr/bin/cmake"
 ninja="$NIER_SDK_ROOT/host/usr/bin/ninja"
@@ -52,14 +53,15 @@ test -f "$examples/hello-nier/nier/Makefile"
 test -f "$examples/hello-nier/nier/CMakeLists.txt"
 diff -ru --exclude=build --exclude=nier "$examples/hello" "$examples/hello-nier"
 
-mkdir "$starter" "$solution" "$practice"
+mkdir "$starter" "$solution" "$practice_make" "$practice_cmake"
 for file in main.c hello.c hello.h Makefile CMakeLists.txt .gitignore; do
   cp -- "$examples/hello/$file" "$starter/$file"
   cp -- "$examples/hello-nier/$file" "$solution/$file"
-  cp -- "$examples/hello/$file" "$practice/$file"
+  cp -- "$examples/hello/$file" "$practice_make/$file"
+  cp -- "$examples/hello/$file" "$practice_cmake/$file"
 done
 cp -R -- "$examples/hello-nier/nier" "$solution/nier"
-mkdir "$practice/nier"
+mkdir "$practice_make/nier" "$practice_cmake/nier"
 diff -ru --exclude=build "$examples/hello" "$starter"
 diff -ru --exclude=build "$examples/hello-nier" "$solution"
 
@@ -79,9 +81,26 @@ extract_config() {
   ' "$guide" > "$destination"
   test -s "$destination"
 }
-extract_config '### Create `nier/Makefile`' make "$practice/nier/Makefile"
-extract_config '### Create `nier/CMakeLists.txt`' cmake "$practice/nier/CMakeLists.txt"
-diff -ru --exclude=build "$solution" "$practice"
+extract_config '### Create `nier/Makefile`' make "$practice_make/nier/Makefile"
+extract_config '### Create `nier/CMakeLists.txt`' cmake "$practice_cmake/nier/CMakeLists.txt"
+
+check_adapter() {
+  local project=$1 chosen=$2 unchosen=$3
+  cmp "$solution/nier/$chosen" "$project/nier/$chosen"
+  test ! -e "$project/nier/$unchosen"
+}
+
+check_practice() {
+  local project=$1 chosen=$2 unchosen=$3
+  for file in main.c hello.c hello.h Makefile CMakeLists.txt .gitignore; do
+    cmp "$solution/$file" "$project/$file"
+  done
+  check_adapter "$project" "$chosen" "$unchosen"
+  diff -ru --exclude=build --exclude=nier "$solution" "$project"
+  diff -ru --exclude="$unchosen" "$solution/nier" "$project/nier"
+}
+check_practice "$practice_make" Makefile CMakeLists.txt
+check_practice "$practice_cmake" CMakeLists.txt Makefile
 
 check_output() {
   local executable=$1 greeting=$2
@@ -90,13 +109,17 @@ check_output() {
   cmp "$test_work/expected.stdout" "$test_work/actual.stdout"
 }
 
-native_builds() {
+native_make() {
   local project=$1
   (
     cd -- "$project"
     make CC="$clang"
   )
   check_output "$project/build/native-make/hello" 'Hello world'
+}
+
+native_cmake() {
+  local project=$1
   "$cmake" -S "$project" -B "$project/build/native-cmake" -G Ninja \
     -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_C_COMPILER="$clang"
   "$cmake" --build "$project/build/native-cmake"
@@ -132,34 +155,53 @@ consume() {
   check_output "$executable" "$greeting"
 }
 
-native_builds "$starter"
-native_builds "$solution"
-for project in "$solution" "$practice"; do
-  publish_make "$project"
-  consume "$project" make 'Hello world'
-  configure_publication "$project"
-  publish_cmake "$project"
-  consume "$project" cmake 'Hello world'
+for project in "$starter" "$solution"; do
+  native_make "$project"
+  native_cmake "$project"
 done
+publish_make "$solution"
+consume "$solution" make 'Hello world'
+configure_publication "$solution"
+publish_cmake "$solution"
+consume "$solution" cmake 'Hello world'
 
-# Request publication again without touching/reconfiguring either coordinator.
-# Existing artifacts and old executables must not hide the changed source.
-diff -ru --exclude=build "$examples/hello" "$starter"
-diff -ru --exclude=build "$examples/hello-nier" "$solution"
-diff -ru --exclude=build "$solution" "$practice"
-cp -- "$practice/build/nier-make/hello.nier" "$test_work/make.before.nier"
-cp -- "$practice/build/nier-cmake/hello.nier" "$test_work/cmake.before.nier"
-sed 's/Hello world/Hello Nier rebuild/' "$practice/hello.c" > "$practice/hello.c.updated"
-mv -- "$practice/hello.c.updated" "$practice/hello.c"
-grep -q 'Hello Nier rebuild' "$practice/hello.c"
-publish_make "$practice"
-publish_cmake "$practice"
+# Each exercise starts from its own copy with only its chosen adapter. Neither
+# branch may obtain configuration or previous outputs from the other branch.
 for system in make cmake; do
-  if cmp -s "$test_work/$system.before.nier" "$practice/build/nier-$system/hello.nier"; then
+  if test "$system" = make; then
+    project=$practice_make
+    chosen=Makefile
+    unchosen=CMakeLists.txt
+    other_system=cmake
+  else
+    project=$practice_cmake
+    chosen=CMakeLists.txt
+    unchosen=Makefile
+    other_system=make
+  fi
+  "native_$system" "$project"
+  if test "$system" = cmake; then configure_publication "$project"; fi
+  "publish_$system" "$project"
+  consume "$project" "$system" 'Hello world'
+  check_practice "$project" "$chosen" "$unchosen"
+
+  # Request publication again without modifying or reconfiguring the adapter.
+  # Existing artifacts and old executables must not hide the changed source.
+  cp -- "$project/build/nier-$system/hello.nier" "$test_work/$system.before.nier"
+  greeting="Hello Nier $system rebuild"
+  sed "s/Hello world/$greeting/" "$project/hello.c" > "$project/hello.c.updated"
+  mv -- "$project/hello.c.updated" "$project/hello.c"
+  grep -q "$greeting" "$project/hello.c"
+  "publish_$system" "$project"
+  if cmp -s "$test_work/$system.before.nier" "$project/build/nier-$system/hello.nier"; then
     printf 'ERROR: %s publication ignored the source change\n' "$system" >&2
     exit 1
   fi
-  consume "$practice" "$system" 'Hello Nier rebuild'
+  consume "$project" "$system" "$greeting"
+  check_adapter "$project" "$chosen" "$unchosen"
+  test ! -e "$project/build/nier-$other_system"
 done
+diff -ru --exclude=build "$examples/hello" "$starter"
+diff -ru --exclude=build "$examples/hello-nier" "$solution"
 
-printf 'Standalone Hello projects, guide reconstruction, native builds, both publication paths, and on-demand rebuilds passed.\n'
+printf 'Standalone Hello projects, independent Make-only/CMake-only guide exercises, native builds, publication, and on-demand rebuilds passed.\n'

@@ -7,11 +7,12 @@ You want to publish a `.nier` artifact, then use the separate `nierc` compiler t
 This guide explains how to configure that flow for your own project; no compiler background is required.
 
 For a complete exercise with supplied source code, start with the [Hello project walkthrough](hello-project-walkthrough.md).
-It takes an independent, ordinary C project and adds just two publication configuration files.
-The finished example is also available as a template, so you can compare your setup with a working solution.
+It takes an independent, ordinary C project and adds one publication configuration for your chosen build system.
+The finished example includes both independent alternatives for reference, so you can compare your chosen configuration with a working solution.
 
 For a qualifying simple project, you keep your C sources and existing native Makefile or `CMakeLists.txt` unchanged.
 Add a small, separate `nier/` configuration for the build system you use.
+Follow either the Make section or the CMake section below; you do not need both configurations.
 That configuration tells the SDK where your project is, what to build, and which native output to publish.
 Stock Clang still performs C publication; the SDK adapter coordinates the existing build around it.
 
@@ -38,7 +39,7 @@ Before adding publication, check your ordinary native build with Clang and run i
 For Make, that might be `make CC=clang all`; for CMake, configure a fresh binary directory with `-DCMAKE_C_COMPILER=clang`, then build your normal target.
 Follow your project's own configure options, runtime arguments, data-file paths, and working-directory requirements.
 A failing native build is not a useful starting point for debugging publication.
-The [Hello walkthrough](hello-project-walkthrough.md) performs both baseline checks in a disposable copy if you want a safe first trial.
+The [Hello walkthrough](hello-project-walkthrough.md) checks your chosen native build in a disposable copy if you want a safe first trial.
 
 ## Choose the target and the actual output
 
