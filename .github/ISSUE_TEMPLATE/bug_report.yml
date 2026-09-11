@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem in the current Nier pre-alpha.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a public report. For a suspected vulnerability, follow the [security policy](https://github.com/GhostDog788/NIER/blob/main/SECURITY.md) instead.
+        Do not upload credentials, private application source, or complete private capture workspaces.
+        Check the [implementation status](https://github.com/GhostDog788/NIER/blob/main/docs/02-implementation-plan.md) for the current qualified scope.
+  - type: checkboxes
+    id: preparation
+    attributes:
+      label: Before reporting
+      options:
+        - label: I searched for an existing report of this problem.
+          required: true
+        - label: This report contains no sensitive vulnerability details, secrets, or material I am not authorized to share.
+          required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Commit and environment
+      description: Include the commit, local changes, host OS/architecture, target, SDK lock or version, and relevant tool versions. Do not paste your entire environment.
+      placeholder: |
+        Commit:
+        Local changes:
+        Host OS and architecture:
+        Target:
+        SDK and tool versions:
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Provide a small shareable input and exact commands from a stated working directory. Say whether the ordinary native build also fails.
+      placeholder: |
+        1. Prepare this input...
+        2. Run this command...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Explain the expected result and the contract or example you relied on.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the first relevant error and the observed result. Redact private paths and application details before posting logs.
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks already tried
+      description: List relevant tests or native comparisons, their results, and anything you could not run. A failing diagnostic is not a passing feature test.

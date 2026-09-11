@@ -33,6 +33,7 @@ This prototype does not relocate already compiled output when its runtime direct
 Keep that directory in place; production runtime installation and lifecycle management remain future work.
 
 `sdk/packages.lock` and `sdk/sdk-lock.sha256` record the development SDK contract; `payload.sha256` records copied file contents. These receipts are not signatures or tamper-resistant security enforcement.
+The root `LICENSE` carries Nier's Apache-2.0 terms and is included in the payload checksums.
 Ubuntu package copyright notices for included components are retained under `licenses`.
 Release license/source-offer review remains a distribution-release task.
 

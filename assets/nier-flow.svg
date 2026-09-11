@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title description">
+  <title id="title">Nier publication and native compilation</title>
+  <desc id="description">On the developer's machine, a language producer publishes a standalone, architecture-neutral .nier artifact. On the target machine, the independent, language-blind nierc compiler turns that artifact into an ordinary native executable. Today's C producer uses stock Clang with the Nier plugin.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8295ac"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="320" rx="20" fill="#0b1422"/>
+  <g font-family="DejaVu Sans, sans-serif">
+    <text x="42" y="42" fill="#a6b7ca" font-size="13" letter-spacing="2">DEVELOPER MACHINE</text>
+    <text x="658" y="42" fill="#a6b7ca" font-size="13" letter-spacing="2">TARGET MACHINE</text>
+    <path d="M 620 30 V 268" stroke="#334358" stroke-dasharray="5 7"/>
+
+    <rect x="40" y="83" width="250" height="146" rx="12" fill="#142135" stroke="#334358"/>
+    <text x="165" y="121" text-anchor="middle" fill="#f1f5fa" font-size="21" font-weight="bold">Language producer</text>
+    <text x="165" y="156" text-anchor="middle" fill="#b6c5d6" font-size="15">Today: C via stock Clang</text>
+    <text x="165" y="183" text-anchor="middle" fill="#b6c5d6" font-size="15">with the Nier plugin</text>
+
+    <path d="M 304 157 H 339" stroke="#8295ac" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="355" y="70" width="230" height="172" rx="12" fill="#123232" stroke="#38d9c5" stroke-width="2"/>
+    <text x="470" y="116" text-anchor="middle" fill="#38d9c5" font-size="15" letter-spacing="2">NIER CODE</text>
+    <text x="470" y="163" text-anchor="middle" fill="#f1f5fa" font-family="DejaVu Sans Mono, monospace" font-size="38" font-weight="bold">.nier</text>
+    <text x="470" y="194" text-anchor="middle" fill="#d2e8e5" font-size="14">One standalone artifact</text>
+    <text x="470" y="218" text-anchor="middle" fill="#d2e8e5" font-size="14">Architecture-neutral IR</text>
+
+    <path d="M 598 157 H 643" stroke="#38d9c5" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="659" y="83" width="225" height="146" rx="12" fill="#142135" stroke="#334358"/>
+    <text x="771" y="128" text-anchor="middle" fill="#f1f5fa" font-family="DejaVu Sans Mono, monospace" font-size="28" font-weight="bold">nierc</text>
+    <text x="771" y="164" text-anchor="middle" fill="#b6c5d6" font-size="15">Independent compiler</text>
+    <text x="771" y="190" text-anchor="middle" fill="#b6c5d6" font-size="15">No language frontend</text>
+
+    <path d="M 898 157 H 933" stroke="#8295ac" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="949" y="83" width="211" height="146" rx="12" fill="#142135" stroke="#334358"/>
+    <text x="1054" y="127" text-anchor="middle" fill="#f1f5fa" font-size="19" font-weight="bold">Native executable</text>
+    <text x="1054" y="164" text-anchor="middle" fill="#b6c5d6" font-size="15">Run it normally</text>
+    <text x="1054" y="190" text-anchor="middle" fill="#b6c5d6" font-size="15">No Nier runtime or JIT</text>
+
+    <text x="600" y="282" text-anchor="middle" fill="#a6b7ca" font-size="14">Current qualified native output: Linux x86-64. The executable retains its native runtime dependencies.</text>
+  </g>
+</svg>

@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a scoped improvement to Nier or its documentation.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem and required behavior before choosing an implementation.
+        Nier's general vision and its currently qualified C pre-alpha are different scopes; consult the [requirements](https://github.com/GhostDog788/NIER/blob/main/docs/01-architecture-design.md) and [implementation status](https://github.com/GhostDog788/NIER/blob/main/docs/02-implementation-plan.md).
+        For a suspected vulnerability, use the [security policy](https://github.com/GhostDog788/NIER/blob/main/SECURITY.md), not this public form.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Explain who needs this capability and what the current workflow cannot do.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Desired behavior
+      description: Give a concrete example with expected inputs and outputs. State any source-language, native-target, ABI, or build-system assumptions.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Scope and acceptance evidence
+      description: Suggest how to demonstrate correctness, what must still reject, and whether this changes the public IR, a producer, the consumer, documentation, or the separate security platform.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe existing options, workarounds, or a smaller first step. Do not include private source or sensitive data.

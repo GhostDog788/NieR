@@ -15,6 +15,12 @@ mv -- "$install_work/original" "$bundle"
     cd -- "$bundle"
     sha256sum --quiet -c payload.sha256
 )
+cmp -- "$repository/LICENSE" "$bundle/LICENSE"
+license_hash=$(sha256sum "$repository/LICENSE")
+license_hash=${license_hash%% *}
+rg -Fxq -- "$license_hash  LICENSE" "$bundle/payload.sha256"
+cmp -- "$sdk_root/host/usr/share/doc/llvm-18/copyright" "$bundle/licenses/llvm-18.copyright"
+cmp -- "$sdk_root/sysroots/x86_64-linux-gnu/usr/share/doc/libc6/copyright" "$bundle/licenses/libc6.copyright"
 if rg --files --hidden --no-ignore "$bundle" | rg '/include/|/cmake/|/i686-linux-gnu/|/bin/(clang|clang-[0-9]+|nier-build|nier-ld|nier-native-ld)$|libclang-cpp|libnier-clang|nier-capture'; then
     printf 'ERROR: publisher/development inputs leaked into consumer bundle\n' >&2; exit 1
 fi

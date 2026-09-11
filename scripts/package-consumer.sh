@@ -109,6 +109,7 @@ for package in libc6 libc6-dev libcrypt1 libcrypt-dev; do
 done
 cp -- "$sdk_root/sdk-lock.sha256" "$stage/sdk/sdk-lock.sha256"
 cp -- "$repository/sdk/packages.lock" "$stage/sdk/packages.lock"
+cp -- "$repository/LICENSE" "$stage/LICENSE"
 cp -- "$repository/docs/reference/compiler-distribution.md" "$stage/README.md"
 (
     cd -- "$stage"

@@ -3,7 +3,9 @@
 set -euo pipefail
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 sdk_root=${NIER_SDK_ROOT:-$repo_root/.sdk}
-mirror=${SDK_UBUNTU_MIRROR:-https://archive.ubuntu.com/ubuntu}
+# The rolling archive removes superseded packages. This official snapshot
+# retains every exact package in sdk/packages.lock; hashes remain authoritative.
+mirror=${SDK_UBUNTU_MIRROR:-https://snapshot.ubuntu.com/ubuntu/20260910T000000Z}
 lock="$repo_root/sdk/packages.lock"
 for command in curl sha256sum dpkg-deb flock realpath; do
   command -v "$command" >/dev/null || { echo "Required host utility missing: $command" >&2; exit 1; }

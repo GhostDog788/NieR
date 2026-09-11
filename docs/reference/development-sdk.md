@@ -30,7 +30,8 @@ Optional CMake notices about missing CURL/LibEdit development files do not preve
 `NIER_SDK_ROOT` can select another dedicated directory. Set it before both the bootstrap and `source sdk/env.sh`.
 During pre-alpha the package lock may change without compatibility support: bootstrap extracts the newly pinned packages and developer tools must be rebuilt.
 Use a fresh directory when removing SDK packages or changing toolchain families; bootstrap does not delete unrelated files.
-The download mirror can be changed with `SDK_UBUNTU_MIRROR`, but hashes remain mandatory.
+The default download source is Ubuntu's dated snapshot at `https://snapshot.ubuntu.com/ubuntu/20260910T000000Z`, which retains the locked package versions after the live archive rotates them out.
+The mirror can be changed with `SDK_UBUNTU_MIRROR`, but hashes remain mandatory.
 Cached packages allow subsequent bootstraps without downloading them again.
 Receipts provide restartability, not runtime tamper protection for a developer-writable SDK.
 

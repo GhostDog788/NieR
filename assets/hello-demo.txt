@@ -1,0 +1,31 @@
+Nier Hello demo — actual terminal transcript
+
+Reproduce: bash scripts/record-hello-demo.sh
+Prerequisites: built SDK/publisher, Python 3, Pillow, DejaVu fonts, file.
+The recorder copies the existing Hello C sources to fresh temporary storage.
+NIER_CONFIG points to build/prealpha/nier.cfg in the toolchain checkout.
+PATH selects the matching stock Clang and the independent nierc program.
+The cast and GIF retain real elapsed time, including deliberate reading pauses.
+No compiler/source build cache is reused from the Hello example directory.
+
+$ cat main.c hello.c
+#include "hello.h"
+
+int main(void) {
+    hello();
+    return 0;
+}
+#include "hello.h"
+#include <stdio.h>
+
+void hello(void) {
+    printf("Hello world\n");
+}
+$ clang --config="$NIER_CONFIG" -O2 main.c hello.c -o hello.nier
+$ file hello.nier
+hello.nier: POSIX tar archive
+$ nierc hello.nier -o hello
+Native output: /tmp/nier-demo-7s8mbk48/hello
+$ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./hello
+Hello world
+$

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security reporting
+    url: https://github.com/GhostDog788/NIER/blob/main/SECURITY.md
+    about: Read the private-reporting process before sharing any vulnerability details.
+  - name: Documentation and examples
+    url: https://github.com/GhostDog788/NIER/blob/main/docs/README.md
+    about: Find setup instructions, the Hello walkthrough, and current reference documentation.

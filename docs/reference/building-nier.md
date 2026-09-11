@@ -42,6 +42,22 @@ ctest --preset prealpha
 The full upstream [qualification corpus](qualification-corpus.md) is a separate, longer-running workflow.
 It is not required merely to read the guides or try the first application.
 
+## Build only the independent compiler
+
+After sourcing the same SDK environment, configure a separate consumer-only build:
+
+```bash
+cmake -S . -B build/consumer-only -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DNIER_BUILD_PUBLISHER=OFF
+cmake --build build/consumer-only --parallel 2
+ctest --test-dir build/consumer-only --output-on-failure
+```
+
+This excludes the Clang frontend plugin, capture/replay tools, and LLVM-to-Nier producer from the configured product.
+Stock Clang may still compile Nier's own C++ sources; that does not make a language frontend an input to the resulting `nierc`.
+Use this build's own CTest inventory, not the publisher-only CI smoke selection.
+See the [compiler distribution reference](compiler-distribution.md) to assemble its independent runtime bundle.
+
 ## Configure VS Code
 
 Open the repository root and enable the recommended **clangd** and **CMake Tools** extensions.

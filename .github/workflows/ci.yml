@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Pinned SDK smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      # All locked archives are retained here, including superseded libc debs.
+      # bootstrap-sdk.sh still verifies every archive's checked-in SHA256.
+      SDK_UBUNTU_MIRROR: https://snapshot.ubuntu.com/ubuntu/20260910T000000Z
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+        timeout-minutes: 3
+
+      - name: Install host prerequisites
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates curl dpkg-dev file git ripgrep \
+            binutils util-linux xz-utils zstd pkg-config libcurl4t64
+
+      - name: Restore pinned package archives
+        id: sdk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Never cache extracted tools, build outputs, receipts, or credentials.
+          path: .sdk/downloads
+          key: ${{ runner.os }}-${{ runner.arch }}-nier-sdk-debs-${{ hashFiles('sdk/packages.lock') }}
+        timeout-minutes: 3
+
+      - name: Bootstrap the pinned SDK
+        timeout-minutes: 12
+        run: bash scripts/bootstrap-sdk.sh
+
+      - name: Check SDK plumbing
+        timeout-minutes: 5
+        run: bash sdk/check-sdk.sh
+
+      - name: Configure Nier
+        timeout-minutes: 3
+        run: |
+          source sdk/env.sh
+          cmake --preset prealpha
+
+      - name: Build Nier with two jobs
+        timeout-minutes: 12
+        run: |
+          source sdk/env.sh
+          cmake --build --preset prealpha --parallel 2
+
+      - name: Run bounded smoke tests
+        timeout-minutes: 8
+        run: bash scripts/ci-smoke.sh
+
+      - name: Save verified package archives on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.sdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .sdk/downloads
+          key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
+        timeout-minutes: 3
