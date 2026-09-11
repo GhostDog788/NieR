@@ -16,6 +16,19 @@ This is a qualified pre-alpha C implementation, not unrestricted C or the full p
 Requirements are in [01](docs/01-architecture-design.md); implementation scope,
 remaining gates, and evidence are in [02](docs/02-implementation-plan.md).
 
+## Learn the project
+
+Already have a C project? [Use Nier with Make or CMake](docs/guides/02-toolchain-users/using-nier-with-your-c-project.md)
+shows the complete path from your existing build to a `.nier` artifact and a
+native executable, without requiring compiler-internals knowledge.
+
+New to Nier or compiler internals? Start with the
+[Nier guide series](docs/guides/README.md): 24 read-first chapters for Linux C
+developers, with stopping points at foundations, practical use, contributor,
+and compiler-maintainer depth. The course begins with Nier code itself, then
+uses annotated examples and optional labs to explain the real repository.
+A [glossary](docs/guides/reference/glossary.md) is available throughout.
+
 ## Build
 
 The pinned SDK uses prebuilt Ubuntu 24.04 x86-64 packages and LLVM/Clang/MLIR/LLD
