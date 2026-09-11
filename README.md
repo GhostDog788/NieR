@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/nier-logo.png" alt="Nier logo" width="440">
+</p>
+
 # Nier
 
 Nier is a pre-alpha, source-private native publication toolchain. **Nier code**
