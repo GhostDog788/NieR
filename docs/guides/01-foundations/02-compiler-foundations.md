@@ -166,14 +166,11 @@ NieR adds an independent publication contract between the producer and target co
 2. Is lowering always an optimization?
 3. If `nierc` invokes `llc`, does the generated application depend on `llc` at runtime?
 
-<details>
-<summary>Answers</summary>
-
-1. Native decisions may already be embedded in widths, layouts, constants, signatures, and attributes. A label change does not recover their original meaning.
-2. No. It translates representation toward a target. It may enable later optimization, but correctness does not depend on reducing the operation count.
-3. No. `llc` is a compilation tool. The resulting application can depend on ordinary native libraries, but it does not call `llc` to execute its instructions.
-
-</details>
+> [!faq]- Answers
+>
+> 1. Native decisions may already be embedded in widths, layouts, constants, signatures, and attributes. A label change does not recover their original meaning.
+> 2. No. It translates representation toward a target. It may enable later optimization, but correctness does not depend on reducing the operation count.
+> 3. No. `llc` is a compilation tool. The resulting application can depend on ordinary native libraries, but it does not call `llc` to execute its instructions.
 
 ## Source and evidence trail
 

@@ -163,10 +163,21 @@ This lab is not a claim that arbitrary hosts or post-compilation runtime moves a
 The developer SDK, compiler runtime closure and native application dependencies are distinct deliverables.
 Their tests should prove those distinctions even when development happens in one shared directory.
 
-1. **Why is the bootstrap not hermetic?** It pins extracted packages but still depends on documented host development files and runtime libraries.
-2. **Why recursively inspect `DT_NEEDED`?** A copied LLVM tool depends on libraries which can themselves require further libraries; copying only its first-level dependencies is incomplete.
-3. **Why clear `NIER_SDK_ROOT` in the relocation lab?** Otherwise the moved compiler may select the original developer SDK instead of its sibling SDK.
-4. **Does a relocatable compiler make old outputs relocatable?** No. Native output retains the managed interpreter/runtime paths chosen when it was linked.
+> [!faq]- Why is the bootstrap not hermetic?
+>
+> It pins extracted packages but still depends on documented host development files and runtime libraries.
+
+> [!faq]- Why recursively inspect `DT_NEEDED`?
+>
+> A copied LLVM tool depends on libraries which can themselves require further libraries; copying only its first-level dependencies is incomplete.
+
+> [!faq]- Why clear `NIER_SDK_ROOT` in the relocation lab?
+>
+> Otherwise the moved compiler may select the original developer SDK instead of its sibling SDK.
+
+> [!faq]- Does a relocatable compiler make old outputs relocatable?
+>
+> No. Native output retains the managed interpreter/runtime paths chosen when it was linked.
 
 Read [development SDK reference](../../reference/development-sdk.md) for host assumptions, [compiler distribution reference](../../reference/compiler-distribution.md) for the bundle's supported contract,
 `src/consumer/Main.cpp` for SDK discovery and overrides, and `src/support/Support.cpp` for subprocess environments and native link construction.

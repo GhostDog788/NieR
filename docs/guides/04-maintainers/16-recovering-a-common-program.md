@@ -182,10 +182,21 @@ This demonstrates the qualified two-profile specialization, not a new CPU port o
 The producer establishes consistent correspondences, represents supported target variation, and checks reconstruction before publication.
 It does not recover arbitrary source intent from LLVM or prove universal portability.
 
-1. **Why are equal constants not automatically symbolic?** Equality alone does not identify a native property. Literal controls must remain literal.
-2. **Why preserve a wide truncation followed by extension?** It can discard high bits even when both operations are identities on the narrow target.
-3. **Can a round-trip mismatch be solved by deleting more metadata?** Only after establishing a justified, explicit normalization rule. Semantic evidence cannot be discarded to make a comparison pass.
-4. **Does a correspondence failure mean the C program is invalid?** No. A valid native program can be outside the current producer's proof rules.
+> [!faq]- Why are equal constants not automatically symbolic?
+>
+> Equality alone does not identify a native property. Literal controls must remain literal.
+
+> [!faq]- Why preserve a wide truncation followed by extension?
+>
+> It can discard high bits even when both operations are identities on the narrow target.
+
+> [!faq]- Can a round-trip mismatch be solved by deleting more metadata?
+>
+> Only after establishing a justified, explicit normalization rule. Semantic evidence cannot be discarded to make a comparison pass.
+
+> [!faq]- Does a correspondence failure mean the C program is invalid?
+>
+> No. A valid native program can be outside the current producer's proof rules.
 
 ## Guided source and evidence
 

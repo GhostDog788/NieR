@@ -180,10 +180,21 @@ Check the test command's exit status rather than treating log output as a succes
 Conditional sharing needs a graph correspondence, ordinary instruction translation, safe public specialization, and both native inverse checks.
 Domain annotations do not waive any of those obligations.
 
-1. **Why preserve the default switch edge?** A case absent on one target must fall through to that target's actual default behavior, not disappear from the program's possible inputs.
-2. **Why inspect active uses before erasing inactive blocks?** To reject surviving references to absent definitions without creating dangling IR or inventing replacement values.
-3. **Why are PHIs restricted in conditional producer functions?** Changing predecessor presence changes their incoming-value contract; the current one-sided-arm proof does not solve that general case.
-4. **Why preserve shared loop identity?** Identical option lists on separate fresh nodes do not necessarily reproduce the original shared relationship.
+> [!faq]- Why preserve the default switch edge?
+>
+> A case absent on one target must fall through to that target's actual default behavior, not disappear from the program's possible inputs.
+
+> [!faq]- Why inspect active uses before erasing inactive blocks?
+>
+> To reject surviving references to absent definitions without creating dangling IR or inventing replacement values.
+
+> [!faq]- Why are PHIs restricted in conditional producer functions?
+>
+> Changing predecessor presence changes their incoming-value contract; the current one-sided-arm proof does not solve that general case.
+
+> [!faq]- Why preserve shared loop identity?
+>
+> Identical option lists on separate fresh nodes do not necessarily reproduce the original shared relationship.
 
 ## Guided source and evidence
 

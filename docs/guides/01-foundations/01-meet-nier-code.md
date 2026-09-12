@@ -155,14 +155,11 @@ Portability, native dependencies, source privacy, and security remain different 
 2. Does a language-independent consumer need to understand native calling conventions?
 3. Can a successful NieR validation establish that a publisher is trusted?
 
-<details>
-<summary>Answers</summary>
-
-1. No. The artifact is still the producer's output and consumer's independent input. Separate machines make the deployment separation visible but do not create it.
-2. Yes. Language independence removes the source frontend requirement, not target-specific code-generation and ABI responsibilities.
-3. No. Validation establishes admitted structure and semantics. Publisher identity, signatures, trust policy, and enforcement are separate concerns.
-
-</details>
+> [!faq]- Answers
+>
+> 1. No. The artifact is still the producer's output and consumer's independent input. Separate machines make the deployment separation visible but do not create it.
+> 2. Yes. Language independence removes the source frontend requirement, not target-specific code-generation and ABI responsibilities.
+> 3. No. Validation establishes admitted structure and semantics. Publisher identity, signatures, trust policy, and enforcement are separate concerns.
 
 ## Source and evidence trail
 

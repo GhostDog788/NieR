@@ -164,19 +164,16 @@ You now have the conceptual tools needed for the first real build and inspection
 2. Why keep a per-target compilation-unit plan if the code fragments are common?
 3. Does deleting `hello.nier` after native compilation make the executable self-contained with respect to libc?
 
-<details>
-<summary>Answers</summary>
-
-1. The transfer boundary is the archive. Several internal modules preserve structure without requiring separate publication inputs at the destination.
-2. Common functions can originate in different native unit groupings. Reconstructing those groupings preserves the admitted reference optimization and link contracts.
-3. No. The application no longer needs the artifact, but it can still require the native loader and libraries selected during linking.
-
-For the paper exercise: `hello.c` and the private debug graph are publication inputs/evidence;
-the NieR operation and digest are public content;
-`opt` is a consumer compilation tool;
-supplied libc is a native execution dependency.
-
-</details>
+> [!faq]- Answers
+>
+> 1. The transfer boundary is the archive. Several internal modules preserve structure without requiring separate publication inputs at the destination.
+> 2. Common functions can originate in different native unit groupings. Reconstructing those groupings preserves the admitted reference optimization and link contracts.
+> 3. No. The application no longer needs the artifact, but it can still require the native loader and libraries selected during linking.
+>
+> For the paper exercise: `hello.c` and the private debug graph are publication inputs/evidence;
+> the NieR operation and digest are public content;
+> `opt` is a consumer compilation tool;
+> supplied libc is a native execution dependency.
 
 ## Source and evidence trail
 

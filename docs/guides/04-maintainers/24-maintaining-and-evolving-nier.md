@@ -173,10 +173,21 @@ Both performance and RE remain explicit acceptance work rather than consequences
 
 Maintain NieR by making claims small enough to test, proofs strong enough to reject misleading near-matches, and status reports precise enough to survive a change of compiler, target or developer machine.
 
-1. **Can a negative test complete an unsupported feature?** No. It proves safe rejection; feature completion also requires positive admitted behavior.
-2. **What does byte-identical retained replay omit?** Fresh source compilation, configure decisions, native reference rebuilding and upstream test execution.
-3. **Does breaking compatibility remove the need for version checks?** No. Explicit rejection is still necessary to prevent mismatched tools from silently interpreting the wrong contract.
-4. **Why are performance and security not implied by corpus success?** The corpus measures configured functional behavior, not performance thresholds, RE exposure or operating-system enforcement.
+> [!faq]- Can a negative test complete an unsupported feature?
+>
+> No. It proves safe rejection; feature completion also requires positive admitted behavior.
+
+> [!faq]- What does byte-identical retained replay omit?
+>
+> Fresh source compilation, configure decisions, native reference rebuilding and upstream test execution.
+
+> [!faq]- Does breaking compatibility remove the need for version checks?
+>
+> No. Explicit rejection is still necessary to prevent mismatched tools from silently interpreting the wrong contract.
+
+> [!faq]- Why are performance and security not implied by corpus success?
+>
+> The corpus measures configured functional behavior, not performance thresholds, RE exposure or operating-system enforcement.
 
 For daily work, start with `include/nier/IR/Compiler.h`, the producer interface (`include/nier/Producer/LLVM.h`), `tests/independent.cpp`, and the tests closest to the changed semantics.
 Use [qualification corpus reference](../../reference/qualification-corpus.md) for the larger evidence boundary, and return to [01](../../01-architecture-design.md) whenever an implementation shortcut would redefine the product instead of implementing it.

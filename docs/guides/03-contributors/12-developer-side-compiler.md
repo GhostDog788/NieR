@@ -154,27 +154,18 @@ The C producer adapts stock Clang, observes real native semantics, and proves a 
 Direct source mode and private build mode share a merger but have different responsibilities for collecting inputs.
 The resulting public contract—not a source language or capture recipe—is what the independent destination compiler consumes.
 
-<details>
-<summary>Does the capture pass run before Clang knows the target ABI?</summary>
+> [!faq]- Does the capture pass run before Clang knows the target ABI?
+>
+> No. It runs on LLVM IR after frontend semantic and ABI lowering, before the main LLVM optimization pipeline.
+> Recovering qualified portable meaning is the producer's responsibility.
 
-No. It runs on LLVM IR after frontend semantic and ABI lowering, before the main LLVM optimization pipeline.
-Recovering qualified portable meaning is the producer's responsibility.
+> [!faq]- Why not publish every capture produced during a Make build?
+>
+> Many captures belong to generators, probes, or unselected library members. The native output's selected graph and validated provenance determine which application units belong in the publication.
 
-</details>
-
-<details>
-<summary>Why not publish every capture produced during a Make build?</summary>
-
-Many captures belong to generators, probes, or unselected library members. The native output's selected graph and validated provenance determine which application units belong in the publication.
-
-</details>
-
-<details>
-<summary>Does an inverse-check failure justify shipping both native LLVM profiles?</summary>
-
-No. Ordinary application code must use the common NieR representation. A failed proof is a diagnostic and possibly unfinished required scope, not permission to create a disguised collection of per-target programs.
-
-</details>
+> [!faq]- Does an inverse-check failure justify shipping both native LLVM profiles?
+>
+> No. Ordinary application code must use the common NieR representation. A failed proof is a diagnostic and possibly unfinished required scope, not permission to create a disguised collection of per-target programs.
 
 ## Guided reading
 

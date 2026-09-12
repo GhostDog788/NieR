@@ -95,6 +95,11 @@ Follow the worked example before opening the source references in VS Code.
 The example gives you a question to investigate in the implementation; a list of filenames alone does not explain an algorithm.
 Finish with the recap and comprehension questions.
 Answers are included so the series works for independent study.
+Answer callouts start collapsed in Obsidian's Reading view and Live Preview; click the title or arrow to reveal them.
+They remain readable as blockquotes in GitHub and other Markdown viewers that do not support Obsidian's folding syntax.
+
+When editing an answer, use `> [!faq]- Title` and prefix every body line, including blank lines, with `>`.
+The minus sign sets the default to collapsed; keeping the entire body quoted ensures all of it folds together.
 
 Labs are optional.
 Later explanations never depend on you having completed an earlier exercise.

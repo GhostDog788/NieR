@@ -176,11 +176,22 @@ Read one accepted and one rejected fixture in `tests/byteswap.cpp`, then predict
 You can now follow an operation across its public meaning, a private recognizer, native lowering, and layered tests.
 That is the contributor exit: not knowing every compiler algorithm, but knowing which contracts a scoped change must preserve.
 
-1. **Why is a volatile-load candidate rejected?** Replacing its accesses with an argument would erase observable accesses; the admitted proof does not permit that transformation.
-2. **Why use a temporary module for recognition?** The upstream helper may mutate trial IR or recognize a broader idiom.
-   Rejected speculation must not change the real capture.
-3. **Does adding a private recognizer teach `nierc` about C?** No. It makes our producer better at emitting an already-defined generic operation.
-4. **What does a failed negative test mean?** It may reveal incorrect acceptance or mutation on rejection—even if all happy-path executions still print the expected output.
+> [!faq]- Why is a volatile-load candidate rejected?
+>
+> Replacing its accesses with an argument would erase observable accesses; the admitted proof does not permit that transformation.
+
+> [!faq]- Why use a temporary module for recognition?
+>
+> The upstream helper may mutate trial IR or recognize a broader idiom.
+> Rejected speculation must not change the real capture.
+
+> [!faq]- Does adding a private recognizer teach `nierc` about C?
+>
+> No. It makes our producer better at emitting an already-defined generic operation.
+
+> [!faq]- What does a failed negative test mean?
+>
+> It may reveal incorrect acceptance or mutation on rejection—even if all happy-path executions still print the expected output.
 
 ## Guided source and evidence
 

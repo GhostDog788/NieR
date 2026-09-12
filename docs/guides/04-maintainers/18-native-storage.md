@@ -203,10 +203,21 @@ Neutral storage preserves structure, native properties, initialization and acces
 The selected target supplies the concrete layout.
 Explicit overlap is not interchangeable with ordered fields, and storage layout is not a complete function-boundary contract.
 
-1. **Why not encode State's wide byte offsets directly?** Those offsets would be wrong for the narrow layout. Structural paths and native property types allow target-specific reconstruction.
-2. **Does `inbounds` perform a bounds check?** No. It is a semantic promise; invalid uses can produce poison rather than a checked failure.
-3. **Why validate an inactive array tail?** Its existence must still obey the restricted public initializer form; inactivity is not a loophole for hidden references or unvalidated payloads.
-4. **Does a passing packed-record pointer test establish packed by-value ABI?** No. Native argument/result classification needs separate semantics and positive boundary tests.
+> [!faq]- Why not encode State's wide byte offsets directly?
+>
+> Those offsets would be wrong for the narrow layout. Structural paths and native property types allow target-specific reconstruction.
+
+> [!faq]- Does `inbounds` perform a bounds check?
+>
+> No. It is a semantic promise; invalid uses can produce poison rather than a checked failure.
+
+> [!faq]- Why validate an inactive array tail?
+>
+> Its existence must still obey the restricted public initializer form; inactivity is not a loophole for hidden references or unvalidated payloads.
+
+> [!faq]- Does a passing packed-record pointer test establish packed by-value ABI?
+>
+> No. Native argument/result classification needs separate semantics and positive boundary tests.
 
 ## Guided source and evidence
 

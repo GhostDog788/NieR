@@ -193,14 +193,11 @@ None of this removes mutable memory or licenses a compiler to ignore its effects
 2. Does a loop violate single assignment when its body executes many times?
 3. Does `nier.gep` read memory? Does `nier.store` redefine its pointer operand?
 
-<details>
-<summary>Answers</summary>
-
-1. Every incoming edge supplies the block argument. `%left` is defined only along the yes path and is not available on the other path.
-2. No. SSA refers to static definitions in the representation. Dynamic executions can revisit the same definition with different incoming values.
-3. Address calculation does not itself load the addressed value. A store changes memory; it does not create a second definition of the existing pointer value.
-
-</details>
+> [!faq]- Answers
+>
+> 1. Every incoming edge supplies the block argument. `%left` is defined only along the yes path and is not available on the other path.
+> 2. No. SSA refers to static definitions in the representation. Dynamic executions can revisit the same definition with different incoming values.
+> 3. Address calculation does not itself load the addressed value. A store changes memory; it does not create a second definition of the existing pointer value.
 
 ## Source and evidence trail
 

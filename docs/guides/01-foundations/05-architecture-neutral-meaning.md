@@ -176,14 +176,11 @@ Layouts, calls, and dependencies cannot be reduced to one pointer-width substitu
 2. Why is checking both eight/four and eight/eight useful?
 3. Does supporting one 64-bit target establish another 64-bit target's ABI?
 
-<details>
-<summary>Answers</summary>
-
-1. No. It models a specific native-width relationship. Fixed-width and other source types must retain their own correct meaning.
-2. It checks that genuinely native-dependent values specialize while a coincidentally equal literal is not rewritten incorrectly.
-3. No. Equal width does not establish equal alignment, calling conventions, instruction semantics, libraries, or deployment support.
-
-</details>
+> [!faq]- Answers
+>
+> 1. No. It models a specific native-width relationship. Fixed-width and other source types must retain their own correct meaning.
+> 2. It checks that genuinely native-dependent values specialize while a coincidentally equal literal is not rewritten incorrectly.
+> 3. No. Equal width does not establish equal alignment, calling conventions, instruction semantics, libraries, or deployment support.
 
 ## Source and evidence trail
 

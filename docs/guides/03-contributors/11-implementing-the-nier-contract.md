@@ -188,29 +188,20 @@ A maintainer should ask: can an independent producer express this feature, can e
 MLIR supplies representation machinery. NieR supplies the vocabulary and checked semantics.
 The public boundary is usable without Clang, but every producer must obey the current contract and honestly declare its supported target domain.
 
-<details>
-<summary>Is adding an operation name to Dialect.cpp enough to support a feature?</summary>
+> [!faq]- Is adding an operation name to Dialect.cpp enough to support a feature?
+>
+> No. Structural registration must be accompanied by schema rules, semantics, target lowering, and tests. A producer needs its own correct emission path too.
 
-No. Structural registration must be accompanied by schema rules, semantics, target lowering, and tests. A producer needs its own correct emission path too.
+> [!faq]- Why does the independent producer call writeModule before createArtifact?
+>
+> `writeModule` validates and serializes the NieR module.
+> `createArtifact` packages those byte strings with public metadata.
+> Code semantics and archive structure are different layers.
 
-</details>
-
-<details>
-<summary>Why does the independent producer call writeModule before createArtifact?</summary>
-
-`writeModule` validates and serializes the NieR module.
-`createArtifact` packages those byte strings with public metadata.
-Code semantics and archive structure are different layers.
-
-</details>
-
-<details>
-<summary>Does deleting source locations prove native-equivalent RE resistance?</summary>
-
-No. It enforces a specific publication minimization rule.
-Comparative information exposure and reverse-engineering resistance require the separate acceptance evidence defined in 01 and 02.
-
-</details>
+> [!faq]- Does deleting source locations prove native-equivalent RE resistance?
+>
+> No. It enforces a specific publication minimization rule.
+> Comparative information exposure and reverse-engineering resistance require the separate acceptance evidence defined in 01 and 02.
 
 ## Guided reading
 

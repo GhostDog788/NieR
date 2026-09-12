@@ -159,10 +159,21 @@ Those tests construct distinct failures so that a passing result identifies the 
 Robustness is layered: bounded descriptor input, closed container, canonical manifest, declared digests and plans, verified IR, private compilation, and controlled output replacement.
 Each layer should reject what it cannot safely interpret without claiming the responsibilities of the next layer.
 
-1. **Does SHA-256 validation authenticate a publisher?** No. It detects a mismatch with the manifest; the manifest itself is not a trusted signature.
-2. **Why reject duplicate JSON keys?** Different interpretations can retain different values, hiding required semantics or private content.
-3. **Why compare file identity as well as path strings?** Hard links can name the same input inode with different canonical paths.
-4. **Does atomic rename prove the security platform or durable installation?** No. It gives a bounded file-replacement property; executable authorization, revocation, trusted storage and deployment durability are separate work.
+> [!faq]- Does SHA-256 validation authenticate a publisher?
+>
+> No. It detects a mismatch with the manifest; the manifest itself is not a trusted signature.
+
+> [!faq]- Why reject duplicate JSON keys?
+>
+> Different interpretations can retain different values, hiding required semantics or private content.
+
+> [!faq]- Why compare file identity as well as path strings?
+>
+> Hard links can name the same input inode with different canonical paths.
+
+> [!faq]- Does atomic rename prove the security platform or durable installation?
+>
+> No. It gives a bounded file-replacement property; executable authorization, revocation, trusted storage and deployment durability are separate work.
 
 The guiding implementation sequence is `src/support/Support.cpp`, `src/artifact/Artifact.cpp`, then `src/consumer/Main.cpp`.
 Compare these mechanisms with the independent security requirements in [01](../../01-architecture-design.md) before describing them as enforcement.

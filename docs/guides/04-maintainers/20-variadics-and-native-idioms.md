@@ -166,10 +166,21 @@ Do not expect their native pointer manipulation to be textually identical; prese
 
 The useful abstraction is a proved state transition or intrinsic operation, not the target-specific instructions which happened to implement it.
 
-1. **Why does the tested variadic function retrieve `double` for a supplied `float`?** Default argument promotions change the value's call-boundary type.
-2. **Why must a cursor update be included in the proof?** Extraction changes which argument the next extraction observes; the loaded value alone is not the operation's whole effect.
-3. **Why is forwarding not just passing the same pointer on every target?** The qualified wide ABI passes a state address, while the narrow ABI passes its stored cursor value.
-4. **Can a passing native aggregate-varargs baseline establish NieR support?** No. It is a reference oracle; integrated public semantics and proofs remain separate obligations.
+> [!faq]- Why does the tested variadic function retrieve `double` for a supplied `float`?
+>
+> Default argument promotions change the value's call-boundary type.
+
+> [!faq]- Why must a cursor update be included in the proof?
+>
+> Extraction changes which argument the next extraction observes; the loaded value alone is not the operation's whole effect.
+
+> [!faq]- Why is forwarding not just passing the same pointer on every target?
+>
+> The qualified wide ABI passes a state address, while the narrow ABI passes its stored cursor value.
+
+> [!faq]- Can a passing native aggregate-varargs baseline establish NieR support?
+>
+> No. It is a reference oracle; integrated public semantics and proofs remain separate obligations.
 
 Read `src/ir/Varargs.cpp` beside `tests/varargs.cpp` and `tests/varargs.sh`.
 For idiom boundaries, compare `src/ir/ByteSwap.cpp` with `tests/byteswap.cpp`, then locate the corresponding operation branches in `src/ir/Compiler.cpp`.

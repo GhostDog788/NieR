@@ -168,9 +168,17 @@ For the stronger external-caller case, read `tests/aggregate-pipeline.sh`, which
 Native ABI support is a three-part contract: describe a logical signature, prove its relationship to captured storage and shims,
 and materialize the target's actual boundary without introducing a runtime ABI.
 
-1. **Why cannot a record be classified in isolation?** Earlier arguments and hidden result parameters affect register availability and, in qualified cases, the physical LLVM signature.
-2. **Why is debug type information insufficient?** It proposes identities and anchors but does not prove instruction effects, uses, aliasing or ordering.
-3. **Does a passing packed-record classifier mean packed C calls publish?** No. Producer recognition, common semantics, inverse proofs and end-to-end native execution must also be qualified.
+> [!faq]- Why cannot a record be classified in isolation?
+>
+> Earlier arguments and hidden result parameters affect register availability and, in qualified cases, the physical LLVM signature.
+
+> [!faq]- Why is debug type information insufficient?
+>
+> It proposes identities and anchors but does not prove instruction effects, uses, aliasing or ordering.
+
+> [!faq]- Does a passing packed-record classifier mean packed C calls publish?
+>
+> No. Producer recognition, common semantics, inverse proofs and end-to-end native execution must also be qualified.
 
 Read the descriptor definitions before the implementations: `src/ir/AggregateABI.h`, `src/ir/AggregateNormalize.h`, then `src/ir/NativeABIBridge.h`.
 Compare the separate classifier (`tests/aggregate-abi.cpp`), normalizer (`tests/aggregate-normalize.cpp`), and public pipeline (`tests/aggregate-pipeline.sh`) tests; each proves a different part of the same boundary.

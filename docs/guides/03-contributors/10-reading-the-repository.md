@@ -180,29 +180,20 @@ Read C++ here as explicit ownership and checked transformations.
 Determine who owns each object, how long borrowed handles remain valid, and which failures must reach the caller.
 Then follow one behavior through its test and link dependencies rather than attempting to memorize the repository.
 
-<details>
-<summary>Does copying an MLIR ModuleOp handle copy the whole module?</summary>
+> [!faq]- Does copying an MLIR ModuleOp handle copy the whole module?
+>
+> No. It is a handle to an existing operation.
+> Ownership is represented separately, for example by `OwningOpRef`; modifying the handle's operation changes that tree.
 
-No. It is a handle to an existing operation.
-Ownership is represented separately, for example by `OwningOpRef`; modifying the handle's operation changes that tree.
+> [!faq]- Why can SmallVector&lt;T, 8&gt; still require an explicit input limit?
+>
+> Eight is inline capacity, not maximum size. The container can allocate more storage.
+> A validator must enforce its own resource and semantic limits.
 
-</details>
-
-<details>
-<summary>Why can SmallVector&lt;T, 8&gt; still require an explicit input limit?</summary>
-
-Eight is inline capacity, not maximum size. The container can allocate more storage.
-A validator must enforce its own resource and semantic limits.
-
-</details>
-
-<details>
-<summary>What should happen to a failed Expected&lt;T&gt;?</summary>
-
-Check it, then transfer its error with `takeError()` or report it at the proper boundary.
-Do not dereference it or silently discard its error.
-
-</details>
+> [!faq]- What should happen to a failed Expected&lt;T&gt;?
+>
+> Check it, then transfer its error with `takeError()` or report it at the proper boundary.
+> Do not dereference it or silently discard its error.
 
 ## Guided reading
 

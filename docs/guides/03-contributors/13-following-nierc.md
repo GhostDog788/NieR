@@ -151,12 +151,23 @@ Keep or remove this clearly identified temporary directory yourself.
 
 The consumer validates a public artifact, specializes target-dependent semantics, preserves declared compilation-unit boundaries, and delegates ordinary native optimization/code generation/linking to existing tools.
 
-1. **Why can `inspect` do more than list archive members?** It validates NieR modules and checks reconstruction of declared units across the artifact's target domain.
-   It is contract inspection, not just `tar -t`.
-2. **Why not combine every common module before optimization?** That can change the original translation-unit boundaries and silently enable additional cross-unit optimization.
-   The manifest's unit plan is semantic input to compilation.
-3. **Does `nierc lower --target i686` establish full i686 deployment support?** No. It exposes qualified specialization evidence; native product output is currently x86-64.
-4. **Can the generated executable need libc but not need NieR?** Yes. Native dependencies and a publication-specific runtime are different things.
+> [!faq]- Why can `inspect` do more than list archive members?
+>
+> It validates NieR modules and checks reconstruction of declared units across the artifact's target domain.
+> It is contract inspection, not just `tar -t`.
+
+> [!faq]- Why not combine every common module before optimization?
+>
+> That can change the original translation-unit boundaries and silently enable additional cross-unit optimization.
+> The manifest's unit plan is semantic input to compilation.
+
+> [!faq]- Does `nierc lower --target i686` establish full i686 deployment support?
+>
+> No. It exposes qualified specialization evidence; native product output is currently x86-64.
+
+> [!faq]- Can the generated executable need libc but not need NieR?
+>
+> Yes. Native dependencies and a publication-specific runtime are different things.
 
 ## Guided source and evidence
 

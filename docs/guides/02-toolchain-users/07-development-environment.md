@@ -130,28 +130,19 @@ Conversely, a failing test on the current matching toolchain is not excused by t
 The host runs tools, a sysroot describes a target development environment, and the native loader supplies application runtime dependencies.
 Keep those roles separate when diagnosing paths, headers, and library failures.
 
-<details>
-<summary>Why does a 64-bit Clang process need a separate i686 sysroot?</summary>
+> [!faq]- Why does a 64-bit Clang process need a separate i686 sysroot?
+>
+> The compiler's own executable architecture does not determine its output's ABI. The i686 target needs its own headers, layouts, startup objects, and libraries.
 
-The compiler's own executable architecture does not determine its output's ABI. The i686 target needs its own headers, layouts, startup objects, and libraries.
+> [!faq]- Does a successful CMake configuration prove the publication flow works?
+>
+> No. It establishes that dependencies and build rules can be configured.
+> Compilation, publication, native linking, and runtime tests are separate checks.
 
-</details>
-
-<details>
-<summary>Does a successful CMake configuration prove the publication flow works?</summary>
-
-No. It establishes that dependencies and build rules can be configured.
-Compilation, publication, native linking, and runtime tests are separate checks.
-
-</details>
-
-<details>
-<summary>Why not disable editor error checking for all test fixtures?</summary>
-
-Some fixtures intentionally fail or need generated context, but ordinary source errors must remain visible.
-Use the real compile database and identify special fixture context rather than suppressing diagnostics globally.
-
-</details>
+> [!faq]- Why not disable editor error checking for all test fixtures?
+>
+> Some fixtures intentionally fail or need generated context, but ordinary source errors must remain visible.
+> Use the real compile database and identify special fixture context rather than suppressing diagnostics globally.
 
 ## Guided reading
 

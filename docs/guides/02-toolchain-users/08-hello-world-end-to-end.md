@@ -151,28 +151,19 @@ Fresh scratch outputs avoid turning an experiment into a data-loss problem. The 
 The result is ordinary native execution reached through an independent publication format.
 Nothing in the C example knows it is being published. The successful experiment establishes this flow for the current qualified environment, not for every C program or CPU.
 
-<details>
-<summary>Why are there two modules although the program uses two C files and a header?</summary>
+> [!faq]- Why are there two modules although the program uses two C files and a header?
+>
+> There are two C translation units. The header contributes declarations to each unit that includes it; it is not a separately compiled unit.
 
-There are two C translation units. The header contributes declarations to each unit that includes it; it is not a separately compiled unit.
+> [!faq]- Can the output from clang's publication command be executed directly?
+>
+> No. It is a NieR archive.
+> The separate `nierc` step creates native output, which the OS can execute using the selected native runtime.
 
-</details>
-
-<details>
-<summary>Can the output from clang's publication command be executed directly?</summary>
-
-No. It is a NieR archive.
-The separate `nierc` step creates native output, which the OS can execute using the selected native runtime.
-
-</details>
-
-<details>
-<summary>Why is stock mlir-opt not the artifact validator?</summary>
-
-It can decode generic MLIR structure with unknown dialects allowed, but it does not know NieR's allowed operations, attributes, privacy rules, or target semantics.
-The NieR consumer performs those checks.
-
-</details>
+> [!faq]- Why is stock mlir-opt not the artifact validator?
+>
+> It can decode generic MLIR structure with unknown dialects allowed, but it does not know NieR's allowed operations, attributes, privacy rules, or target semantics.
+> The NieR consumer performs those checks.
 
 ## Guided reading
 

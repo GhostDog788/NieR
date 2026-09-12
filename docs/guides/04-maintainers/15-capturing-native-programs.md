@@ -179,10 +179,21 @@ Observe that the native-width function changes width and value. Do not distribut
 The capture layer provides native observations with a precise configuration and build origin.
 It cannot recover information the frontend already erased, and it does not establish a common program by itself.
 
-1. **Why is preoptimization LLVM still target-specific?** Frontend constant evaluation, preprocessing, layout and ABI lowering have already occurred.
-2. **Why keep native outputs during a NieR build?** Probes and generators must run, and actual native selection provides evidence for publication.
-3. **Why add the private marker after writing the snapshot?** The marker is build provenance, not application semantics to be merged and published.
-4. **Can an independent producer omit all this machinery?** Yes. It can emit valid NieR directly, provided it satisfies the public semantic and dependency contract.
+> [!faq]- Why is preoptimization LLVM still target-specific?
+>
+> Frontend constant evaluation, preprocessing, layout and ABI lowering have already occurred.
+
+> [!faq]- Why keep native outputs during a NieR build?
+>
+> Probes and generators must run, and actual native selection provides evidence for publication.
+
+> [!faq]- Why add the private marker after writing the snapshot?
+>
+> The marker is build provenance, not application semantics to be merged and published.
+
+> [!faq]- Can an independent producer omit all this machinery?
+>
+> Yes. It can emit valid NieR directly, provided it satisfies the public semantic and dependency contract.
 
 ## Guided source and evidence
 

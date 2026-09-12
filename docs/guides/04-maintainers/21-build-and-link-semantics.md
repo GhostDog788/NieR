@@ -177,9 +177,17 @@ Keep both when diagnosing an ordering regression.
 The native build is an oracle for selected inputs, not a source-file scanner.
 NieR must preserve selection, identity, physical order, per-unit settings and native dependencies while publishing only the common program.
 
-1. **Why not merge every archive member?** Native lazy extraction may exclude members whose inclusion changes symbols, errors or behavior.
-2. **Why is a marker not a signature?** It binds ordinary build evidence, but a workspace writer can rewrite that evidence; no trusted signing boundary has been established.
-3. **Why is reconstructing a declared TU not implicit LTO?** The reconstruction restores the original optimization unit; optimization happens afterward, separately for each unit.
+> [!faq]- Why not merge every archive member?
+>
+> Native lazy extraction may exclude members whose inclusion changes symbols, errors or behavior.
+
+> [!faq]- Why is a marker not a signature?
+>
+> It binds ordinary build evidence, but a workspace writer can rewrite that evidence; no trusted signing boundary has been established.
+
+> [!faq]- Why is reconstructing a declared TU not implicit LTO?
+>
+> The reconstruction restores the original optimization unit; optimization happens afterward, separately for each unit.
 
 Read `src/cli/Build.cpp` for selection and matching, then `src/publisher/BuildMain.cpp` for actual Clang publication.
 The best companion tests are `tests/build-integration.sh`, `tests/build-rejections.sh`, `tests/link-order.sh`, and `tests/retained-selection.sh`.

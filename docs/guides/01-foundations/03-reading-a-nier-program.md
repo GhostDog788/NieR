@@ -189,14 +189,11 @@ Always distinguish complete inputs, body excerpts, and pseudocode when experimen
 2. Does the function operation's final `() -> ()` mean `fixed_eight` returns nothing?
 3. If an operation has a `nier.` name, must every `nierc` understand it?
 
-<details>
-<summary>Answers</summary>
-
-1. They describe the attribute encoding and runtime result respectively. They are different layers, not two contradictory declarations of one runtime value.
-2. No. The callable signature is the function's `type` attribute. The operation representing the function creates no SSA result in its surrounding module.
-3. No. The current compiler has a closed admitted vocabulary and schema. New operations require implemented semantics and validation/lowering support.
-
-</details>
+> [!faq]- Answers
+>
+> 1. They describe the attribute encoding and runtime result respectively. They are different layers, not two contradictory declarations of one runtime value.
+> 2. No. The callable signature is the function's `type` attribute. The operation representing the function creates no SSA result in its surrounding module.
+> 3. No. The current compiler has a closed admitted vocabulary and schema. New operations require implemented semantics and validation/lowering support.
 
 ## Source and evidence trail
 

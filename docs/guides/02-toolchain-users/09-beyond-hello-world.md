@@ -141,27 +141,18 @@ Moving beyond Hello World is mainly about preserving distinctions:
 native width versus fixed values, build tools versus application code, selected archive members versus complete static outputs, and storage layout versus calling convention.
 The independent artifact is useful only if those native semantics survive the boundary.
 
-<details>
-<summary>Why must an integer literal 8 not become a pointer-size expression?</summary>
+> [!faq]- Why must an integer literal 8 not become a pointer-size expression?
+>
+> Equal values on one target do not imply equal meaning. The literal remains eight when a target's pointer size is four.
 
-Equal values on one target do not imply equal meaning. The literal remains eight when a target's pointer size is four.
+> [!faq]- Why is a successful native configure probe not itself published?
+>
+> It helped construct the build but is not necessarily in the selected application link graph.
+> Publishing every captured build program would include unrelated tools and could lose the intended output boundary.
 
-</details>
-
-<details>
-<summary>Why is a successful native configure probe not itself published?</summary>
-
-It helped construct the build but is not necessarily in the selected application link graph.
-Publishing every captured build program would include unrelated tools and could lose the intended output boundary.
-
-</details>
-
-<details>
-<summary>Does packed-record storage coverage establish packed-record by-value ABI support?</summary>
-
-No. Field memory access and native argument/return classification are separate obligations. The latter remains an explicit qualification gap here.
-
-</details>
+> [!faq]- Does packed-record storage coverage establish packed-record by-value ABI support?
+>
+> No. Field memory access and native argument/return classification are separate obligations. The latter remains an explicit qualification gap here.
 
 ## Guided reading
 
