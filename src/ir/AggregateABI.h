@@ -26,6 +26,9 @@ struct NativeABIValue {
   llvm::Align storageAlignment{1};
   // For byval/sret only. May exceed natural storage alignment (SysV64 byval).
   llvm::Align abiAlignment{1};
+  // AAPCS homogeneous aggregates may have an explicit stack-slot alignment
+  // even though their physical argument is a direct array/record value.
+  llvm::MaybeAlign stackAlignment;
   llvm::SmallVector<NativeABIPiece, 2> pieces;
   // Parameter positions in nativeType. For a direct result nativeBegin is
   // unused; an indirect result refers to the hidden sret parameter.
@@ -44,7 +47,7 @@ struct NativeABISignature {
   unsigned remainingSSE = 0;
 };
 
-llvm::Expected<llvm::DataLayout> nativeABIDataLayout(bool x64);
+llvm::Expected<llvm::DataLayout> nativeABIDataLayout(llvm::StringRef targetID);
 
 // Ordinary Linux SysV C calling convention, with the pinned baseline target
 // layouts. orderedRecords is an explicit semantic assertion: every listed
@@ -58,7 +61,7 @@ llvm::Expected<llvm::DataLayout> nativeABIDataLayout(bool x64);
 // separate contract. This classifies only fixed parameters in logical;
 // aggregate operands in a variadic tail need separate call-site admission.
 llvm::Expected<NativeABISignature> classifyNativeABI(
-    llvm::FunctionType *logical, bool x64,
+    llvm::FunctionType *logical, llvm::StringRef targetID,
     llvm::ArrayRef<llvm::StructType *> orderedRecords);
 
 enum class NativeABIRecordKind { Ordered, Union };
@@ -86,7 +89,7 @@ struct NativeABIRecordLayout {
 // Producers must prove these descriptors and the complete native inverse;
 // the classifier never derives union membership or bitfields from a carrier.
 llvm::Expected<NativeABISignature> classifyNativeLayoutABI(
-    llvm::FunctionType *logical, bool x64,
+    llvm::FunctionType *logical, llvm::StringRef targetID,
     llvm::ArrayRef<NativeABIRecordLayout> records);
 
 // Load/store precisely the declared native pieces in existing aggregate

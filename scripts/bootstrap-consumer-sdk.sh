@@ -2,13 +2,17 @@
 # Build unmodified LLVM/MLIR components for one genuine device-host ABI.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-profile=${1:?Usage: bootstrap-consumer-sdk.sh x86_64|i686 [output-directory]}
-[[ $# -le 2 && $profile =~ ^(x86_64|i686)$ ]] || { echo 'Expected x86_64 or i686' >&2; exit 2; }
+profile=${1:?Usage: bootstrap-consumer-sdk.sh TARGET [output-directory]}
+[[ $# -le 2 ]] || { echo 'Expected TARGET and optional output directory' >&2; exit 2; }
+eval "$(python3 "$repo/sdk/targets.py" shell "$profile")"
+[[ ${SELA_TARGET_ID:-} == "$profile" ]] || exit 2
 llvm_linkage=${SELA_CONSUMER_LLVM_LINKAGE:-shared}
 [[ $llvm_linkage == shared || $llvm_linkage == static-components ]] || {
   echo 'SELA_CONSUMER_LLVM_LINKAGE must be shared or static-components' >&2; exit 2;
 }
-[[ $(uname -m) == x86_64 ]] || { echo 'Bootstrap currently requires an x86-64 Linux build host.' >&2; exit 2; }
+build_host=$(python3 "$repo/sdk/targets.py" host)
+build_multiarch=$(python3 "$repo/sdk/targets.py" get "$build_host" multiarch)
+build_triple=$(python3 "$repo/sdk/targets.py" get "$build_host" triple)
 for utility in curl sha256sum dpkg-deb flock realpath tar readelf python3; do
   command -v "$utility" >/dev/null || { echo "Missing utility: $utility" >&2; exit 1; }
 done
@@ -43,12 +47,11 @@ for executable in "$host_llvm/bin/clang" "$host_llvm/bin/clang++" "$host_llvm/bi
 done
 # Only build-host programs inherit these paths. Never run an ELF32 program with
 # the amd64 loader search path; its probe below gets an explicit clean one.
-export LD_LIBRARY_PATH="$host_llvm/lib:$publisher/host/usr/lib/x86_64-linux-gnu"
+export LD_LIBRARY_PATH="$host_llvm/lib:$publisher/host/usr/lib/$build_multiarch"
 export PATH="$host_llvm/bin:$publisher/host/usr/bin:/usr/bin:/bin"
 unset CMAKE_PREFIX_PATH LLVM_DIR MLIR_DIR Clang_DIR CPATH CPLUS_INCLUDE_PATH C_INCLUDE_PATH LIBRARY_PATH
-triple="$profile-linux-gnu"
-multiarch=x86_64-linux-gnu
-[[ $profile == i686 ]] && multiarch=i386-linux-gnu
+triple="$SELA_TARGET_SYSROOT_TRIPLE"
+multiarch="$SELA_TARGET_MULTIARCH"
 sysroot="$destination/sysroots/$triple"
 prefix="$destination/host/usr/lib/llvm-18"
 mkdir -p "$sysroot" "$prefix/bin" "$prefix/lib" "$destination/host/usr/lib/$multiarch"
@@ -94,8 +97,7 @@ if [[ $profile == x86_64 && ! -e $sysroot/lib64 && ! -L $sysroot/lib64 ]]; then 
 # widths. Copy only this selected target's builtins/CRT, never Clang/frontends.
 runtime="$prefix/lib/clang/18/lib/linux"
 mkdir -p "$runtime"
-runtime_arch=$profile
-[[ $profile == i686 ]] && runtime_arch=i386
+runtime_arch=$SELA_TARGET_COMPILER_RT_ARCH
 for file in "libclang_rt.builtins-$runtime_arch.a" "clang_rt.crtbegin-$runtime_arch.o" "clang_rt.crtend-$runtime_arch.o"; do
   cp -- "$host_llvm/lib/clang/18/lib/linux/$file" "$runtime/$file"
 done
@@ -117,15 +119,14 @@ cp -- "$source_tree/llvm/lib/Support/BLAKE3/LICENSE" "$destination/licenses/llvm
 cp -- "$source_tree/llvm/lib/Support/COPYRIGHT.regex" "$destination/licenses/llvm-regex-COPYRIGHT.txt"
 cp -L -- "$publisher/host/usr/share/doc/llvm-18/copyright" "$destination/licenses/llvm-package-copyright.txt"
 cp -L -- "$publisher/host/usr/share/doc/libclang-rt-18-dev/copyright" "$destination/licenses/compiler-rt-copyright.txt"
-pointer_bytes=8
-[[ $profile == i686 ]] && pointer_bytes=4
-"$host_llvm/bin/clang++" --target="$profile-unknown-linux-gnu" --sysroot="$sysroot" \
-  "--gcc-install-dir=$sysroot/usr/lib/gcc/$triple/13" -std=c++17 -fuse-ld="$host_llvm/bin/ld.lld" \
+pointer_bytes=$(( SELA_TARGET_WORD_BITS / 8 ))
+"$host_llvm/bin/clang++" --target="$SELA_TARGET_TRIPLE" "${SELA_TARGET_CLANG_ARGS[@]}" --sysroot="$sysroot" \
+  "--gcc-install-dir=$sysroot/usr/lib/gcc/$SELA_TARGET_GCC_TRIPLE/13" -std=c++17 -fuse-ld="$host_llvm/bin/ld.lld" \
   "-Wl,-rpath-link,$sysroot/usr/lib/$multiarch" -DSELA_EXPECT_POINTER_BYTES="$pointer_bytes" \
   "$definition/abi-probe.cpp" -larchive -o "$destination/abi-probe"
-loader="$sysroot/usr/lib/$multiarch/ld-linux-x86-64.so.2"
-[[ $profile == i686 ]] && loader="$sysroot/usr/lib/$multiarch/ld-linux.so.2"
-env -u LD_LIBRARY_PATH -u LD_PRELOAD "$loader" --library-path "$sysroot/usr/lib/$multiarch" "$destination/abi-probe"
+# This is a cross-build/link probe, never a build-host executable. Runtime
+# validation belongs to the matching consuming-device qualification.
+python3 "$repo/sdk/targets.py" check-elf "$profile" "$destination/abi-probe"
 # The default serializes target builds. Explicit parallel callers share this
 # lock, while the per-profile lock still protects each build cache. Job counts
 # are per target; callers must budget their combined CPU/memory consumption.
@@ -158,7 +159,7 @@ common=(-G Ninja -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_BUILD_TYPE=Release
     -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_LINK_LLVM_DYLIB=OFF \
     -DCMAKE_C_COMPILER="$host_llvm/bin/clang" -DCMAKE_CXX_COMPILER="$host_llvm/bin/clang++" \
     -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=$host_llvm/bin/ld.lld" \
-    -DCMAKE_PREFIX_PATH="$publisher/host/usr" -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu
+    -DCMAKE_PREFIX_PATH="$publisher/host/usr" -DLLVM_HOST_TRIPLE="$build_triple"
   "$cmake" --build "$native_build" --parallel "$compile_jobs" --target llvm-min-tblgen llvm-tblgen mlir-tblgen
 )
 target_linkage=(-DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_LINK_LLVM_DYLIB=OFF)
@@ -166,6 +167,7 @@ if [[ $llvm_linkage == shared ]]; then
   target_linkage=(-DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON)
 fi
 "$cmake" -S "$source_tree/llvm" -B "$build" "${common[@]}" \
+  -DLLVM_TARGETS_TO_BUILD="$SELA_TARGET_LLVM_BACKEND" \
   "${target_linkage[@]}" -DLLVM_DYLIB_COMPONENTS=all \
   -DCMAKE_TOOLCHAIN_FILE="$definition/toolchain.cmake" \
   -DSELA_SDK_ROOT="$destination" -DSELA_DEVICE_TARGET="$profile" -DSELA_BUILD_SDK_ROOT="$publisher" \
@@ -173,7 +175,7 @@ fi
   "-DCMAKE_CXX_LINKER_LAUNCHER=flock;$work/link.lock" \
   -DCMAKE_INSTALL_PREFIX="$prefix" \
   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON "-DCMAKE_INSTALL_RPATH=\$ORIGIN/../lib;\$ORIGIN/../../$multiarch" \
-  -DLLVM_HOST_TRIPLE="$profile-unknown-linux-gnu" -DLLVM_DEFAULT_TARGET_TRIPLE="$profile-unknown-linux-gnu" \
+  -DLLVM_HOST_TRIPLE="$SELA_TARGET_TRIPLE" -DLLVM_DEFAULT_TARGET_TRIPLE="$SELA_TARGET_TRIPLE" \
   -DLLVM_NATIVE_TOOL_DIR="$native_build/bin" \
   -DLLVM_TABLEGEN="$native_build/bin/llvm-tblgen" \
   -DLLVM_HEADERS_TABLEGEN="$native_build/bin/llvm-min-tblgen" \
@@ -209,7 +211,7 @@ if [[ $profile == i686 ]]; then
     -Wl,--start-group -lMLIRParser -lMLIRAsmParser -lMLIRBytecodeReader -lMLIRBytecodeOpInterface \
     -lMLIRIR -lMLIRSupport "${probe_llvm[@]}" -Wl,--end-group -lz -lzstd -lpthread -ldl -lm
   readelf -h "$probe" | grep -q 'Class:.*ELF32'
-  env -u LD_LIBRARY_PATH -u LD_PRELOAD "$loader" --library-path "$build/lib:$sysroot/usr/lib/$multiarch" "$probe"
+  # Execution of this target probe is deferred to device qualification.
 fi
 python3 "$definition/receipt.py" prepare "$destination" "$build" "$profile" "$publisher" "$llvm_linkage"
 "$cmake" --build "$build" --parallel "$compile_jobs" --target "${targets[@]}"
@@ -220,11 +222,8 @@ for tool in opt llc llvm-ar lld; do
   cp -- "$build/bin/$tool" "$prefix/bin/$tool"
 done
 ln -sfn lld "$prefix/bin/ld.lld"
-expected_class=ELF64
-[[ $profile == i686 ]] && expected_class=ELF32
 for tool in opt llc llvm-ar ld.lld; do
-  readelf -h "$prefix/bin/$tool" | grep -q "Class:.*$expected_class"
-  env -u LD_LIBRARY_PATH -u LD_PRELOAD "$loader" --library-path "$prefix/lib:$destination/host/usr/lib/$multiarch" "$prefix/bin/$tool" --version
+  python3 "$repo/sdk/targets.py" check-elf "$profile" "$prefix/bin/$tool"
 done
 python3 "$definition/receipt.py" complete "$destination" "$build" "$profile" "$publisher" "$llvm_linkage"
 printf '\nConsumer SDK ready: %s\nUse -C %s/development.cmake and sdk/consumer/toolchain.cmake.\n' "$destination" "$destination"

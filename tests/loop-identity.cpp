@@ -102,19 +102,19 @@ bool directNegative(const std::string &artifact, llvm::StringRef label,
                     llvm::StringRef expected,
                     const std::function<void(std::vector<mlir::Operation *> &, mlir::Builder &)> &change) {
   mlir::MLIRContext context;
-  auto module = sela::readModule(artifact, context, sela::supportedNativeTargets());
+  auto module = sela::readModule(artifact, context, llvm::ArrayRef<llvm::StringRef>{"x86_64", "i686"});
   if (!module) { llvm::logAllUnhandledErrors(module.takeError(), llvm::errs()); return false; }
   auto branches = loopBranches(**module);
   if (branches.size() != 2) return false;
   mlir::Builder builder(&context);
   change(branches, builder);
-  return rejected(sela::verifyModule(**module, sela::supportedNativeTargets()), expected, label);
+  return rejected(sela::verifyModule(**module, llvm::ArrayRef<llvm::StringRef>{"x86_64", "i686"}), expected, label);
 }
 }
 
 int main(int argc, char **argv) {
   if (argc == 4) {
-    if (auto error = sela::mergeProfiles(argv[1], argv[2], argv[3])) {
+    if (auto error = sela::mergeProfiles({{"x86_64", argv[1]}, {"i686", argv[2]}}, argv[3])) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "real loop capture: ");
       return 1;
     }
@@ -132,12 +132,12 @@ int main(int argc, char **argv) {
   bool passed = true;
   for (bool shared : {false, true}) {
     if (!write(left, native(true, shared)) || !write(right, native(false, shared))) { passed = false; break; }
-    if (auto error = sela::mergeProfiles(left, right, artifact)) {
+    if (auto error = sela::mergeProfiles({{"x86_64", left}, {"i686", right}}, artifact)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "loop producer: ");
       passed = false; break;
     }
     mlir::MLIRContext context;
-    auto module = sela::readModule(artifact, context, sela::supportedNativeTargets());
+    auto module = sela::readModule(artifact, context, llvm::ArrayRef<llvm::StringRef>{"x86_64", "i686"});
     if (!module) { llvm::logAllUnhandledErrors(module.takeError(), llvm::errs()); passed = false; break; }
     auto branches = loopBranches(**module);
     if (branches.size() != 2 ||
@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
   for (bool sharedLeft : {false, true}) {
     passed &= write(left, native(true, sharedLeft)) && write(right, native(false, !sharedLeft));
     const auto rejectedArtifact = directory + (sharedLeft ? "/split.selabc" : "/coalesced.selabc");
-    passed &= rejected(sela::mergeProfiles(left, right, rejectedArtifact),
+    passed &= rejected(sela::mergeProfiles({{"x86_64", left}, {"i686", right}}, rejectedArtifact),
         "native loop identity correspondence differs between profiles", "cross-profile loop identity");
     passed &= !std::filesystem::exists(rejectedArtifact);
   }

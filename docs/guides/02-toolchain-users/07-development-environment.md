@@ -30,9 +30,9 @@ For example, a 64-bit Clang process can compile an i686 application.
 Clang still runs as a 64-bit host program, but it uses the 32-bit target's headers and layout rules.
 The application has four-byte pointers even though the compiler process has eight-byte pointers. That is cross-compilation, not emulation.
 
-Sela uses both x86-64 and i686 target environments as private evidence when publishing C.
-Independent device compilers also exist for both targets; each public `selac` compiles only for its own native device.
-Having an i686 sysroot in the SDK does not by itself establish a complete 32-bit product deployment.
+Sela uses x86-64, i686, ARMv7 hard-float, and AArch64 Linux/glibc environments as private evidence when publishing C.
+Each public `selac` is built for, and compiles only for, its own native device target.
+Having a target sysroot in the SDK does not by itself establish a complete product deployment.
 The [distribution reference](../../reference/compiler-distribution.md) records the separate real-device and full-corpus checks.
 
 ## What the local SDK supplies
@@ -49,12 +49,19 @@ The important layout is:
   host/usr/bin/               CMake and Ninja
   sysroots/x86_64-linux-gnu/  x86-64 application headers, CRT and libraries
   sysroots/i686-linux-gnu/    i686 application headers, CRT and libraries
+  sysroots/armv7-linux-gnueabihf/  ARMv7 hard-float application environment
+  sysroots/aarch64-linux-gnu/     AArch64 application environment
   sdk-lock.sha256            receipt checked against the pinned SDK contract
 ```
 
 A **sysroot** is a directory treated as the root of the target's development filesystem.
 It lets the compiler find target headers and libraries without accidentally using `/usr/include` and libraries from the developer's host.
 The CRT, or C runtime startup code, includes the small native objects that connect the loader's entry point to the application's `main` function.
+
+A cross-compiled build-time generator is different from the compiler itself: running it requires compatible execution support.
+The supported Make/CMake flow uses real target executions through explicitly provisioned QEMU/binfmt when the host cannot execute them natively.
+It checks prerequisites and reports missing support; it does not silently install emulators or fabricate configure answers.
+The separate device qualification uses full-system VMs with matching kernels, including genuine 32-bit kernels for both 32-bit products.
 
 The pinned LLVM/Clang/MLIR/LLD package version is 18.1.3-1ubuntu1. This precision is important for a C++ plugin: the plugin is loaded into Clang's process and must match the frontend interfaces it was built against.
 “Some Clang 18” is not the same assurance as the SDK's coordinated package set.
@@ -101,6 +108,8 @@ command -v cmake
 cmake --version
 printf 'x86-64 sysroot: %s\n' "$SELA_SYSROOT_X86_64"
 printf 'i686 sysroot:   %s\n' "$SELA_SYSROOT_I686"
+printf 'ARMv7 sysroot:  %s\n' "$SELA_SYSROOT_ARMV7"
+printf 'AArch64 sysroot:%s\n' "$SELA_SYSROOT_AARCH64"
 
 cmake -S . -B "$guide_work/build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release

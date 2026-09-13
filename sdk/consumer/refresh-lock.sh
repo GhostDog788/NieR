@@ -7,11 +7,12 @@ apt_lists=${SDK_APT_LISTS:-/var/lib/apt/lists}
 archive_prefix=${SDK_APT_ARCHIVE_PREFIX:-il.archive.ubuntu.com_ubuntu}
 keyring=${SDK_UBUNTU_KEYRING:-/usr/share/keyrings/ubuntu-archive-keyring.gpg}
 verified_indexes=()
+mapfile -t architectures < <(awk '!/^#/ && NF {split($2, parts, ":"); print parts[2]}' "$sdk_dir/packages.txt" | sort -u)
 for suite in noble noble-updates; do
   release="$apt_lists/${archive_prefix}_dists_${suite}_InRelease"
   gpgv --keyring "$keyring" "$release" >&2
   for component in main universe; do
-    for arch in amd64 i386; do
+    for arch in "${architectures[@]}"; do
       index="$apt_lists/${archive_prefix}_dists_${suite}_${component}_binary-${arch}_Packages"
       relative="$component/binary-$arch/Packages"
       expected=$(awk -v path="$relative" '$1 == "SHA256:" { hashes=1; next } hashes && $3 == path {print $1; exit}' "$release")

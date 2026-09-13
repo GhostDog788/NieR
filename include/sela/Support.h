@@ -17,7 +17,8 @@ llvm::Expected<llvm::json::Value> readJson(const fs::path &path);
 std::string jsonText(llvm::json::Value value);
 std::string digest(llvm::StringRef bytes);
 llvm::Error run(const std::vector<std::string> &args, const fs::path &cwd = {},
-                const std::map<std::string, std::string> &environment = {});
+                const std::map<std::string, std::string> &environment = {},
+                const std::vector<std::string> &removeEnvironment = {});
 struct Scratch {
   fs::path path;
   bool keep = false;

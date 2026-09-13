@@ -65,18 +65,16 @@ llvm::Error build(int argc, char **argv) {
     auto pluginArgument = [&](const std::string &value) {
       command.insert(command.end(), {"-Xclang", "-plugin-arg-sela", "-Xclang", value});
     };
-    if (unit.x64Paths.size() == 1 && unit.i686Paths.size() == 1) {
-      pluginArgument("mode=pair");
-      pluginArgument("peer=" + unit.i686Paths.front().string());
-    } else {
-      pluginArgument("mode=group");
-      for (const auto &path : unit.x64Paths) pluginArgument("left=" + path.string());
-      for (const auto &path : unit.i686Paths) pluginArgument("right=" + path.string());
+    pluginArgument("mode=profiles");
+    if (unit.pathsByTarget.empty()) return fail("selected native unit has no target captures");
+    for (const auto &[target, paths] : unit.pathsByTarget) {
+      if (paths.empty()) return fail("selected native target has no capture inputs");
+      for (const auto &path : paths) pluginArgument("capture=" + target + "=" + path.string());
     }
     pluginArgument("optimization=" + unit.optimization);
-    command.insert(command.end(), {"-x", "ir", "-c", unit.x64Paths.front().string(), "-o", artifact.string()});
+    command.insert(command.end(), {"-x", "ir", "-c", unit.pathsByTarget.begin()->second.front().string(), "-o", artifact.string()});
     if (auto error = run(command)) return error;
-    if (!fs::is_regular_file(artifact)) return fail("stock Clang did not emit paired Sela unit");
+    if (!fs::is_regular_file(artifact)) return fail("stock Clang did not emit the multi-profile Sela unit");
     link.push_back(artifact.string());
   }
   if (captured->kind == "shared") link.push_back("-shared");
@@ -87,13 +85,13 @@ llvm::Error build(int argc, char **argv) {
   }
   for (const auto &library : captured->libraries) link.push_back("-l" + library);
   for (const auto &option : captured->linkOptions) { link.push_back("-Xlinker"); link.push_back(option); }
-  if (!captured->i686Order.empty()) {
+  for (const auto &[target, indices] : captured->ordersByTarget) {
     std::string order;
-    for (size_t index : captured->i686Order) {
+    for (size_t index : indices) {
       if (!order.empty()) order += ',';
       order += std::to_string(index);
     }
-    link.insert(link.end(), {"-Xlinker", "--sela-unit-order-i686=" + order});
+    link.insert(link.end(), {"-Xlinker", "--sela-unit-order=" + target + ":" + order});
   }
   if (!captured->versionScript.empty()) {
     const auto script = scratch->path / "publication.version.script";

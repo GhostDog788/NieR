@@ -1,5 +1,5 @@
 #!/bin/sh
-# Shared POSIX test body: real i386 guest and ordinary x86-64 host.
+# Shared POSIX test body for all real native-kernel guests.
 # Only fixtures, native reference binaries and a compiler bundle are inputs.
 set -eu
 if [ "$#" -ne 4 ]; then
@@ -10,11 +10,11 @@ bundle=$(realpath "$1")
 fixtures=$(realpath "$2")
 output=$3
 target=$4
-case "$target" in
-    i686) elf_class=1; elf_machine=3; foreign=x86_64 ;;
-    x86_64) elf_class=2; elf_machine=62; foreign=i686 ;;
-    *) exit 2 ;;
-esac
+grep -Fx "$target" "$fixtures/targets.list" >/dev/null
+. "$fixtures/target-metadata/$target.env"
+test "$SELA_TARGET_ID" = "$target"
+elf_class=$SELA_TARGET_ELF_CLASS
+elf_machine=$SELA_TARGET_ELF_MACHINE
 test ! -e "$output"
 mkdir -p "$output"
 output=$(realpath "$output")
@@ -101,33 +101,38 @@ reject() {
     fi
     test "$protected_before" = "$(sha256sum "$output/protected")"
     test "$identity_before" = "$(stat -c '%i:%s:%Y:%a' "$output/protected")"
+    negatives=$((negatives + 1))
 }
+negatives=0
 reject malformed "$fixtures/malformed.sela" -o "$output/protected"
 reject relocatable "$fixtures/relocatable.sela" -o "$output/protected"
 mkdir "$output/missing-library"
 reject missing-library "$fixtures/shared-main.sela" --library-dir "$output/missing-library" -o "$output/protected"
-reject foreign-compile "$fixtures/hello.sela" --target "$foreign" -o "$output/protected"
-reject foreign-lower lower "$fixtures/hello.sela" --target "$foreign" --output-dir "$output/foreign-lower"
-test ! -e "$output/foreign-lower"
 reject alias "$fixtures/hello.sela" -o "$fixtures/hello.sela"
-"$compiler" inspect "$fixtures/foreign-only-$foreign.sela" > "$output/foreign-inspect.log"
-grep -F "$foreign: 1 native compilation units; not validated (native backend unavailable)" "$output/foreign-inspect.log"
-if grep -F 'native validation passed' "$output/foreign-inspect.log"; then exit 1; fi
-reject foreign-only-compile "$fixtures/foreign-only-$foreign.sela" -o "$output/protected"
-reject foreign-only-lower lower "$fixtures/foreign-only-$foreign.sela" --output-dir "$output/foreign-only-lower"
-test ! -e "$output/foreign-only-lower"
+while IFS= read -r foreign; do
+    test "$foreign" != "$target" || continue
+    reject "foreign-$foreign-compile" "$fixtures/hello.sela" --target "$foreign" -o "$output/protected"
+    reject "foreign-$foreign-lower" lower "$fixtures/hello.sela" --target "$foreign" --output-dir "$output/foreign-$foreign-lower"
+    test ! -e "$output/foreign-$foreign-lower"
+    "$compiler" inspect "$fixtures/foreign-only-$foreign.sela" > "$output/foreign-$foreign-inspect.log"
+    grep -F "$foreign: 1 native compilation units; not validated (native backend unavailable)" "$output/foreign-$foreign-inspect.log"
+    if grep -F 'native validation passed' "$output/foreign-$foreign-inspect.log"; then exit 1; fi
+    reject "foreign-only-$foreign-compile" "$fixtures/foreign-only-$foreign.sela" -o "$output/protected"
+    reject "foreign-only-$foreign-lower" lower "$fixtures/foreign-only-$foreign.sela" --output-dir "$output/foreign-only-$foreign-lower"
+    test ! -e "$output/foreign-only-$foreign-lower"
+done < "$fixtures/targets.list"
 "$compiler" inspect "$fixtures/foreign-only-$target.sela" > "$output/native-only-inspect.log"
 grep -F "$target: 1 native compilation units; native validation passed" "$output/native-only-inspect.log"
 "$compiler" "$fixtures/foreign-only-$target.sela" -o "$output/native-only"
 check_elf "$output/native-only"
 env -i PATH=/usr/bin:/bin LC_ALL=C "$output/native-only" > "$output/native-only.txt"
 cmp "$output/hello.reference.txt" "$output/native-only.txt"
-for domain in word32 word64; do
+while IFS= read -r domain; do
     reject "malformed-$domain-inspect" inspect "$fixtures/malformed-inactive-$domain.sela"
     reject "malformed-$domain-compile" "$fixtures/malformed-inactive-$domain.sela" -o "$output/protected"
-    grep -F 'invalid arithmetic flags in a public word domain' "$output/malformed-$domain-inspect.log"
-    grep -F 'invalid arithmetic flags in a public word domain' "$output/malformed-$domain-compile.log"
-done
+    grep -F 'invalid arithmetic flags' "$output/malformed-$domain-inspect.log"
+    grep -F 'invalid arithmetic flags' "$output/malformed-$domain-compile.log"
+done < "$fixtures/targets.list"
 printf 'SELA_CONSUMER_NATIVE_OUTPUT_HASHES target=%s\n' "$target"
 sha256sum "$output/hello" "$output/shared" "$output/static" "$output/native-only" \
     "$output/libdevice.so" "$output/libdevice.a"
@@ -141,4 +146,6 @@ while IFS= read -r executable; do sha256sum "$output/$executable"; done < "$fixt
     cd "$fixtures"
     sha256sum -c fixtures.sha256
 )
-printf 'SELA_CONSUMER_FIXTURES_PASS target=%s executables=28 shared=3 static=1 negatives=12\n' "$target"
+target_count=$(wc -l < "$fixtures/targets.list")
+test "$negatives" -eq "$((6 * target_count))"
+printf 'SELA_CONSUMER_FIXTURES_PASS target=%s executables=28 shared=3 static=1 negatives=%s\n' "$target" "$negatives"

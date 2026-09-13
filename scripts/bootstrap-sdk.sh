@@ -7,10 +7,11 @@ sdk_root=${SELA_SDK_ROOT:-$repo_root/.sdk}
 # retains every exact package in sdk/packages.lock; hashes remain authoritative.
 mirror=${SDK_UBUNTU_MIRROR:-https://snapshot.ubuntu.com/ubuntu/20260910T000000Z}
 lock="$repo_root/sdk/packages.lock"
-for command in curl sha256sum dpkg-deb flock realpath; do
+for command in curl sha256sum dpkg-deb flock realpath python3; do
   command -v "$command" >/dev/null || { echo "Required host utility missing: $command" >&2; exit 1; }
 done
-[[ $(uname -m) == x86_64 ]] || { echo 'The publisher SDK requires an x86-64 Linux host.' >&2; exit 1; }
+build_host=$(python3 "$repo_root/sdk/targets.py" host)
+build_arch=$(python3 "$repo_root/sdk/targets.py" get "$build_host" packageArch)
 [[ -f $lock ]] || { echo "Missing checked-in lock: $lock" >&2; exit 1; }
 sdk_root=$(realpath -m -- "$sdk_root")
 case "$sdk_root" in
@@ -29,9 +30,18 @@ while read -r lane package arch version digest filename extra; do
   [[ -z ${lane:-} || $lane == \#* ]] && continue
   [[ $digest =~ ^[0-9a-f]{64}$ && $filename == pool/* && -z ${extra:-} ]] || { echo 'Malformed SDK lock row' >&2; exit 1; }
   case "$lane" in
-    host) destination="$sdk_root/host" ;;
-    x86_64-linux-gnu|i686-linux-gnu) destination="$sdk_root/sysroots/$lane" ;;
-    *) echo "Unknown SDK lane: $lane" >&2; exit 1 ;;
+    host)
+      [[ $arch == "$build_arch" || $arch == all ]] || {
+        echo "No qualified $build_host publisher SDK lock is supplied (found $arch host packages). Device cross-builds do not require a target-host SDK." >&2; exit 1;
+      }
+      destination="$sdk_root/host" ;;
+    *)
+      matched=false
+      while IFS= read -r profile; do
+        if [[ $lane == "$(python3 "$repo_root/sdk/targets.py" get "$profile" sysrootTriple)" ]]; then matched=true; break; fi
+      done < <(python3 "$repo_root/sdk/targets.py" list)
+      [[ $matched == true ]] || { echo "Unknown SDK lane: $lane" >&2; exit 1; }
+      destination="$sdk_root/sysroots/$lane" ;;
   esac
   archive="$sdk_root/downloads/${filename##*/}"
   receipt="$sdk_root/receipts/$lane-$package-$arch-$digest"
@@ -64,8 +74,24 @@ ensure_alias() {
     ln -s -- "$target" "$link"
   fi
 }
-ensure_alias "$sdk_root/sysroots/x86_64-linux-gnu/lib" usr/lib
-ensure_alias "$sdk_root/sysroots/x86_64-linux-gnu/lib64" usr/lib64
-ensure_alias "$sdk_root/sysroots/i686-linux-gnu/lib" usr/lib
+# Stable build-host runtime path for presets; its architecture is selected from
+# actual host metadata instead of embedding x86 paths in every build consumer.
+host_multiarch=$(python3 "$repo_root/sdk/targets.py" get "$build_host" multiarch)
+ensure_alias "$sdk_root/host/runtime" "usr/lib/$host_multiarch"
+while IFS= read -r profile; do
+  eval "$(python3 "$repo_root/sdk/targets.py" shell "$profile")"
+  target_root="$sdk_root/sysroots/$SELA_TARGET_SYSROOT_TRIPLE"
+  ensure_alias "$target_root/lib" usr/lib
+  if [[ -d $target_root/usr/lib64 ]]; then ensure_alias "$target_root/lib64" usr/lib64; fi
+  # Foreign compiler-rt packages contain data/link inputs, never build-host
+  # executables. Add just each admitted target's C runtime to host Clang.
+  target_runtime="$target_root/usr/lib/llvm-18/lib/clang/18/lib/linux"
+  if [[ -d $target_runtime ]]; then
+    host_runtime="$sdk_root/host/usr/lib/llvm-18/lib/clang/18/lib/linux"
+    for file in "libclang_rt.builtins-$SELA_TARGET_COMPILER_RT_ARCH.a" "clang_rt.crtbegin-$SELA_TARGET_COMPILER_RT_ARCH.o" "clang_rt.crtend-$SELA_TARGET_COMPILER_RT_ARCH.o"; do
+      cp -- "$target_runtime/$file" "$host_runtime/$file"
+    done
+  fi
+done < <(python3 "$repo_root/sdk/targets.py" list)
 printf '%s\n' "$lock_digest" > "$sdk_root/sdk-lock.sha256"
 printf '\nSDK ready at %s\nSource %s/sdk/env.sh to select it.\n' "$sdk_root" "$repo_root"

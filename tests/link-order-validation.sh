@@ -21,7 +21,7 @@ done
 # Valid publication still enters through actual stock Clang. The permutation
 # changes only the narrow native extraction order; settings stay with each TU.
 "$llvm/clang" --config="$config" "${inputs[@]}" \
-  -Xlinker --sela-unit-order-i686=0,2,1 -o "$work/valid.sela"
+  -Xlinker --sela-unit-order=i686:0,2,1 -o "$work/valid.sela"
 for target in x86_64 i686; do
   "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower "$work/valid.sela" --target "$target" --output-dir "$work/$target"
   rg -q 'define.*@main' "$work/$target/0.ll"
@@ -69,23 +69,24 @@ invalid=(
   '0,0,2' '0,1,1' '0,1' '0' '0,1,2,3' '0,1,3' '0,1,4294967295'
 )
 for order in "${invalid[@]}"; do
-  reject 'i686 native-unit permutation' "--sela-unit-order-i686=$order"
+  reject 'native-unit permutation' "--sela-unit-order=i686:$order"
 done
-reject 'multiple i686 native-unit permutations' \
-  --sela-unit-order-i686=0,1,2 --sela-unit-order-i686=0,2,1
-reject 'unqualified publication link option' --sela-unit-order-i686
+reject 'duplicate target native-unit permutation' \
+  --sela-unit-order=i686:0,1,2 --sela-unit-order=i686:0,2,1
+reject 'unqualified publication link option' --sela-unit-order
+reject 'unsupported or duplicate target' --sela-unit-order=unknown:0,1,2
 
 # Bound parsing work before allocation/publication, including oversized token
 # lists whose byte length is still below the independent 4096-byte limit.
 many=0
 for ((index = 1; index < 513; ++index)); do many+=,0; done
-reject 'oversized i686 native-unit permutation' "--sela-unit-order-i686=$many"
+reject 'oversized target native-unit permutation' "--sela-unit-order=i686:$many"
 printf -v oversized '%04097d' 0
-reject 'invalid i686 native-unit permutation' "--sela-unit-order-i686=$oversized"
+reject 'invalid target native-unit permutation' "--sela-unit-order=i686:$oversized"
 
 # Leading zeroes are still decimal, and an explicit identity order is valid.
 # Neither changes the x64 sequence or drops any narrow unit.
-"$linker" "${inputs[@]}" --sela-unit-order-i686=00,01,02 -o "$work/identity.sela"
+"$linker" "${inputs[@]}" --sela-unit-order=i686:00,01,02 -o "$work/identity.sela"
 "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower "$work/identity.sela" --target i686 --output-dir "$work/identity"
 rg -q 'define.*@first' "$work/identity/1.ll"
 rg -q 'define.*@second' "$work/identity/2.ll"

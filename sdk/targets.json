@@ -1,0 +1,49 @@
+{
+  "format": "sela-targets-prealpha-1",
+  "targets": [
+    {
+      "id": "x86_64", "triple": "x86_64-unknown-linux-gnu", "sysrootTriple": "x86_64-linux-gnu",
+      "multiarch": "x86_64-linux-gnu", "gccTriple": "x86_64-linux-gnu", "packageArch": "amd64",
+      "llvmBackend": "X86", "abi": "sysv-amd64", "cpu": "x86-64",
+      "features": "+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87", "floatABI": "default",
+      "layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+      "wordBits": 64, "elfClass": 2, "elfMachine": 62, "elfMachineName": "Advanced Micro Devices X86-64",
+      "byteOrder": "little", "plainCharSigned": true, "loader": "ld-linux-x86-64.so.2",
+      "compilerRTArch": "x86_64", "lldEmulation": "elf_x86_64", "qemuUser": "qemu-x86_64",
+      "clangArgs": [], "publicationClangArgs": []
+    },
+    {
+      "id": "i686", "triple": "i686-unknown-linux-gnu", "sysrootTriple": "i686-linux-gnu",
+      "multiarch": "i386-linux-gnu", "gccTriple": "i686-linux-gnu", "packageArch": "i386",
+      "llvmBackend": "X86", "abi": "sysv-i386", "cpu": "i686",
+      "features": "+cmov,+cx8,+x87", "floatABI": "default",
+      "layout": "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128",
+      "wordBits": 32, "elfClass": 1, "elfMachine": 3, "elfMachineName": "Intel 80386",
+      "byteOrder": "little", "plainCharSigned": true, "loader": "ld-linux.so.2",
+      "compilerRTArch": "i386", "lldEmulation": "elf_i386", "qemuUser": "qemu-i386",
+      "clangArgs": [], "publicationClangArgs": []
+    },
+    {
+      "id": "armv7", "triple": "armv7-unknown-linux-gnueabihf", "sysrootTriple": "armv7-linux-gnueabihf",
+      "multiarch": "arm-linux-gnueabihf", "gccTriple": "arm-linux-gnueabihf", "packageArch": "armhf",
+      "llvmBackend": "ARM", "abi": "aapcs32-vfp", "cpu": "generic",
+      "features": "+armv7-a,+dsp,+fp64,+vfp2,+vfp2sp,+vfp3d16,+vfp3d16sp,-aes,-d32,-fp-armv8,-fp-armv8d16,-fp-armv8d16sp,-fp-armv8sp,-fp16,-fp16fml,-fullfp16,-neon,-sha2,-thumb-mode,-vfp3,-vfp3sp,-vfp4,-vfp4d16,-vfp4d16sp,-vfp4sp",
+      "floatABI": "hard", "layout": "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+      "wordBits": 32, "elfClass": 1, "elfMachine": 40, "elfMachineName": "ARM",
+      "byteOrder": "little", "plainCharSigned": false, "loader": "ld-linux-armhf.so.3",
+      "compilerRTArch": "armhf", "lldEmulation": "armelf_linux_eabi", "qemuUser": "qemu-arm",
+      "clangArgs": ["-march=armv7-a", "-mfpu=vfpv3-d16", "-mfloat-abi=hard"], "publicationClangArgs": []
+    },
+    {
+      "id": "aarch64", "triple": "aarch64-unknown-linux-gnu", "sysrootTriple": "aarch64-linux-gnu",
+      "multiarch": "aarch64-linux-gnu", "gccTriple": "aarch64-linux-gnu", "packageArch": "arm64",
+      "llvmBackend": "AArch64", "abi": "aapcs64", "cpu": "generic",
+      "features": "+fp-armv8,+neon,+v8a,-fmv,-outline-atomics", "floatABI": "default",
+      "layout": "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+      "wordBits": 64, "elfClass": 2, "elfMachine": 183, "elfMachineName": "AArch64",
+      "byteOrder": "little", "plainCharSigned": false, "loader": "ld-linux-aarch64.so.1",
+      "compilerRTArch": "aarch64", "lldEmulation": "aarch64linux", "qemuUser": "qemu-aarch64",
+      "clangArgs": ["-march=armv8-a"], "publicationClangArgs": ["-mno-outline-atomics", "-mno-fmv"]
+    }
+  ]
+}

@@ -27,7 +27,8 @@ Support for fixed scalar calls, variadic calls, variadic function bodies, and ag
 The state behind `va_list` is target-dependent.
 In the pinned SysV x86-64 configuration it is represented by a one-element array of a record containing general-purpose and floating-point offsets, an overflow-area pointer, and a register-save-area pointer.
 In the pinned i686 configuration it is a pointer cursor.
-Shipping either representation as the architecture-neutral meaning would make the other target imitate an implementation detail.
+ARMv7 uses a pointer-containing record; AArch64 uses stack/register-area pointers and signed general/floating register offsets.
+Shipping any one representation as the architecture-neutral meaning would make other targets imitate an implementation detail.
 
 The public `!sela.va_list` type therefore describes variadic state, not a portable serialization of one platform's C header definition.
 The consumer chooses the native representation for the selected target.
@@ -60,12 +61,14 @@ They are not public Sela operands which a future target must reproduce.
 `src/ir/Varargs.cpp` first identifies candidate state objects through the native `vastart`, `vacopy` and `vaend` intrinsics.
 It then checks a whole extraction: state layout, instruction ordering, addressing, alignments, comparison, increments, successor relationships, PHI inputs, and uses.
 The recognized memory operations must be nonvolatile and nonatomic.
-The narrow and wide patterns are independently proved before they can become the same logical extraction.
+Every target's pattern is independently proved before it can become the same logical extraction.
 
 Only after those checks does the producer replace the native expansion with a logical operation.
 The requested type and state identity are the meaning to preserve.
-The consumer lowers `sela.va_arg` to LLVM's `VAArgInst` for the native state type.
-LLVM's ordinary target pipeline subsequently implements the native ABI; there is no interpreted argument reader installed beside the executable.
+The x86 lowerers can use LLVM's `VAArgInst` for the native state type.
+ARM lowering emits the explicit native cursor transition: ARM32 alignment/advance, or the Linux AAPCS64 register/stack selection graph.
+This distinction matters because LLVM 18's generic AArch64 `va_arg` lowering is not the Linux AAPCS64 implementation required here.
+LLVM's ordinary target pipeline then optimizes and compiles those native operations; there is no interpreted argument reader installed beside the executable.
 
 The inverse check then specializes the common program back to each native profile and compares the qualified normalized contracts.
 Execution tests add another layer: retrieving one argument is not sufficient to test offset updates, so the fixture intentionally crosses both register-bank boundaries.
@@ -93,9 +96,14 @@ Forwarding does not extract one argument; it hands native list state to an ordin
 
 The qualified x86-64 ABI passes the array-state address.
 The i686 ABI passes the cursor value stored in the local state slot.
-Thus the same apparent pointer-to-state cannot simply be passed on both targets.
-`sela.va_forward` expresses this adaptation explicitly: wide lowering returns the state address, while narrow lowering loads the current cursor.
+ARM32 passes a one-element integer carrier, while AArch64 passes an owned indirect copy of the native state record.
+Thus the same apparent pointer-to-state cannot simply be passed on every target.
+`sela.va_forward` expresses this adaptation explicitly, including forwarding an already incoming native list argument.
 It does not add a wrapper around `vsnprintf` or require a specially rebuilt libc.
+
+The AArch64 producer recognizes only a proved fresh ABI-copy temporary with the exact copy, alignment, lifetime, and forwarding uses.
+It folds that implicit copy into forwarding semantics; the consumer reconstructs the owned native copy.
+A source-level `va_copy` remains a distinct operation and must not be erased as if it were an ABI shim.
 
 Copying the list is also meaningful.
 A second traversal must have its own properly initialized native state; duplicating an arbitrary byte count is not a general implementation of `va_copy`.
@@ -136,7 +144,8 @@ Locals whose changed values must survive the jump are volatile.
 
 This is important test design. An example relying on an indeterminate nonvolatile local after `longjmp` would be an invalid correctness oracle.
 Likewise, merely returning normally from a function containing `setjmp` would not test its unusual control transfer.
-`tests/nonlocal.sh` executes the qualified cases at O0 and O2 on both widths, while the full cJSON suite retains Unity's normal nonlocal assertion mechanism.
+`tests/nonlocal.sh` publishes the qualified cases at O0 and O2 and executes the development-host output.
+The four-device fixture matrix executes the same artifact on each target, while the full cJSON suite retains Unity's normal nonlocal assertion mechanism.
 
 These results establish the tested native behavior, not every platform's nonlocal-jump extensions or an entire language exception implementation.
 

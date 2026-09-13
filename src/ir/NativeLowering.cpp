@@ -6,6 +6,7 @@
 #include "OverlapLayout.h"
 #include "ConditionalSpecialization.h"
 #include "sela/IR/Dialect.h"
+#include "sela/IR/Domains.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -102,29 +103,23 @@ public:
     if (mlir::isa<ir::PointerType>(input))
       return llvm::PointerType::get(context, 0);
     if (mlir::isa<ir::WordType>(input))
-      return llvm::IntegerType::get(context, x64 ? 64 : 32);
+      return llvm::IntegerType::get(context, targetInfo().wordBits);
+    if (mlir::isa<ir::VaListArgumentType>(input))
+      return nativeVaListArgumentType(context);
     if (mlir::isa<ir::VaListType>(input)) {
-
-#if SELA_NATIVE_WORD_BITS == 32
-      return llvm::PointerType::get(context, 0);
-#else
       if (auto found = aggregateTypes.find(input); found != aggregateTypes.end()) return found->second;
-      auto *i32 = llvm::Type::getInt32Ty(context);
-      auto *pointer = llvm::PointerType::get(context, 0);
-      auto *record = llvm::StructType::create(context, {i32, i32, pointer, pointer}, "v0");
-      auto *array = llvm::ArrayType::get(record, 1);
-      aggregateTypes[input] = array;
-      return array;
-#endif
+      auto *native = nativeVaListType(context);
+      aggregateTypes[input] = native;
+      return native;
     }
     if (input.isF32()) return llvm::Type::getFloatTy(context);
     if (input.isF64()) return llvm::Type::getDoubleTy(context);
     if (auto array = mlir::dyn_cast<ir::ArrayType>(input)) {
       auto *element = type(array.getElementType());
-      if (!element || array.getNumElements(x64) > (1ULL << 30)) {
+      if (!element || array.getNumElements() > (1ULL << 30)) {
         fail("unsupported or oversized native array type"); return nullptr;
       }
-      return llvm::ArrayType::get(element, array.getNumElements(x64));
+      return llvm::ArrayType::get(element, array.getNumElements());
     }
     if (auto overlap = mlir::dyn_cast<ir::OverlapType>(input)) {
       if (auto found = aggregateTypes.find(input); found != aggregateTypes.end()) return found->second;
@@ -143,17 +138,14 @@ public:
         fail("invalid overlap alternative inventory"); return nullptr;
       }
       llvm::SmallVector<llvm::Type *> selected;
-      unsigned domainInventory = 0;
       for (unsigned i = 0; i < alternatives.size(); ++i) {
-        if (domains[i] < 1 || domains[i] > 3) { fail("invalid overlap alternative domain"); return nullptr; }
-        domainInventory |= domains[i];
+        if (!ir::containsTarget(domains[i], TargetID)) { fail("unspecialized overlap alternative domain"); return nullptr; }
         auto *native = type(alternatives[i]);
         if (!native) return nullptr;
         auto qualified = detail::selectOverlapCarrier({native}, module->getDataLayout());
         if (!qualified) { fail(llvm::toString(qualified.takeError())); return nullptr; }
-        if (domains[i] & (x64 ? 1 : 2)) selected.push_back(native);
+        selected.push_back(native);
       }
-      if (domainInventory != 3) { fail("overlap has no storage in one native word domain"); return nullptr; }
       auto carrier = detail::selectOverlapCarrier(selected, module->getDataLayout());
       if (!carrier) { fail(llvm::toString(carrier.takeError())); return nullptr; }
       auto *storage = llvm::StructType::create(context, {*carrier}, identity);
@@ -193,24 +185,11 @@ public:
     return nullptr;
   }
 
-  uint64_t expression(Attribute value, bool word64) {
-    if (auto integer = mlir::dyn_cast_or_null<mlir::IntegerAttr>(value))
-      if (integer.getValue().getBitWidth() <= 64) return integer.getValue().getZExtValue();
-    if (auto text = mlir::dyn_cast_or_null<mlir::StringAttr>(value))
-      if (text.getValue() == "pointer_bytes")
-        return word64 ? 8 : 4;
-    if (auto conditional = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(value)) {
-      auto wide = conditional.getAs<mlir::IntegerAttr>("word64");
-      auto narrow = conditional.getAs<mlir::IntegerAttr>("word32");
-      if (conditional.size() == 2 && wide && narrow &&
-          wide.getValue().getBitWidth() <= 64 && narrow.getValue().getBitWidth() <= 64)
-        return (word64 ? wide : narrow).getValue().getZExtValue();
-    }
-    fail("invalid symbolic integer/layout expression");
-    return 0;
+  uint64_t expression(Attribute value) {
+    auto evaluated = ir::evaluateInteger(value, targetInfo());
+    if (!evaluated) { fail(llvm::toString(evaluated.takeError())); return 0; }
+    return *evaluated;
   }
-
-  uint64_t expression(Attribute value) { return expression(value, x64); }
 
   llvm::MaybeAlign alignment(Operation &operation) {
     uint64_t n = expression(operation.getAttr("alignment"));
@@ -254,17 +233,12 @@ public:
       if (auto array = reference.getAs<mlir::ArrayAttr>("array")) {
         auto *nativeType = llvm::dyn_cast<llvm::ArrayType>(expected);
         auto count = reference.get("count");
-        uint64_t wide = expression(count, true), narrow = expression(count, false);
-        uint64_t selected = x64 ? wide : narrow;
+        uint64_t selected = expression(count);
         if (!error.empty() || reference.size() != 2 || !nativeType ||
-            selected != nativeType->getNumElements() || std::max(wide, narrow) != array.size() ||
+            selected != nativeType->getNumElements() || selected != array.size() ||
             array.size() > 1024 * 1024) {
           fail("invalid native-index-domain array initializer"); return nullptr;
         }
-        for (unsigned i = std::min(wide, narrow); i < array.size(); ++i)
-          if (!pureLiteralInitializer(array[i])) {
-            fail("one-domain array tails require pure literal initializers"); return nullptr;
-          }
         llvm::SmallVector<llvm::Constant *> elements;
         for (unsigned i = 0; i < selected; ++i) {
           auto *element = initializer(nativeType->getElementType(), array[i]);
@@ -505,7 +479,8 @@ public:
       auto *native = type(t);
       if (!native)
         return nullptr;
-      if (!native->isIntegerTy() && !native->isFloatingPointTy() && !native->isPointerTy()) {
+      if (!native->isIntegerTy() && !native->isFloatingPointTy() && !native->isPointerTy() &&
+          !mlir::isa<ir::VaListArgumentType>(t)) {
         fail("aggregate by-value ABI parameters are not qualified yet"); return nullptr;
       }
       inputs.push_back(native);
@@ -648,14 +623,12 @@ public:
     } else if (name == "sela.va_forward") {
       if (!shape(operation, 1, 1)) return;
       auto *state = operand(operation.getOperand(0));
-      if (!state || !state->getType()->isPointerTy() ||
-          !mlir::isa<ir::PointerType>(operation.getResult(0).getType())) {
-        fail("native va_list forwarding requires a state address and pointer result"); return;
+      bool incoming = mlir::isa<ir::VaListArgumentType>(operation.getOperand(0).getType());
+      if (!state || (incoming ? state->getType() != nativeVaListArgumentType(context) : !state->getType()->isPointerTy()) ||
+          !mlir::isa<ir::VaListArgumentType>(operation.getResult(0).getType())) {
+        fail("native va_list forwarding requires a state address or incoming cursor and native argument result"); return;
       }
-      // The native ABI passes the SysV64 array-state address, whereas i686
-      // passes its current stack cursor value. This is not a wrapper ABI.
-      if constexpr (x64) result = state;
-      else result = builder.CreateAlignedLoad(llvm::PointerType::get(context, 0), state, llvm::Align(4));
+      result = nativeVaForward(builder, state, incoming);
     } else if (name == "sela.va_arg") {
       if (!shape(operation, 1, 1)) return;
       auto *state = operand(operation.getOperand(0));
@@ -665,7 +638,7 @@ public:
            !element->isPointerTy() && !element->isDoubleTy())) {
         fail("native va_arg currently requires a promoted scalar or pointer result"); return;
       }
-      result = builder.CreateVAArg(state, element);
+      result = nativeVaArg(builder, state, element);
     } else if (name == "sela.load") {
       if (!shape(operation, 1, 1)) return;
       auto *pointer = operand(operation.getOperand(0));
@@ -855,7 +828,6 @@ public:
       auto opcode = operation.getAttrOfType<mlir::StringAttr>("opcode");
       auto flagExpression = operation.getAttr("flags");
       auto flags = expression(flagExpression);
-      auto wideFlags = expression(flagExpression, true), narrowFlags = expression(flagExpression, false);
       unsigned code = 0;
       if (opcode)
         for (unsigned i = llvm::Instruction::BinaryOpsBegin; i < llvm::Instruction::BinaryOpsEnd; ++i)
@@ -865,8 +837,8 @@ public:
       bool floatingOpcode = code == llvm::Instruction::FAdd || code == llvm::Instruction::FSub ||
           code == llvm::Instruction::FMul || code == llvm::Instruction::FDiv ||
           code == llvm::Instruction::FRem;
-      if (!code || !error.empty() || wideFlags > 7 || narrowFlags > 7 ||
-          !validArithmeticFlags(code, unsigned(wideFlags)) || !validArithmeticFlags(code, unsigned(narrowFlags)) ||
+      if (!code || !error.empty() || flags > 7 ||
+          !validArithmeticFlags(code, unsigned(flags)) ||
           !left || !right || left->getType() != right->getType() ||
           (floatingOpcode ? !left->getType()->isFloatingPointTy() : !left->getType()->isIntegerTy())) {
         fail("invalid scalar binary operation"); return;
@@ -978,7 +950,7 @@ public:
   }
 
   void lower(mlir::ModuleOp source) {
-    auto selectedCFG = detail::specializeConditionalCFG(source, x64);
+    auto selectedCFG = ir::specializeDomains(source, targetInfo());
     if (!selectedCFG) { fail(llvm::toString(selectedCFG.takeError())); return; }
     source = **selectedCFG;
     auto schema = source->getAttrOfType<mlir::IntegerAttr>("sela.schema");
@@ -992,29 +964,28 @@ public:
       auto name = record ? record.getAs<mlir::StringAttr>("name") : mlir::StringAttr();
       auto behavior = record ? record.getAs<mlir::IntegerAttr>("behavior") : mlir::IntegerAttr();
       auto value = record ? record.getAs<mlir::IntegerAttr>("value") : mlir::IntegerAttr();
-      auto profile = record ? record.getAs<mlir::StringAttr>("profile") : mlir::StringAttr();
-      if (!name || !behavior || !value || !profile || behavior.getInt() < 1 || behavior.getInt() > 8 ||
-          (profile.getValue() != "both" && profile.getValue() != "i686")) {
+      auto profiles = record ? record.getAs<mlir::ArrayAttr>("targets") : mlir::ArrayAttr();
+      if (!name || !behavior || !value || !profiles || behavior.getInt() < 1 || behavior.getInt() > 8 ||
+          !ir::containsTarget(profiles, TargetID)) {
         fail("invalid module compilation flag"); return;
       }
       for (auto field : record)
         if (field.getName() != "name" && field.getName() != "behavior" &&
-            field.getName() != "value" && field.getName() != "profile") {
+            field.getName() != "value" && field.getName() != "targets") {
           fail("unknown module flag record field"); return;
         }
       bool ordinary = (name.getValue() == "wchar_size" && value.getInt() == 4) ||
                       (name.getValue() == "frame-pointer" && value.getInt() >= 0 && value.getInt() <= 2) ||
                       ((name.getValue() == "PIC Level" || name.getValue() == "PIE Level" ||
-                        name.getValue() == "uwtable") && value.getInt() == 2);
-      bool native32 = name.getValue() == "NumRegisterParameters" && value.getInt() == 0;
-      if ((!ordinary && !native32) || (ordinary && profile.getValue() != "both") ||
-          (native32 && profile.getValue() != "i686") ||
+                        name.getValue() == "uwtable") && value.getInt() == 2) ||
+                      (name.getValue() == "uwtable" && value.getInt() == 1);
+      bool abiFlag = nativeModuleFlag(name.getValue(), value.getInt());
+      if ((!ordinary && !abiFlag) ||
           module->getModuleFlag(name.getValue())) {
         fail("unsupported or duplicate native module compilation flag"); return;
       }
-      if (profile.getValue() == "both" || !x64)
-        module->addModuleFlag(llvm::Module::ModFlagBehavior(behavior.getInt()),
-                              name.getValue(), uint32_t(value.getInt()));
+      module->addModuleFlag(llvm::Module::ModFlagBehavior(behavior.getInt()),
+                            name.getValue(), uint32_t(value.getInt()));
     }
     for (auto &operation : source.getBody()->getOperations()) {
       StringRef name = operation.getName().getStringRef();
@@ -1146,6 +1117,14 @@ public:
       auto materialized = detail::materializeNativeAggregateDefinition(*entry.first, entry.second.logical, entry.second.native,
           entry.second.orderedRecords, inverseHints);
       if (!materialized) { fail(llvm::toString(materialized.takeError())); return; }
+    }
+    // Optimization and code generation must use the declared baseline, not
+    // LLVM's implicit defaults or the build machine's capabilities. These
+    // attributes are native compiler configuration, not public Sela payload.
+    for (auto &function : *module) {
+      if (function.isIntrinsic()) continue;
+      function.addFnAttr("target-cpu", targetInfo().cpu);
+      function.addFnAttr("target-features", targetInfo().features);
     }
     std::string diagnostics;
     llvm::raw_string_ostream stream(diagnostics);

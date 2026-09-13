@@ -1,8 +1,10 @@
 #include "../src/ir/AggregateNormalize.h"
+#include "sela/Targets.h"
 #include "llvm/AsmParser/Parser.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/InstIterator.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/IRReader/IRReader.h"
@@ -52,14 +54,15 @@ define void @pointer_only(ptr %input) !dbg !4 { ret void }
 )", diagnostic, context);
   if (!module || llvm::verifyModule(*module, &llvm::errs())) return false;
   auto before = text(*module);
-  auto proof = sela::detail::normalizeNativeAggregates(*module, true);
+  auto proof = sela::detail::normalizeNativeAggregates(*module, "x86_64");
   if (!proof) { llvm::logAllUnhandledErrors(proof.takeError(), llvm::errs()); return false; }
   return proof->functions.empty() && proof->calls.empty() && before == text(*module);
 }
-bool scalarResultStoredInRecord(bool wide, bool indirect, bool singleField, bool integerResult) {
+bool scalarResultStoredInRecord(llvm::StringRef targetID, bool indirect, bool singleField, bool integerResult) {
   llvm::LLVMContext context;
   llvm::Module module("scalar-record-store", context);
-  module.setDataLayout(llvm::cantFail(sela::detail::nativeABIDataLayout(wide)));
+  bool wide = sela::targets::find(targetID)->wordBits == 64;
+  module.setDataLayout(llvm::cantFail(sela::detail::nativeABIDataLayout(targetID)));
   auto *pointer = llvm::PointerType::get(context, 0);
   auto *word = llvm::IntegerType::get(context, wide ? 64 : 32);
   llvm::Type *result = integerResult ? static_cast<llvm::Type *>(word) : pointer;
@@ -79,16 +82,16 @@ bool scalarResultStoredInRecord(bool wide, bool indirect, bool singleField, bool
   builder.CreateRetVoid();
   if (llvm::verifyModule(module, &llvm::errs())) return false;
   auto before = text(module);
-  auto proof = sela::detail::proveAggregateCalls(module, wide, {record});
+  auto proof = sela::detail::proveAggregateCalls(module, targetID, {record});
   if (!proof) { llvm::logAllUnhandledErrors(proof.takeError(), llvm::errs()); return false; }
   return proof->empty() && before == text(module);
 }
-bool roundtrip(llvm::StringRef file, bool wide, llvm::StringRef output = {}) {
+bool roundtrip(llvm::StringRef file, llvm::StringRef targetID, llvm::StringRef output = {}) {
   llvm::LLVMContext context;
   llvm::SMDiagnostic diagnostic;
   auto module = llvm::parseIRFile(file, diagnostic, context);
   if (!module) return false;
-  auto normalized = sela::detail::normalizeNativeAggregates(*module, wide);
+  auto normalized = sela::detail::normalizeNativeAggregates(*module, targetID);
   if (!normalized) { llvm::logAllUnhandledErrors(normalized.takeError(), llvm::errs(), "normalize: "); return false; }
   if (llvm::verifyModule(*module, &llvm::errs())) return false;
   auto expected = canonical(*module);
@@ -97,7 +100,7 @@ bool roundtrip(llvm::StringRef file, bool wide, llvm::StringRef output = {}) {
     for (auto *record : function.orderedRecords)
       if (!llvm::is_contained(ordered, record)) ordered.push_back(record);
   for (auto &entry : normalized->calls) {
-    auto native = sela::detail::classifyNativeABI(entry.second, wide, ordered);
+    auto native = sela::detail::classifyNativeABI(entry.second, targetID, ordered);
     if (!native) { llvm::logAllUnhandledErrors(native.takeError(), llvm::errs()); return false; }
     auto call = sela::detail::materializeNativeAggregateCall(*entry.first, entry.second, *native);
     if (!call) { llvm::logAllUnhandledErrors(call.takeError(), llvm::errs()); return false; }
@@ -116,7 +119,7 @@ bool roundtrip(llvm::StringRef file, bool wide, llvm::StringRef output = {}) {
     stream.flush();
     if (stream.has_error()) return false;
   }
-  auto inverse = sela::detail::normalizeNativeAggregates(*module, wide, &hints);
+  auto inverse = sela::detail::normalizeNativeAggregates(*module, targetID, &hints);
   if (!inverse) { llvm::logAllUnhandledErrors(inverse.takeError(), llvm::errs(), "inverse: "); return false; }
   if (llvm::verifyModule(*module, &llvm::errs()) || canonical(*module) != expected) {
     llvm::errs() << "regenerated native ABI failed exact normalized inverse\n";
@@ -124,24 +127,24 @@ bool roundtrip(llvm::StringRef file, bool wide, llvm::StringRef output = {}) {
   }
   return true;
 }
-bool run(llvm::StringRef file, bool wide, bool main) {
+bool run(llvm::StringRef file, llvm::StringRef targetID, bool main) {
   llvm::LLVMContext context;
   llvm::SMDiagnostic diagnostic;
   auto module = llvm::parseIRFile(file, diagnostic, context);
   if (!module) return false;
   auto before = text(*module);
-  auto definitions = sela::detail::discoverAggregateABIs(*module, wide);
+  auto definitions = sela::detail::discoverAggregateABIs(*module, targetID);
   if (!definitions) { llvm::logAllUnhandledErrors(definitions.takeError(), llvm::errs()); return false; }
   if (definitions->size() != (main ? 0u : 9u)) { llvm::errs() << file << ": definition count " << definitions->size() << '\n'; for (const auto &entry : *definitions) llvm::errs() << entry.function->getName() << '\n'; return false; }
   for (auto &definition : *definitions) {
     auto proof = sela::detail::proveAggregateDefinition(std::move(definition));
     if (!proof) { llvm::logAllUnhandledErrors(proof.takeError(), llvm::errs()); return false; }
   }
-  auto calls = sela::detail::proveAggregateCalls(*module, wide);
+  auto calls = sela::detail::proveAggregateCalls(*module, targetID);
   if (!calls) { llvm::logAllUnhandledErrors(calls.takeError(), llvm::errs()); return false; }
   if (calls->size() != (main ? 12u : 3u) || before != text(*module)) { llvm::errs() << "call count " << calls->size() << ", mutated=" << (before != text(*module)) << '\n'; return false; }
   if (!main) {
-    auto normalized = sela::detail::normalizeAggregateDefinitions(*module, wide);
+    auto normalized = sela::detail::normalizeAggregateDefinitions(*module, targetID);
     if (!normalized) { llvm::logAllUnhandledErrors(normalized.takeError(), llvm::errs()); return false; }
     llvm::StripDebugInfo(*module);
     if (llvm::verifyModule(*module, &llvm::errs())) return false;
@@ -193,7 +196,7 @@ bool definitionNegative(llvm::StringRef file, unsigned variant) {
         llvm::DITypeRefArray(llvm::MDTuple::get(context, parameters))));
   }
   auto before = text(*module);
-  auto plans = sela::detail::normalizeAggregateDefinitions(*module, true);
+  auto plans = sela::detail::normalizeAggregateDefinitions(*module, "x86_64");
   if (plans) return false;
   llvm::consumeError(plans.takeError());
   return before == text(*module);
@@ -217,7 +220,7 @@ bool callNegative(llvm::StringRef file, unsigned variant) {
   if (variant == 2) call->addParamAttr(0, llvm::Attribute::NoUndef);
   if (variant == 3) load->setAlignment(llvm::Align(32));
   auto before = text(*module);
-  auto proof = sela::detail::proveAggregateCalls(*module, true);
+  auto proof = sela::detail::proveAggregateCalls(*module, "x86_64");
   if (proof) {
     // An altered piece may remain a scalar operand instead of qualifying as a
     // record pack. It must never be removed as a record shim or retain the
@@ -232,19 +235,69 @@ bool callNegative(llvm::StringRef file, unsigned variant) {
   } else llvm::consumeError(proof.takeError());
   return before == text(*module);
 }
+
+bool ownedIndirectTransfer(unsigned variant) {
+  llvm::LLVMContext context;
+  llvm::Module module("owned-indirect-transfer", context);
+  module.setDataLayout(llvm::cantFail(sela::detail::nativeABIDataLayout("aarch64")));
+  auto *pointer = llvm::PointerType::get(context, 0);
+  auto *record = llvm::StructType::create(context, {llvm::Type::getInt64Ty(context),
+      llvm::Type::getInt64Ty(context), llvm::Type::getInt64Ty(context)}, "large");
+  auto *source = new llvm::GlobalVariable(module, record, false, llvm::GlobalValue::InternalLinkage,
+      llvm::ConstantAggregateZero::get(record), "source");
+  source->setAlignment(llvm::Align(8));
+  auto *calleeType = llvm::FunctionType::get(llvm::Type::getVoidTy(context), {pointer}, false);
+  auto *callee = llvm::Function::Create(calleeType, llvm::GlobalValue::ExternalLinkage, "callee", module);
+  auto *function = llvm::Function::Create(llvm::FunctionType::get(llvm::Type::getVoidTy(context), false),
+      llvm::GlobalValue::ExternalLinkage, "caller", module);
+  llvm::IRBuilder<> builder(llvm::BasicBlock::Create(context, "entry", function));
+  auto *temporary = builder.CreateAlloca(record);
+  temporary->setAlignment(llvm::Align(8));
+  llvm::Value *argument = variant == 1 ? static_cast<llvm::Value *>(source) : temporary;
+  llvm::CallInst *copy = nullptr;
+  if (variant != 1 && variant != 2) {
+    copy = builder.CreateMemCpy(temporary, llvm::Align(8), source,
+        llvm::Align(variant == 5 ? 4 : 8), builder.getInt64(variant == 4 ? 23 : 24), variant == 3);
+    if (variant == 6) builder.CreateAlignedLoad(record, temporary, llvm::Align(8));
+    if (variant == 7) {
+      auto *observer = llvm::Function::Create(function->getFunctionType(), llvm::GlobalValue::ExternalLinkage, "observe", module);
+      builder.CreateCall(observer);
+    }
+    if (variant == 8) builder.CreateMemCpy(temporary, llvm::Align(8), source, llvm::Align(8), builder.getInt64(24));
+  }
+  auto *call = builder.CreateCall(callee, {argument});
+  call->addParamAttr(0, llvm::Attribute::NoUndef);
+  builder.CreateRetVoid();
+  if (llvm::verifyModule(module, &llvm::errs())) return false;
+  auto before = text(module);
+  auto proof = sela::detail::proveAggregateCalls(module, "aarch64", {record});
+  if (!proof) {
+    llvm::consumeError(proof.takeError());
+    return variant != 0 && text(module) == before;
+  }
+  if (text(module) != before) return false;
+  if (variant != 0) return proof->empty();
+  return proof->size() == 1 && proof->front().arguments.front() == source &&
+      llvm::is_contained(proof->front().shims, temporary) && llvm::is_contained(proof->front().shims, copy);
+}
 }
 int main(int argc, char **argv) {
+  if (argc == 5 && llvm::StringRef(argv[1]) == "--target") {
+    if (!sela::targets::find(argv[2])) return 2;
+    return run(argv[3], argv[2], false) && run(argv[4], argv[2], true) &&
+        roundtrip(argv[3], argv[2]) && roundtrip(argv[4], argv[2]) ? 0 : 1;
+  }
   if (argc == 4) {
-    if (llvm::StringRef(argv[2]) != "x86_64" && llvm::StringRef(argv[2]) != "i686") return 2;
-    return roundtrip(argv[1], llvm::StringRef(argv[2]) == "x86_64", argv[3]) ? 0 : 1;
+    if (!sela::targets::find(argv[2])) return 2;
+    return roundtrip(argv[1], argv[2], argv[3]) ? 0 : 1;
   }
   if (argc != 5) return 2;
-  bool passed = qualifiedVoidDebug() && run(argv[1], true, false) && run(argv[2], false, false) &&
-      run(argv[3], true, true) && run(argv[4], false, true);
-  for (bool wide : {false, true}) for (bool indirect : {false, true})
+  bool passed = qualifiedVoidDebug() && run(argv[1], "x86_64", false) && run(argv[2], "i686", false) &&
+      run(argv[3], "x86_64", true) && run(argv[4], "i686", true);
+  for (const auto &target : sela::targets::all()) for (bool indirect : {false, true})
     for (bool singleField : {false, true}) for (bool integerResult : {false, true})
-      passed &= scalarResultStoredInRecord(wide, indirect, singleField, integerResult);
-  for (unsigned index = 1; index <= 4; ++index) passed &= roundtrip(argv[index], index % 2);
+      passed &= scalarResultStoredInRecord(target.id, indirect, singleField, integerResult);
+  for (unsigned index = 1; index <= 4; ++index) passed &= roundtrip(argv[index], index % 2 ? "x86_64" : "i686");
   for (unsigned variant = 0; variant < 4; ++variant) {
     bool definitions = definitionNegative(argv[1], variant), calls = callNegative(argv[3], variant);
     if (!definitions || !calls) llvm::errs() << "negative " << variant << " definition=" << definitions << " call=" << calls << '\n';
@@ -254,6 +307,11 @@ int main(int argc, char **argv) {
     bool rejected = definitionNegative(argv[1], variant);
     if (!rejected) llvm::errs() << "forged native/debug layout was accepted: " << variant << '\n';
     passed &= rejected;
+  }
+  for (unsigned variant = 0; variant != 9; ++variant) {
+    bool checked = ownedIndirectTransfer(variant);
+    if (!checked) llvm::errs() << "owned indirect transfer proof failed: " << variant << '\n';
+    passed &= checked;
   }
   if (!passed) llvm::errs() << "aggregate storage normalization proof gate failed\n";
   return passed ? 0 : 1;

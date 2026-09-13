@@ -25,4 +25,6 @@ Read them in order for the full story, or use the groups below to find a particu
 23. [The SDK and Compiler Distribution](23-sdk-and-compiler-distribution.md) — pinned dependencies, compiler bundles, and native runtime paths.
 24. [Maintaining and Evolving Sela](24-maintaining-and-evolving-sela.md) — qualification, format changes, and future security work.
 
+For the current four-target infrastructure and the checklist for another CPU, use [Native targets and adding an architecture](../../reference/adding-native-targets.md).
+
 Return to the [full course index](../README.md) to revisit earlier topics.

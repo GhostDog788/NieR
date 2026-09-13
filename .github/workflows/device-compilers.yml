@@ -1,6 +1,9 @@
 name: Device compiler qualification
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -10,102 +13,259 @@ concurrency:
   group: device-compilers-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SDK_UBUNTU_MIRROR: https://snapshot.ubuntu.com/ubuntu/20260910T000000Z
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
+  SELA_VM_TIMEOUT: "3600"
+
 jobs:
-  dual-x86:
-    name: Native x86-64 and i686 compiler bundles
+  publish:
+    name: Publish one common four-target fixture set
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Create job-scoped diagnostic workspace
+        run: |
+          ci_temp=$(mktemp -d "$RUNNER_TEMP/sela-ci-XXXXXX")
+          mkdir -p "$ci_temp/logs" artifacts/qualification
+          printf 'SELA_CI_TEMP=%s\nTMPDIR=%s\n' "$ci_temp" "$ci_temp" >> "$GITHUB_ENV"
+      - name: Provision real native-build execution prerequisites
+        run: |
+          exec > >(tee "$SELA_CI_TEMP/logs/prerequisites.log") 2>&1
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates curl dpkg-dev file git ripgrep \
+            binutils util-linux xz-utils zstd pkg-config libcurl4t64 \
+            python3 strace qemu-user-binfmt libc6-i386
+          python3 -B tests/ci-evidence.py
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .sdk/downloads
+          key: sela-publisher-inputs-${{ hashFiles('sdk/packages.lock') }}
+      - name: Build pinned publisher
+        timeout-minutes: 35
+        run: |
+          exec > >(tee "$SELA_CI_TEMP/logs/publisher-build.log") 2>&1
+          bash scripts/bootstrap-sdk.sh
+          source sdk/env.sh
+          cmake --preset prealpha
+          cmake --build --preset prealpha --parallel 2
+          ctest --preset prealpha --parallel 2 --timeout 180 --no-tests=error
+      - name: Publish core matrix exactly once
+        timeout-minutes: 20
+        run: |
+          exec > >(tee "$SELA_CI_TEMP/logs/core-preparation.log") 2>&1
+          mkdir -p artifacts/qualification
+          bash tests/multi-consumer.sh --prepare-only build/prealpha/sela.cfg .sdk \
+            2>&1 | tee artifacts/qualification/core-publication.log
+          fixtures=$(sed -n 's/^Fixture preparation completed; no device acceptance was run: //p' artifacts/qualification/core-publication.log)
+          test -f "$fixtures/fixtures.sha256"
+          tar -C "$fixtures" -czf artifacts/qualification/core-fixtures.tar.gz .
+          sha256sum artifacts/qualification/core-fixtures.tar.gz > artifacts/qualification/core-fixtures.tar.gz.sha256
+      - name: Publish complete upstream corpus once on main or manual runs
+        if: github.event_name != 'pull_request'
+        timeout-minutes: 100
+        run: |
+          exec > >(tee "$SELA_CI_TEMP/logs/corpus-preparation.log") 2>&1
+          timeout --kill-after=30 5900 bash corpus/qualify.sh build/prealpha/sela-build .sdk --prepare-only \
+            2>&1 | tee artifacts/qualification/corpus-publication.log
+          fixtures=$(sed -n 's/^Fixture preparation completed; no device acceptance was run: //p' artifacts/qualification/corpus-publication.log)
+          test -f "$fixtures/fixtures.sha256"
+          tar -C "$fixtures" -czf artifacts/qualification/corpus-fixtures.tar.gz .
+          sha256sum artifacts/qualification/corpus-fixtures.tar.gz > artifacts/qualification/corpus-fixtures.tar.gz.sha256
+      - name: Collect bounded publisher failure diagnostics
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          failure_args=()
+          [[ "$JOB_STATUS" == success ]] || failure_args+=(--failed)
+          python3 -B scripts/ci-evidence.py --temp-root "$SELA_CI_TEMP" \
+            --build-dir build/prealpha --output artifacts/qualification/publisher-diagnostics.tar.gz \
+            "${failure_args[@]}"
+      - name: Retain common fixtures and preparation receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: common-publication
+          path: artifacts/qualification
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  device:
+    name: Core qualification (${{ matrix.target }})
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, i686, armv7, aarch64]
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     defaults:
       run:
         shell: bash
-    env:
-      SDK_UBUNTU_MIRROR: https://snapshot.ubuntu.com/ubuntu/20260910T000000Z
-      CMAKE_BUILD_PARALLEL_LEVEL: "2"
-      SELA_VM_TIMEOUT: "3600"
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-        timeout-minutes: 3
-
-      - name: Install build and VM prerequisites
-        timeout-minutes: 5
+      - name: Create job-scoped diagnostic workspace
         run: |
+          ci_temp=$(mktemp -d "$RUNNER_TEMP/sela-ci-XXXXXX")
+          mkdir -p "$ci_temp/logs" artifacts
+          printf 'SELA_CI_TEMP=%s\nTMPDIR=%s\n' "$ci_temp" "$ci_temp" >> "$GITHUB_ENV"
+      - name: Install build and genuine system-VM prerequisites
+        run: |
+          exec > >(tee "$SELA_CI_TEMP/logs/prerequisites.log") 2>&1
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             build-essential ca-certificates curl dpkg-dev file git ripgrep \
             binutils util-linux xz-utils zstd pkg-config libcurl4t64 \
-            python3 strace qemu-system-x86 cpio gzip libc6-i386
-          test -x /lib/ld-linux.so.2
-
-      - name: Restore source and package archives
+            python3 strace qemu-system-x86 qemu-system-arm qemu-user-binfmt cpio gzip libc6-i386
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         id: archives
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
             .sdk/downloads
             .sdk/consumer/downloads
             .sdk/test-vm/downloads
-          key: sela-device-inputs-${{ hashFiles('sdk/packages.lock', 'sdk/consumer/*.lock', 'tests/vm/*.lock') }}
-        timeout-minutes: 5
-
-      - name: Bootstrap publisher SDK
-        run: bash scripts/bootstrap-sdk.sh
-        timeout-minutes: 15
-
-      - name: Build both pinned X86-only consumer SDKs
-        timeout-minutes: 240
+          key: sela-device-inputs-${{ matrix.target }}-${{ hashFiles('sdk/packages.lock', 'sdk/consumer/*.lock', 'tests/vm/*.lock') }}
+      - name: Build one native-target SDK and compiler
+        timeout-minutes: 280
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          bash scripts/bootstrap-consumer-sdk.sh i686
-          bash scripts/bootstrap-consumer-sdk.sh x86_64
-
-      - name: Build publisher and both native consumers
-        timeout-minutes: 25
-        run: |
+          exec > >(tee "$SELA_CI_TEMP/logs/device-build.log") 2>&1
+          bash scripts/bootstrap-sdk.sh
+          bash scripts/bootstrap-consumer-sdk.sh "$TARGET"
           source sdk/env.sh
-          for preset in prealpha consumer-x86_64 consumer-i686; do
-            cmake --preset "$preset"
-            cmake --build --preset "$preset" --parallel 2
-          done
-
-      - name: Run bounded component and publisher regressions
-        timeout-minutes: 15
-        run: |
-          source sdk/env.sh
-          for preset in prealpha consumer-x86_64 consumer-i686; do
-            ctest --preset "$preset" --parallel 2 --timeout 180 --no-tests=error
-          done
-
-      - name: Assemble both independent packages
-        timeout-minutes: 5
-        run: |
+          cmake --preset "consumer-$TARGET"
+          cmake --build --preset "consumer-$TARGET" --parallel 2
+          ctest --preset "consumer-$TARGET" --parallel 2 --timeout 180 --no-tests=error
           mkdir -p artifacts
-          for target in x86_64 i686; do
-            bash scripts/package-consumer.sh "build/consumer-$target" \
-              "artifacts/selac-$target" ".sdk/consumer/$target"
-          done
-
-      - name: Same-artifact matrix and genuine 32-bit Linux VM
+          bash scripts/package-consumer.sh "build/consumer-$TARGET" "artifacts/selac-$TARGET" ".sdk/consumer/$TARGET"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: common-publication
+          path: artifacts/qualification
+      - name: Verify common bytes and consume under a real matching kernel
         timeout-minutes: 65
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          bash tests/dual-consumer.sh build/prealpha/sela.cfg .sdk \
-            artifacts/selac-x86_64 artifacts/selac-i686
-
-      - name: Complete cJSON and zlib qualification on both devices
-        timeout-minutes: 120
+          exec > >(tee "$SELA_CI_TEMP/logs/core-device.log") 2>&1
+          sha256sum -c artifacts/qualification/core-fixtures.tar.gz.sha256
+          mkdir artifacts/core-fixtures
+          tar -xzf artifacts/qualification/core-fixtures.tar.gz -C artifacts/core-fixtures
+          bash tests/consumer-vm.sh "$TARGET" "artifacts/selac-$TARGET" artifacts/core-fixtures \
+            2>&1 | tee "artifacts/core-$TARGET.log"
+          tar -C artifacts -czf "artifacts/selac-$TARGET.tar.gz" "selac-$TARGET"
+          sha256sum "artifacts/selac-$TARGET.tar.gz" > "artifacts/selac-$TARGET.tar.gz.sha256"
+      - name: Collect bounded device build and VM diagnostics
+        if: always()
+        env:
+          TARGET: ${{ matrix.target }}
+          JOB_STATUS: ${{ job.status }}
         run: |
-          timeout --kill-after=30 7100 bash corpus/qualify.sh \
-            build/prealpha/sela-build artifacts/selac-x86_64/bin/selac .sdk \
-            --i686-bundle artifacts/selac-i686
-
-      - name: Save verified input archives on main
-        if: github.ref == 'refs/heads/main' && steps.archives.outputs.cache-hit != 'true'
+          failure_args=()
+          [[ "$JOB_STATUS" == success ]] || failure_args+=(--failed)
+          python3 -B scripts/ci-evidence.py --temp-root "$SELA_CI_TEMP" \
+            --build-dir "build/consumer-$TARGET" --build-dir ".sdk/consumer/build-$TARGET" \
+            --build-dir .sdk/consumer/build-native-generators \
+            --output "artifacts/device-diagnostics-$TARGET.tar.gz" "${failure_args[@]}"
+      - name: Retain compiler package and core acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: device-${{ matrix.target }}
+          path: |
+            artifacts/selac-${{ matrix.target }}.tar.gz*
+            artifacts/core-${{ matrix.target }}.log
+            artifacts/device-diagnostics-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Save only verified source/package archives on main
+        if: github.event_name == 'push' && steps.archives.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
             .sdk/downloads
             .sdk/consumer/downloads
             .sdk/test-vm/downloads
-          key: sela-device-inputs-${{ hashFiles('sdk/packages.lock', 'sdk/consumer/*.lock', 'tests/vm/*.lock') }}
-        timeout-minutes: 5
+          key: ${{ steps.archives.outputs.cache-primary-key }}
+
+  corpus:
+    name: Full unchanged upstream corpus (${{ matrix.target }})
+    if: github.event_name != 'pull_request'
+    needs: [publish, device]
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, i686, armv7, aarch64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Create job-scoped diagnostic workspace
+        run: |
+          ci_temp=$(mktemp -d "$RUNNER_TEMP/sela-ci-XXXXXX")
+          mkdir -p "$ci_temp/logs" artifacts
+          printf 'SELA_CI_TEMP=%s\nTMPDIR=%s\n' "$ci_temp" "$ci_temp" >> "$GITHUB_ENV"
+      - name: Install VM-only prerequisites (no publisher SDK)
+        run: |
+          exec > >(tee "$SELA_CI_TEMP/logs/prerequisites.log") 2>&1
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            python3 qemu-system-x86 qemu-system-arm cpio gzip curl dpkg-dev binutils util-linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: common-publication
+          path: artifacts/qualification
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: device-${{ matrix.target }}
+          path: artifacts
+      - name: Consume the same 50 published artifacts without source compilation
+        timeout-minutes: 65
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          exec > >(tee "$SELA_CI_TEMP/logs/corpus-device.log") 2>&1
+          sha256sum -c "artifacts/selac-$TARGET.tar.gz.sha256"
+          sha256sum -c artifacts/qualification/corpus-fixtures.tar.gz.sha256
+          tar -xzf "artifacts/selac-$TARGET.tar.gz" -C artifacts
+          mkdir artifacts/corpus-fixtures
+          tar -xzf artifacts/qualification/corpus-fixtures.tar.gz -C artifacts/corpus-fixtures
+          bash tests/consumer-vm.sh "$TARGET" "artifacts/selac-$TARGET" artifacts/corpus-fixtures \
+            2>&1 | tee "artifacts/corpus-$TARGET.log"
+      - name: Collect bounded corpus VM diagnostics
+        if: always()
+        env:
+          TARGET: ${{ matrix.target }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          failure_args=()
+          [[ "$JOB_STATUS" == success ]] || failure_args+=(--failed)
+          python3 -B scripts/ci-evidence.py --temp-root "$SELA_CI_TEMP" \
+            --output "artifacts/corpus-diagnostics-$TARGET.tar.gz" "${failure_args[@]}"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: corpus-evidence-${{ matrix.target }}
+          path: |
+            artifacts/corpus-${{ matrix.target }}.log
+            artifacts/corpus-diagnostics-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7

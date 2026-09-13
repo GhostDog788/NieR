@@ -3,6 +3,8 @@
 #include "sela/IR/Overlap.h"
 
 #include "mlir/IR/Dialect.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/Hashing.h"
@@ -12,13 +14,13 @@ namespace sela::ir {
 
 namespace detail {
 struct ArrayTypeStorage : public mlir::TypeStorage {
-  using KeyTy = std::tuple<mlir::Type, uint64_t, uint64_t>;
+  using KeyTy = std::tuple<mlir::Type, mlir::Attribute>;
   mlir::Type element;
-  uint64_t count64, count32;
-  ArrayTypeStorage(const KeyTy &key) : element(std::get<0>(key)), count64(std::get<1>(key)), count32(std::get<2>(key)) {}
-  bool operator==(const KeyTy &key) const { return key == KeyTy(element, count64, count32); }
+  mlir::Attribute count;
+  ArrayTypeStorage(const KeyTy &key) : element(std::get<0>(key)), count(std::get<1>(key)) {}
+  bool operator==(const KeyTy &key) const { return key == KeyTy(element, count); }
   static llvm::hash_code hashKey(const KeyTy &key) {
-    return llvm::hash_combine(std::get<0>(key), std::get<1>(key), std::get<2>(key));
+    return llvm::hash_combine(std::get<0>(key), std::get<1>(key));
   }
   static ArrayTypeStorage *construct(mlir::TypeStorageAllocator &allocator, const KeyTy &key) {
     return new (allocator.allocate<ArrayTypeStorage>()) ArrayTypeStorage(key);
@@ -42,6 +44,16 @@ struct RecordTypeStorage : public mlir::TypeStorage {
         allocator.copyInto(std::get<0>(key)), std::get<1>(key), allocator.copyInto(std::get<2>(key)));
   }
 };
+struct ChoiceTypeStorage : public mlir::TypeStorage {
+  using KeyTy = mlir::Attribute;
+  mlir::Attribute cases;
+  explicit ChoiceTypeStorage(mlir::Attribute cases) : cases(cases) {}
+  bool operator==(KeyTy key) const { return cases == key; }
+  static llvm::hash_code hashKey(KeyTy key) { return llvm::hash_value(key.getAsOpaquePointer()); }
+  static ChoiceTypeStorage *construct(mlir::TypeStorageAllocator &allocator, KeyTy key) {
+    return new (allocator.allocate<ChoiceTypeStorage>()) ChoiceTypeStorage(key);
+  }
+};
 }
 
 class ArrayType : public mlir::Type::TypeBase<ArrayType, mlir::Type, detail::ArrayTypeStorage> {
@@ -49,14 +61,26 @@ public:
   using Base::Base;
   static constexpr llvm::StringLiteral name = "sela.array";
   static ArrayType get(mlir::MLIRContext *context, mlir::Type element, uint64_t count) {
-    return Base::get(context, element, count, count);
+    return Base::get(context, element, mlir::IntegerAttr::get(mlir::IntegerType::get(context, 64), count));
   }
-  static ArrayType getForWordWidths(mlir::MLIRContext *context, mlir::Type element,
-                                   uint64_t count64, uint64_t count32) {
-    return Base::get(context, element, count64, count32);
+  static ArrayType get(mlir::MLIRContext *context, mlir::Type element, mlir::Attribute count) {
+    return Base::get(context, element, count);
   }
   mlir::Type getElementType() const { return getImpl()->element; }
-  uint64_t getNumElements(bool word64 = true) const { return word64 ? getImpl()->count64 : getImpl()->count32; }
+  mlir::Attribute getCount() const { return getImpl()->count; }
+  // Only valid after public target specialization.
+  uint64_t getNumElements() const { return mlir::cast<mlir::IntegerAttr>(getCount()).getValue().getZExtValue(); }
+};
+
+// A local type relationship, never a native module or source-language type.
+class ChoiceType : public mlir::Type::TypeBase<ChoiceType, mlir::Type, detail::ChoiceTypeStorage> {
+public:
+  using Base::Base;
+  static constexpr llvm::StringLiteral name = "sela.choice";
+  static ChoiceType get(mlir::MLIRContext *context, mlir::Attribute cases) {
+    return Base::get(context, cases);
+  }
+  mlir::Attribute getCases() const { return getImpl()->cases; }
 };
 
 class RecordType : public mlir::Type::TypeBase<RecordType, mlir::Type, detail::RecordTypeStorage> {
@@ -92,6 +116,13 @@ class VaListType : public mlir::Type::TypeBase<VaListType, mlir::Type, mlir::Typ
 public:
   using Base::Base;
   static constexpr llvm::StringLiteral name = "sela.va_list";
+};
+// Native ABI value used to forward a variadic cursor to another function. Its
+// representation is ABI-owned and is not universally a pointer.
+class VaListArgumentType : public mlir::Type::TypeBase<VaListArgumentType, mlir::Type, mlir::TypeStorage> {
+public:
+  using Base::Base;
+  static constexpr llvm::StringLiteral name = "sela.va_list_argument";
 };
 
 // These are real registered dialect operations. They deliberately use MLIR's

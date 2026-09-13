@@ -17,7 +17,10 @@ llvm::Error makeStatic(const fs::path &input, const fs::path &output) {
   }
   for (auto &[target, units] : *plan)
     for (size_t i = 0; i < units.size(); ++i) units[i].archiveMember = "member" + std::to_string(i) + ".o";
-  auto archive = createArtifact("static", modules, {}, {}, {"x86_64", "i686"}, {}, *plan);
+  std::vector<std::string> targets;
+  for (const auto &target : *manifest->getAsObject()->getArray("targets"))
+    targets.push_back(target.getAsString()->str());
+  auto archive = createArtifact("static", modules, {}, {}, targets, {}, *plan);
   if (!archive) return archive.takeError();
   return writePackage(output, *archive);
 }

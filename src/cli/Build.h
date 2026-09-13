@@ -3,15 +3,15 @@
 
 namespace sela::driver {
 struct CapturedUnit {
-  std::vector<fs::path> x64Paths, i686Paths;
+  std::map<std::string, std::vector<fs::path>> pathsByTarget;
   std::string optimization;
   std::string archiveMemberName;
 };
 struct CapturedBuild {
   std::vector<CapturedUnit> units;
-  // When native selection order differs, move whole paired native TUs, never
-  // bodies or flags, into their observed i686 link order at publication link.
-  std::vector<size_t> i686Order;
+  // Preserve each target's observed order of whole native TUs, never bodies
+  // or flags. Equal pointer widths do not identify a native target.
+  std::map<std::string, std::vector<size_t>> ordersByTarget;
   std::vector<std::string> libraries, linkOptions;
   std::string kind = "executable";
   std::string versionScript;
@@ -21,12 +21,12 @@ struct BuildRequest {
   fs::path sourceDirectory, output;
   std::vector<std::string> configureArgs, targets, cflags;
 };
-// Internal SDK service: real stock Clang in two normal native build trees,
+// Internal SDK service: real stock Clang in one normal build tree per target,
 // including native configure probes and project generators. No JSON recipes.
 llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
     const Sdk &sdk, const fs::path &scratch);
 // Internal regression helper, not a publication entry point: revalidate a
-// retained pair of native build lanes without creating or changing evidence.
+// retained set of native build lanes without creating or changing evidence.
 // laneRelativeOutput is relative to each build-PROFILE lane (source/... for
 // Make, build/... for CMake). This does not rerun native builds or their tests.
 llvm::Expected<CapturedBuild> selectRetainedBuild(const fs::path &scratch,

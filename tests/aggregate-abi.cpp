@@ -1,4 +1,5 @@
 #include "sela/IR/Compiler.h"
+#include "sela/Targets.h"
 #include "../src/ir/AggregateABI.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
@@ -23,7 +24,8 @@ bool rejected(llvm::Expected<NativeABISignature> result, llvm::StringRef message
   return true;
 }
 
-bool descriptorTests(bool x64) {
+bool descriptorTests(llvm::StringRef targetID) {
+  bool x64 = targetID == "x86_64";
   llvm::LLVMContext context;
   auto *i8 = llvm::Type::getInt8Ty(context);
   auto *i32 = llvm::Type::getInt32Ty(context);
@@ -39,7 +41,7 @@ bool descriptorTests(bool x64) {
   llvm::SmallVector<llvm::StructType *, 8> records{pair, mixed, large, floats, twoWords, small};
   bool passed = true;
   for (auto *record : records) {
-    auto result = classifyNativeABI(llvm::FunctionType::get(record, {record}, false), x64, records);
+    auto result = classifyNativeABI(llvm::FunctionType::get(record, {record}, false), targetID, records);
     if (!result) { llvm::logAllUnhandledErrors(result.takeError(), llvm::errs()); return false; }
     passed &= check(result->result.sRet == (!x64 || record == large), "native hidden aggregate result");
     passed &= check(result->parameters[0].nativeBegin == (result->sretIndex ? 1u : 0u), "native argument starts after sret");
@@ -60,46 +62,46 @@ bool descriptorTests(bool x64) {
   llvm::SmallVector<llvm::Type *, 16> pressure(6, i32);
   pressure.append(8, f64);
   pressure.push_back(floats);
-  auto stack = classifyNativeABI(llvm::FunctionType::get(floats, pressure, false), x64, records);
+  auto stack = classifyNativeABI(llvm::FunctionType::get(floats, pressure, false), targetID, records);
   if (!stack) { llvm::logAllUnhandledErrors(stack.takeError(), llvm::errs()); return false; }
   if (x64)
     passed &= check(stack->parameters.back().kind == NativeABIKind::Coerce &&
                     stack->parameters.back().pieces[0].type->isIntegerTy(64), "exhausted banks use Clang's no-GP scalar-stack coercion");
   pressure.assign(8, f64); pressure.push_back(floats);
-  auto sse = classifyNativeABI(llvm::FunctionType::get(floats, pressure, false), x64, records);
+  auto sse = classifyNativeABI(llvm::FunctionType::get(floats, pressure, false), targetID, records);
   if (!sse) { llvm::logAllUnhandledErrors(sse.takeError(), llvm::errs()); return false; }
   if (x64) passed &= check(sse->parameters.back().byVal && sse->remainingGP == 6, "SSE exhaustion alone forces byval without consuming GP");
   pressure.assign(5, i32); pressure.push_back(twoWords); pressure.push_back(i32);
-  auto rollback = classifyNativeABI(llvm::FunctionType::get(twoWords, pressure, false), x64, records);
+  auto rollback = classifyNativeABI(llvm::FunctionType::get(twoWords, pressure, false), targetID, records);
   if (!rollback) { llvm::logAllUnhandledErrors(rollback.takeError(), llvm::errs()); return false; }
   if (x64) passed &= check(rollback->parameters[5].byVal && rollback->remainingGP == 0, "whole-aggregate rollback leaves last GP for tail scalar");
   pressure.assign(5, i32); pressure.push_back(mixed);
-  auto hidden = classifyNativeABI(llvm::FunctionType::get(large, pressure, false), x64, records);
+  auto hidden = classifyNativeABI(llvm::FunctionType::get(large, pressure, false), targetID, records);
   if (!hidden) { llvm::logAllUnhandledErrors(hidden.takeError(), llvm::errs()); return false; }
   if (x64) passed &= check(hidden->parameters.back().byVal && hidden->remainingSSE == 8, "hidden result consumes a GP before parameters");
 
-  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(pair, {pair}, false), x64, {}),
+  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(pair, {pair}, false), targetID, {}),
                      "unqualified union-like LLVM storage cannot become an ABI record");
   auto *packed = llvm::StructType::get(context, {i8, i32}, true);
-  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(packed, {packed}, false), x64, {packed}), "packed layout rejects");
+  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(packed, {packed}, false), targetID, {packed}), "packed layout rejects");
   auto *empty = llvm::StructType::get(context);
-  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(empty, {empty}, false), x64, {empty}), "empty layout rejects");
+  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(empty, {empty}, false), targetID, {empty}), "empty layout rejects");
   auto *vector = llvm::StructType::get(context, llvm::ArrayRef<llvm::Type *>{llvm::FixedVectorType::get(f32, 4)});
-  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(vector, {vector}, false), x64, {vector}), "unqualified vector field rejects");
+  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(vector, {vector}, false), targetID, {vector}), "unqualified vector field rejects");
   auto *oversized = llvm::StructType::get(context, llvm::ArrayRef<llvm::Type *>{
       llvm::ArrayType::get(llvm::Type::getInt64Ty(context), 1ULL << 62)});
-  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(oversized, {oversized}, false), x64, {oversized}),
+  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(oversized, {oversized}, false), targetID, {oversized}),
                      "oversized array rejects before target size multiplication can overflow");
 
   llvm::Module module("pieces", context);
-  module.setDataLayout(llvm::cantFail(nativeABIDataLayout(x64)));
+  module.setDataLayout(llvm::cantFail(nativeABIDataLayout(targetID)));
   auto *pointer = llvm::PointerType::get(context, 0);
   auto *function = llvm::Function::Create(llvm::FunctionType::get(llvm::Type::getVoidTy(context), {pointer, pointer}, false),
       llvm::GlobalValue::ExternalLinkage, "copy_pieces", module);
   auto *block = llvm::BasicBlock::Create(context, "entry", function);
   llvm::IRBuilder<llvm::NoFolder> builder(block);
   for (auto *record : {pair, mixed, floats, small}) {
-    auto signature = classifyNativeABI(llvm::FunctionType::get(record, {record}, false), x64, records);
+    auto signature = classifyNativeABI(llvm::FunctionType::get(record, {record}, false), targetID, records);
     if (!signature) { llvm::consumeError(signature.takeError()); return false; }
     auto descriptor = signature->parameters[0];
     if (descriptor.byVal) continue;
@@ -132,7 +134,72 @@ bool descriptorTests(bool x64) {
   return passed;
 }
 
-bool captureTests(llvm::StringRef path, bool x64, bool extra) {
+bool armDescriptorTests(llvm::StringRef targetID) {
+  llvm::LLVMContext context;
+  bool wide = targetID == "aarch64";
+  auto *i8 = llvm::Type::getInt8Ty(context);
+  auto *i32 = llvm::Type::getInt32Ty(context);
+  auto *f64 = llvm::Type::getDoubleTy(context);
+  auto *small = llvm::StructType::create(context, {i32});
+  auto *hfa = llvm::StructType::create(context, {f64, f64});
+  auto *large = llvm::StructType::create(context, {llvm::ArrayType::get(i32, 20)});
+  auto *odd = llvm::StructType::create(context, {llvm::ArrayType::get(i8, 3)});
+  llvm::SmallVector<llvm::StructType *> records{small, hfa, large, odd};
+  bool passed = true;
+  llvm::Module module("arm-coercions", context);
+  module.setDataLayout(llvm::cantFail(nativeABIDataLayout(targetID)));
+  auto *pointer = llvm::PointerType::get(context, 0);
+  auto *function = llvm::Function::Create(
+      llvm::FunctionType::get(llvm::Type::getVoidTy(context), {pointer, pointer}, false),
+      llvm::GlobalValue::ExternalLinkage, "copy", module);
+  auto *block = llvm::BasicBlock::Create(context, "entry", function);
+  llvm::IRBuilder<llvm::NoFolder> builder(block);
+  for (auto *record : records) {
+    auto result = classifyNativeABI(llvm::FunctionType::get(record, {record}, false), targetID, records);
+    if (!result) { llvm::logAllUnhandledErrors(result.takeError(), llvm::errs()); return false; }
+    const auto &argument = result->parameters.front();
+    if (record == large) {
+      passed &= check(result->result.sRet && argument.kind == NativeABIKind::Indirect &&
+          argument.byVal == !wide, "large aggregate uses target-specific indirect ownership");
+      continue;
+    }
+    if (record == hfa) {
+      passed &= check(result->nativeType->getReturnType() == hfa, "HFA result retains floating-point structure");
+      passed &= check(wide ? argument.pieces[0].type == llvm::ArrayType::get(f64, 2)
+                           : argument.pieces[0].type == hfa, "HFA argument carrier matches target ABI");
+      passed &= check(bool(argument.stackAlignment) == wide, "AArch64 HFA has explicit stack alignment");
+    }
+    if (record == small && wide)
+      passed &= check(result->nativeType->getReturnType()->isIntegerTy(32) &&
+          argument.pieces[0].type->isIntegerTy(64), "AArch64 argument coercion can exceed object extent");
+    auto values = loadNativeABIPieces(builder, argument, function->getArg(0), llvm::Align(1));
+    if (!values) { llvm::logAllUnhandledErrors(values.takeError(), llvm::errs()); return false; }
+    if (auto error = storeNativeABIPieces(builder, argument, function->getArg(1), llvm::Align(1), *values)) {
+      llvm::logAllUnhandledErrors(std::move(error), llvm::errs()); return false;
+    }
+    auto invalid = argument;
+    invalid.pieces.front().offset = invalid.storageSize;
+    auto before = block->size();
+    auto bad = loadNativeABIPieces(builder, invalid, function->getArg(0), llvm::Align(1));
+    if (bad) passed &= check(false, "ARM out-of-bounds coercion rejects");
+    else llvm::consumeError(bad.takeError());
+    passed &= check(before == block->size(), "invalid ARM coercion emits no partial IR");
+  }
+  auto *oversized = llvm::StructType::create(context,
+      {llvm::ArrayType::get(llvm::Type::getInt64Ty(context), 1ULL << 62)});
+  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(oversized, {oversized}, false),
+      targetID, {oversized}), "oversized aggregate rejects before native layout arithmetic");
+  auto *repeated = llvm::StructType::create(context, {i8});
+  for (unsigned depth = 0; depth != 20; ++depth)
+    repeated = llvm::StructType::create(context, {repeated, repeated});
+  passed &= rejected(classifyNativeABI(llvm::FunctionType::get(repeated, {repeated}, false),
+      targetID, {repeated}), "shared nested storage has a bounded traversal budget");
+  builder.CreateRetVoid();
+  passed &= check(!llvm::verifyModule(module, &llvm::errs()), "ARM bounded coercion IR verifies");
+  return passed;
+}
+
+bool captureTests(llvm::StringRef path, llvm::StringRef targetID, bool extra) {
   llvm::LLVMContext context;
   llvm::SMDiagnostic diagnostic;
   auto module = llvm::parseIRFile(path, diagnostic, context);
@@ -152,11 +219,11 @@ bool captureTests(llvm::StringRef path, bool x64, bool extra) {
     if (record) records.push_back(record);
   if (!pair || !mixed || !large || (extra && (!floats || !words || !bytes || !nested)))
     return check(false, "fixture logical record inventory");
-  bool passed = check(module->getDataLayout() == llvm::cantFail(nativeABIDataLayout(x64)), "capture uses pinned target layout");
+  bool passed = check(module->getDataLayout() == llvm::cantFail(nativeABIDataLayout(targetID)), "capture uses pinned target layout");
   auto compare = [&](llvm::StringRef name, llvm::Type *resultType, llvm::ArrayRef<llvm::Type *> arguments) {
     auto *function = module->getFunction(name);
     if (!function) { passed &= check(false, "fixture function inventory"); return; }
-    auto signature = classifyNativeABI(llvm::FunctionType::get(resultType, arguments, false), x64, records);
+    auto signature = classifyNativeABI(llvm::FunctionType::get(resultType, arguments, false), targetID, records);
     if (!signature) { llvm::logAllUnhandledErrors(signature.takeError(), llvm::errs(), name + ": "); passed = false; return; }
     if (signature->nativeType != function->getFunctionType()) {
       llvm::errs() << name << " expected " << *function->getFunctionType() << " classified " << *signature->nativeType << '\n';
@@ -188,7 +255,7 @@ bool captureTests(llvm::StringRef path, bool x64, bool extra) {
     for (auto entry : {std::make_pair("pair_indirect", pair),
                        std::make_pair("mixed_indirect", mixed),
                        std::make_pair("large_indirect", large)}) {
-      auto signature = classifyNativeABI(llvm::FunctionType::get(entry.second, {entry.second, i32}, false), x64, records);
+      auto signature = classifyNativeABI(llvm::FunctionType::get(entry.second, {entry.second, i32}, false), targetID, records);
       if (!signature) { llvm::consumeError(signature.takeError()); return false; }
       unsigned count = 0;
       for (auto &instruction : llvm::instructions(module->getFunction(entry.first))) {
@@ -241,25 +308,24 @@ bool captureTests(llvm::StringRef path, bool x64, bool extra) {
 
 int main(int argc, char **argv) {
   bool passed = true;
-  for (auto target : sela::supportedNativeTargets()) passed &= descriptorTests(target == "x86_64");
-  for (llvm::StringRef target : {"x86_64", "i686"}) {
-    if (llvm::is_contained(sela::supportedNativeTargets(), target)) continue;
+  for (auto target : sela::supportedNativeTargets()) {
+    if (target == "x86_64" || target == "i686") passed &= descriptorTests(target);
+    else passed &= armDescriptorTests(target);
+  }
+  for (const auto &target : sela::targets::all()) {
+    if (llvm::is_contained(sela::supportedNativeTargets(), target.id)) continue;
     llvm::LLVMContext context;
     auto *logical = llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
-    passed &= rejected(classifyNativeABI(logical, target == "x86_64", {}), "unavailable classifier rejects");
-    auto layout = nativeABIDataLayout(target == "x86_64");
+    passed &= rejected(classifyNativeABI(logical, target.id, {}), "unavailable classifier rejects");
+    auto layout = nativeABIDataLayout(target.id);
     if (layout) passed &= check(false, "unavailable native layout rejects");
     else llvm::consumeError(layout.takeError());
   }
-  if (argc == 5) {
-    if (sela::supportedNativeTargets().size() != 2) {
-      llvm::errs() << "dual native capture qualification requires both native backends\n";
-      return 1;
-    }
-    passed &= captureTests(argv[1], true, false);
-    passed &= captureTests(argv[2], false, false);
-    passed &= captureTests(argv[3], true, true);
-    passed &= captureTests(argv[4], false, true);
+  if (argc == 4) {
+    llvm::StringRef target = argv[1];
+    if (!llvm::is_contained(sela::supportedNativeTargets(), target)) return 2;
+    passed &= captureTests(argv[2], target, false);
+    passed &= captureTests(argv[3], target, true);
   } else if (argc != 1) return 2;
   return passed ? 0 : 1;
 }

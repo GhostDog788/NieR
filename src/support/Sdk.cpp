@@ -1,4 +1,5 @@
 #include "sela/Support.h"
+#include "sela/Targets.h"
 #include <cstdint>
 
 namespace sela::driver {
@@ -7,27 +8,35 @@ bool supportsProfile(llvm::StringRef profile) {
 #ifdef SELA_DEVICE_TARGET
   return profile == SELA_DEVICE_TARGET;
 #else
-  return profile == "x86_64" || profile == "i686";
+  return sela::targets::find(profile) != nullptr;
 #endif
 }
-bool is64(llvm::StringRef profile) {
-#ifdef SELA_DEVICE_WORD_BITS
-  return SELA_DEVICE_WORD_BITS == 64;
+const sela::targets::TargetInfo &hostTarget() {
+#ifdef SELA_DEVICE_TARGET
+  return *sela::targets::find(SELA_DEVICE_TARGET);
+#elif defined(__x86_64__)
+  return *sela::targets::find("x86_64");
+#elif defined(__i386__)
+  return *sela::targets::find("i686");
+#elif defined(__aarch64__)
+  return *sela::targets::find("aarch64");
+#elif defined(__arm__)
+  return *sela::targets::find("armv7");
 #else
-  return profile == "x86_64";
+#error "Unsupported compiler host architecture"
 #endif
 }
 }
 fs::path Sdk::tool(llvm::StringRef name) const { return root / "host/usr/lib/llvm-18/bin" / name.str(); }
 fs::path Sdk::sysroot(llvm::StringRef profile) const {
   if (!supportsProfile(profile)) return {};
-  return root / "sysroots" / (is64(profile) ? "x86_64-linux-gnu" : "i686-linux-gnu");
+  return root / "sysroots" / sela::targets::find(profile)->sysrootTriple.str();
 }
 std::map<std::string, std::string> Sdk::toolEnvironment() const {
   // Only compiler subprocesses receive this setting. It must not leak into
   // application execution or rely on a publisher's development shell.
   return {{"LD_LIBRARY_PATH", (root / "host/usr/lib/llvm-18/lib").string() + ":" +
-                               (root / "host/usr/lib" / (sizeof(void *) == 8 ? "x86_64-linux-gnu" : "i386-linux-gnu")).string()}};
+                               (root / "host/usr/lib" / hostTarget().multiarch.str()).string()}};
 }
 llvm::Error Sdk::validate(bool publisher) const {
   auto receipt = read(root / "sdk-lock.sha256", 128);
@@ -56,16 +65,22 @@ llvm::Error Sdk::validate(bool publisher) const {
     return fail("this device SDK does not provide publication tools");
 #else
     if (!fs::is_regular_file(tool("clang"))) return fail("publisher SDK is missing stock Clang");
-    for (const char *profile : {"x86_64", "i686"})
-      if (!fs::is_regular_file(sysroot(profile) / "usr/include/stdio.h")) return fail("publisher SDK headers missing for " + std::string(profile));
+    for (const auto &target : sela::targets::all())
+      if (!fs::is_regular_file(sysroot(target.id) / "usr/include/stdio.h"))
+        return fail("publisher SDK headers missing for " + target.id.str() + "; run scripts/bootstrap-sdk.sh");
 #endif
   }
   return llvm::Error::success();
 }
 std::vector<std::string> Sdk::compileFlags(llvm::StringRef profile) const {
   if (!supportsProfile(profile)) return {};
-  return {"--target=" + std::string(is64(profile) ? "x86_64-unknown-linux-gnu" : "i686-unknown-linux-gnu"),
-          "--sysroot=" + sysroot(profile).string(), "-resource-dir=" + (root / "host/usr/lib/llvm-18/lib/clang/18").string()};
+  const auto &target = *sela::targets::find(profile);
+  std::vector<std::string> flags{"--target=" + target.triple.str(),
+      "--sysroot=" + sysroot(profile).string(),
+      "-resource-dir=" + (root / "host/usr/lib/llvm-18/lib/clang/18").string()};
+  for (auto flag : sela::targets::clangArgs(target)) flags.push_back(flag.str());
+  for (auto flag : sela::targets::publicationArgs(target)) flags.push_back(flag.str());
+  return flags;
 }
 llvm::Expected<std::vector<std::string>> Sdk::linkCommand(
     llvm::StringRef profile, const std::vector<fs::path> &objects,
@@ -73,13 +88,13 @@ llvm::Expected<std::vector<std::string>> Sdk::linkCommand(
     bool shared, const std::vector<std::string> &linkOptions,
     const std::vector<fs::path> &libraryDirectories) const {
   if (!supportsProfile(profile)) return fail("native linking target is unavailable in this compiler: " + profile.str());
-  const bool x64 = is64(profile);
-  const std::string libraryTriple = x64 ? "x86_64-linux-gnu" : "i386-linux-gnu";
+  const auto &info = *sela::targets::find(profile);
+  const std::string libraryTriple = info.multiarch.str();
   fs::path target = sysroot(profile);
   fs::path lib = target / "usr/lib" / libraryTriple;
   fs::path runtime = target / "lib" / libraryTriple;
-  fs::path loader = runtime / (x64 ? "ld-linux-x86-64.so.2" : "ld-linux.so.2");
-  const std::string runtimeArch = x64 ? "x86_64" : "i386";
+  fs::path loader = runtime / info.loader.str();
+  const std::string runtimeArch = info.compilerRTArch.str();
   fs::path builtins = root / "host/usr/lib/llvm-18/lib/clang/18/lib/linux" / ("libclang_rt.builtins-" + runtimeArch + ".a");
   fs::path crtbegin = builtins.parent_path() / ("clang_rt.crtbegin-" + runtimeArch + ".o");
   fs::path crtend = builtins.parent_path() / ("clang_rt.crtend-" + runtimeArch + ".o");
@@ -92,7 +107,7 @@ llvm::Expected<std::vector<std::string>> Sdk::linkCommand(
     runpath += fs::absolute(directory).string() + ":";
   }
   runpath += runtime.string() + ":" + lib.string();
-  std::vector<std::string> args = {tool("ld.lld").string(), "-m", x64 ? "elf_x86_64" : "elf_i386", "--sysroot=" + target.string(), shared ? "-shared" : "-pie", "--strip-all", "--build-id", "--eh-frame-hdr", "--hash-style=gnu",
+  std::vector<std::string> args = {tool("ld.lld").string(), "-m", info.lldEmulation.str(), "--sysroot=" + target.string(), shared ? "-shared" : "-pie", "--strip-all", "--build-id", "--eh-frame-hdr", "--hash-style=gnu",
       "--dynamic-linker=" + loader.string(), "--enable-new-dtags", "-rpath", runpath, "-z", "nodefaultlib", "-z", "relro", "-z", "now",
       "-o", output.string()};
   if (!shared) args.push_back((lib / "Scrt1.o").string());

@@ -1,6 +1,7 @@
 #include "sela/Artifact/Artifact.h"
 #include "sela/IR/Compiler.h"
 #include "sela/IR/Dialect.h"
+#include "sela/IR/Domains.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -28,6 +29,11 @@ llvm::Error inspect(const fs::path &input, const fs::path &dump) {
   unsigned definitions = 0, chosenBodies = 0, dispatches = 0;
   bool validNamespaces = true, wideBlock = false, narrowBlock = false;
   bool wideCase = false, secondWideCase = false, narrowCase = false;
+  auto widthDomain = [](mlir::Attribute domain, unsigned bits) {
+    for (const auto &target : sela::targets::all())
+      if (sela::ir::containsTarget(domain, target.id) != (target.wordBits == bits)) return false;
+    return true;
+  };
   (*module)->walk([&](mlir::Operation *operation) {
     auto name = operation->getName().getStringRef();
     if (name != "builtin.module" && !name.starts_with("sela.")) validNamespaces = false;
@@ -41,10 +47,8 @@ llvm::Error inspect(const fs::path &input, const fs::path &dump) {
     if (!blocks || operation->getNumRegions() != 1 ||
         blocks.size() != operation->getRegion(0).getBlocks().size()) return;
     for (auto domain : blocks) {
-      auto value = mlir::dyn_cast<mlir::IntegerAttr>(domain);
-      if (!value) continue;
-      wideBlock |= value.getInt() == 1;
-      narrowBlock |= value.getInt() == 2;
+      wideBlock |= widthDomain(domain, 64);
+      narrowBlock |= widthDomain(domain, 32);
     }
     operation->walk([&](mlir::Operation *nested) {
       if (nested->getName().getStringRef() != "sela.switch") return;
@@ -54,17 +58,16 @@ llvm::Error inspect(const fs::path &input, const fs::path &dump) {
       if (!cases || !domains || cases.size() != domains.size()) return;
       for (unsigned index = 0; index < cases.size(); ++index) {
         auto label = mlir::dyn_cast<mlir::IntegerAttr>(cases[index]);
-        auto domain = mlir::dyn_cast<mlir::IntegerAttr>(domains[index]);
-        if (!label || !domain) continue;
-        wideCase |= label.getInt() == 8 && domain.getInt() == 1;
-        secondWideCase |= label.getInt() == 16 && domain.getInt() == 1;
-        narrowCase |= label.getInt() == 4 && domain.getInt() == 2;
+        if (!label) continue;
+        wideCase |= label.getInt() == 8 && widthDomain(domains[index], 64);
+        secondWideCase |= label.getInt() == 16 && widthDomain(domains[index], 64);
+        narrowCase |= label.getInt() == 4 && widthDomain(domains[index], 32);
       }
     });
   });
   if (!validNamespaces || definitions != 3 || chosenBodies != 1 || dispatches != 1 ||
       !wideBlock || !narrowBlock || !wideCase || !secondWideCase || !narrowCase)
-    return fail("conditional fixture lacks one shared body with both proved native-word masks");
+    return fail("conditional fixture lacks one shared body with all proved target domains");
   std::string readable;
   llvm::raw_string_ostream stream(readable);
   (*module)->print(stream);

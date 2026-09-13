@@ -1,4 +1,5 @@
 #include "Build.h"
+#include "sela/Targets.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/CommandLine.h"
@@ -9,6 +10,7 @@
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Program.h"
 #include <algorithm>
 #include <cerrno>
 #include <cstdlib>
@@ -110,6 +112,49 @@ std::string shellQuote(const std::string &argument) {
   std::string result = "'";
   for (char c : argument) result += c == '\'' ? "'\\''" : std::string(1, c);
   return result + "'";
+}
+llvm::Expected<std::map<std::string, std::string>> preflightNativeExecution(
+    const Sdk &sdk, const fs::path &scratch) {
+  std::map<std::string, std::string> emulators;
+  const auto timeout = llvm::sys::findProgramByName("timeout");
+  if (!timeout) return fail("native build execution preflight requires the host timeout utility");
+  const std::vector<std::string> cleanRuntime{
+      "LD_LIBRARY_PATH", "LD_PRELOAD", "QEMU_LD_PREFIX", "QEMU_SET_ENV", "QEMU_UNSET_ENV"};
+  for (const auto &target : sela::targets::all()) {
+    if (target.llvmBackend == "ARM" || target.llvmBackend == "AArch64") {
+      const auto variable = "SELA_EMULATOR_" + target.id.upper();
+      const char *configured = std::getenv(variable.c_str());
+      auto emulator = llvm::sys::findProgramByName(configured && *configured ? llvm::StringRef(configured) : target.qemuUser);
+      if (!emulator || !fs::is_regular_file(*emulator) || access(emulator->c_str(), X_OK) != 0)
+        return fail("native build profile " + target.id.str() + " requires provisioned " +
+            target.qemuUser.str() + " and working binfmt execution for project generators; install/configure them explicitly or set " + variable + " to an existing emulator (Sela does not install or register binfmt handlers)");
+      emulators[target.id.str()] = *emulator;
+    }
+    const auto source = scratch / ("execution-probe-" + target.id.str() + ".c");
+    const auto object = scratch / ("execution-probe-" + target.id.str() + ".o");
+    const auto executable = scratch / ("execution-probe-" + target.id.str());
+    if (auto error = write(source, "int main(void) { return sizeof(void *) != " +
+        std::to_string(target.wordBits / 8) + " || (((char)-1 < 0) != " +
+        std::to_string(target.plainCharSigned) + "); }\n")) return error;
+    std::vector<std::string> compile{sdk.tool("clang").string()};
+    auto flags = sdk.compileFlags(target.id);
+    compile.insert(compile.end(), flags.begin(), flags.end());
+    compile.insert(compile.end(), {"-fPIC", "-c", source.string(), "-o", object.string()});
+    if (auto error = run(compile, {}, sdk.toolEnvironment()))
+      return fail("native build preflight could not compile " + target.id.str() + ": " + llvm::toString(std::move(error)));
+    auto link = sdk.linkCommand(target.id, {object}, executable, {});
+    if (!link) return link.takeError();
+    if (auto error = run(*link, {}, sdk.toolEnvironment())) return error;
+    // Exercise the same direct invocation used by ordinary Make generators.
+    // A successful explicit QEMU command alone does not establish binfmt setup.
+    if (auto error = run({*timeout, "--kill-after=2", "20", executable.string()}, {}, {}, cleanRuntime))
+      return fail("native build profile " + target.id.str() + " cannot execute a real target probe: " +
+          llvm::toString(std::move(error)) + "; provision the matching loader and, for foreign CPUs, QEMU/binfmt explicitly. Sela will not invent configure results or modify global execution handlers");
+    if (auto found = emulators.find(target.id.str()); found != emulators.end())
+      if (auto error = run({*timeout, "--kill-after=2", "20", found->second, executable.string()}, {}, {}, cleanRuntime))
+        return fail("configured CMake emulator failed the real " + target.id.str() + " probe: " + llvm::toString(std::move(error)));
+  }
+  return emulators;
 }
 llvm::Expected<std::vector<std::string>> captureMarkers(
     const llvm::object::ObjectFile &object, llvm::StringRef name) {
@@ -286,6 +331,9 @@ llvm::Error recordNativeLink(const std::vector<std::string> &args, const Sdk &sd
   std::string kind = "executable";
   std::string versionScript;
   std::string interpreter, hashStyle = "gnu";
+  const char *profile = std::getenv("SELA_BUILD_PROFILE");
+  const auto *target = profile ? sela::targets::find(profile) : nullptr;
+  if (!target) return fail("native linker lacks a qualified profile");
   llvm::json::Array units, libraries, linkOptions, unsupported;
   const std::set<std::string> valued = {"-m", "-z", "-rpath", "--rpath", "-rpath-link",
     "--rpath-link", "-dynamic-linker", "--dynamic-linker", "-L"};
@@ -313,9 +361,19 @@ llvm::Error recordNativeLink(const std::vector<std::string> &args, const Sdk &sd
       interpreter = arg.drop_front(17).str();
     } else if (arg == "--undefined-version") {
       linkOptions.push_back(arg.str());
+    } else if (arg == "-EL" || arg == "--little-endian") {
+      if (target->byteOrder != "little") unsupported.push_back("native linker byte order contradicts target profile");
+    } else if (arg == "-X" || arg == "--discard-locals") {
+      // Stock ARM Clang adds -X. The SDK's independently enforced full
+      // stripping already removes these non-dynamic local symbols.
+      if (std::find(args.begin(), args.end(), "--strip-all") == args.end() &&
+          std::find(args.begin(), args.end(), "-s") == args.end())
+        unsupported.push_back("discard-locals requires the qualified full-stripping policy");
     } else if (valued.count(arg.str())) {
       if (++i == args.size()) return fail("native linker option has no value");
       const auto &value = args[i];
+      if (arg == "-m" && value != target->lldEmulation)
+        unsupported.push_back("native linker emulation contradicts target profile: " + value);
       if (arg == "-dynamic-linker" || arg == "--dynamic-linker") interpreter = value;
       if (arg == "-z" && value != "relro" && value != "now" && value != "nodefaultlib")
         unsupported.push_back("unqualified native -z setting " + value);
@@ -358,14 +416,9 @@ llvm::Error recordNativeLink(const std::vector<std::string> &args, const Sdk &sd
   if (output == "/dev/null") return llvm::Error::success();
   if (!inside(output, lane)) return fail("native link output escaped private build lane");
   if (hashStyle == "both") linkOptions.push_back("--hash-style=both");
+  const auto expectedInterpreter = sdk.sysroot(profile) / "usr/lib" /
+      target->multiarch.str() / target->loader.str();
   if (kind == "executable") {
-    const char *profile = std::getenv("SELA_BUILD_PROFILE");
-    if (!profile || (std::string(profile) != "x86_64" && std::string(profile) != "i686"))
-      return fail("native linker lacks a qualified profile");
-    const bool x64 = std::string(profile) == "x86_64";
-    const auto expectedInterpreter = sdk.sysroot(profile) / "usr/lib" /
-        (x64 ? "x86_64-linux-gnu" : "i386-linux-gnu") /
-        (x64 ? "ld-linux-x86-64.so.2" : "ld-linux.so.2");
     if (interpreter != expectedInterpreter.string())
       unsupported.push_back("unqualified native dynamic interpreter " + interpreter);
   }
@@ -388,6 +441,7 @@ llvm::Error recordNativeLink(const std::vector<std::string> &args, const Sdk &sd
   auto extraction = read(whyExtract, 8 * 1024 * 1024);
   if (!extraction) return extraction.takeError();
   std::map<std::string, fs::path> privateDSOs;
+  bool managedLoaderSelected = false;
   std::set<std::string> selectedArchiveNames;
   llvm::SmallVector<llvm::StringRef> lines;
   llvm::StringRef(*traceText).split(lines, '\n', -1, false);
@@ -411,7 +465,10 @@ llvm::Error recordNativeLink(const std::vector<std::string> &args, const Sdk &sd
       contents = std::move(*value);
     } else {
       path = absolutePath(line.str());
-      if (inside(path, absolutePath(sdk.root))) continue;
+      if (inside(path, absolutePath(sdk.root))) {
+        if (path == absolutePath(expectedInterpreter)) managedLoaderSelected = true;
+        continue;
+      }
       if (!inside(path, lane)) { unsupported.push_back("native input outside private build: " + line.str()); continue; }
       auto value = read(path);
       if (!value) { unsupported.push_back(llvm::toString(value.takeError())); continue; }
@@ -471,11 +528,25 @@ llvm::Error recordNativeLink(const std::vector<std::string> &args, const Sdk &sd
   auto *outputELF = llvm::dyn_cast<llvm::object::ELFObjectFileBase>(outputObject->get());
   if (!outputELF || outputELF->getEType() != llvm::ELF::ET_DYN)
     unsupported.push_back("selected native output is not the qualified PIE/shared ELF kind");
+  if (outputELF && (outputELF->getEMachine() != target->elfMachine ||
+      outputELF->getBytesInAddress() * 8 != target->wordBits || !outputELF->isLittleEndian()))
+    unsupported.push_back("selected native ELF ABI contradicts target profile");
+  if (outputELF && target->abi == "aapcs32-vfp") {
+    const unsigned flags = outputELF->getPlatformFlags();
+    if ((flags & llvm::ELF::EF_ARM_EABIMASK) != llvm::ELF::EF_ARM_EABI_VER5 ||
+        !(flags & llvm::ELF::EF_ARM_ABI_FLOAT_HARD) ||
+        (flags & (llvm::ELF::EF_ARM_ABI_FLOAT_SOFT | llvm::ELF::EF_ARM_BE8)))
+      unsupported.push_back("selected native ELF is not the required little-endian ARM EABI5 hard-float ABI");
+  }
   auto dynamic = dynamicInfo(**outputObject);
   if (!dynamic) return dynamic.takeError();
   for (const auto &needed : dynamic->needed) {
     if (privateDSOs.count(needed)) libraries.push_back(":" + needed);
     else if (needed == "libc.so.6") continue;
+    // ARM's ordinary stack protector can import __stack_chk_guard from the
+    // managed loader. It is part of the native runtime, not an application
+    // DSO or a portable link option; require its actual SDK trace identity.
+    else if (needed == target->loader && managedLoaderSelected) continue;
     else if (needed == "libm.so.6") libraries.push_back("m");
     else unsupported.push_back("native dependency is not a captured/managed DSO: " + needed);
   }
@@ -491,7 +562,7 @@ struct SelectedUnit {
 struct SelectedBuild {
   std::vector<SelectedUnit> units;
   std::vector<std::string> libraries, linkOptions;
-  std::string kind, versionScript;
+  std::string kind, versionScript, target;
 };
 llvm::Expected<SelectedBuild> selectArchive(const fs::path &metadata,
     const fs::path &output, llvm::StringRef bytes, bool retained = false) {
@@ -620,82 +691,85 @@ llvm::Expected<SelectedBuild> selectOutput(const fs::path &metadata, const fs::p
   if (result.units.empty()) return fail("selected link contains no captured application units");
   return result;
 }
-llvm::Expected<CapturedBuild> pairSelected(const std::vector<SelectedBuild> &selected) {
-  if (selected.size() != 2) return fail("paired native selection requires both profiles");
-  if (selected[0].libraries != selected[1].libraries || selected[0].linkOptions != selected[1].linkOptions ||
-      selected[0].kind != selected[1].kind || selected[0].versionScript != selected[1].versionScript)
-    return fail("profile-dependent link graph needs a still-unimplemented common contract");
+llvm::Expected<CapturedBuild> combineSelected(const std::vector<SelectedBuild> &selected) {
+  if (selected.empty()) return fail("native selection requires labelled target profiles");
+  std::set<std::string> labels;
+  for (const auto &profile : selected) {
+    if (!sela::targets::find(profile.target) || !labels.insert(profile.target).second)
+      return fail("unsupported or duplicate native selection target");
+    if (selected[0].libraries != profile.libraries || selected[0].linkOptions != profile.linkOptions ||
+        selected[0].kind != profile.kind || selected[0].versionScript != profile.versionScript)
+      return fail("profile-dependent link graph needs a still-unimplemented common contract");
+  }
   CapturedBuild result;
   result.kind = selected[0].kind; result.libraries = selected[0].libraries; result.linkOptions = selected[0].linkOptions;
   result.versionScript = selected[0].versionScript;
-  bool corresponding = selected[0].units.size() == selected[1].units.size();
-  if (corresponding)
-    for (size_t i = 0; i < selected[0].units.size(); ++i) {
-      const auto &left = selected[0].units[i], &right = selected[1].units[i];
-      corresponding &= (left.source == right.source || left.key == right.key) &&
-          left.flags == right.flags && left.optimization == right.optimization &&
-          left.archiveMemberName == right.archiveMemberName;
+  const auto &reference = selected.front().units;
+  auto matches = [](const SelectedUnit &left, const SelectedUnit &right) {
+    return (left.source == right.source || left.key == right.key) &&
+        left.flags == right.flags && left.optimization == right.optimization &&
+        left.archiveMemberName == right.archiveMemberName;
+  };
+  std::map<std::string, std::vector<size_t>> peersByTarget;
+  bool corresponding = true;
+  for (const auto &profile : selected) {
+    auto &peers = peersByTarget[profile.target];
+    if (profile.units.size() != reference.size()) { corresponding = false; break; }
+    bool sameOrder = true;
+    for (size_t i = 0; i < reference.size(); ++i) sameOrder &= matches(reference[i], profile.units[i]);
+    if (sameOrder) {
+      for (size_t i = 0; i < reference.size(); ++i) peers.push_back(i);
+      continue;
     }
-  if (!corresponding) {
-    // Native archive extraction can visit the same selected units in a
-    // different order on each target. Prove a unique correspondence using
-    // source/compile role AND exact effective settings, then retain each
-    // profile's observed order independently. No all-TU flag equality is
-    // needed when there is no repartitioning of any native optimization unit.
-    if (result.kind != "static" && selected[0].units.size() == selected[1].units.size()) {
-      std::vector<size_t> peers;
-      std::vector<bool> used(selected[1].units.size());
-      for (const auto &left : selected[0].units) {
-        std::vector<size_t> candidates;
-        for (size_t j = 0; j < selected[1].units.size(); ++j) {
-          const auto &right = selected[1].units[j];
-          if ((left.source == right.source || left.key == right.key) &&
-              left.flags == right.flags && left.optimization == right.optimization &&
-              left.archiveMemberName == right.archiveMemberName) candidates.push_back(j);
-        }
-        if (candidates.size() != 1 || used[candidates.front()]) break;
-        used[candidates.front()] = true;
-        peers.push_back(candidates.front());
-      }
-      if (peers.size() == selected[0].units.size()) {
-        result.i686Order.resize(peers.size());
-        for (size_t i = 0; i < peers.size(); ++i) {
-          const auto &left = selected[0].units[i], &right = selected[1].units[peers[i]];
-          result.units.push_back({{left.capture}, {right.capture}, left.optimization, left.archiveMemberName});
-          result.i686Order[peers[i]] = i;
-        }
-        return result;
-      }
+    if (result.kind == "static") { corresponding = false; break; }
+    std::vector<bool> used(profile.units.size());
+    for (const auto &unit : reference) {
+      std::vector<size_t> candidates;
+      for (size_t j = 0; j < profile.units.size(); ++j)
+        if (matches(unit, profile.units[j])) candidates.push_back(j);
+      if (candidates.size() != 1 || used[candidates.front()]) break;
+      used[candidates.front()] = true;
+      peers.push_back(candidates.front());
     }
-    if (result.kind == "static")
-      return fail("differing static archive inventories need per-target member partition publication");
-    if (selected[0].units.empty() || selected[1].units.empty())
-      return fail("empty profile-selected application inventory");
-    const auto &settings = selected[0].units.front();
-    CapturedUnit group;
-    group.optimization = settings.optimization;
-    for (size_t profile = 0; profile < selected.size(); ++profile)
-      for (const auto &unit : selected[profile].units) {
-        if (unit.flags != settings.flags || unit.optimization != settings.optimization)
-          return fail("differing TU partitions currently require matching effective per-unit settings");
-        (profile ? group.i686Paths : group.x64Paths).push_back(unit.capture);
-      }
-    // The shared producer determines definition correspondence and proves exact
-    // reconstruction. Build paths and equal settings alone do not establish it.
-    result.units.push_back(std::move(group));
+    if (peers.size() != reference.size()) { corresponding = false; break; }
+  }
+  if (corresponding) {
+    for (size_t i = 0; i < reference.size(); ++i) {
+      CapturedUnit unit;
+      unit.optimization = reference[i].optimization;
+      unit.archiveMemberName = reference[i].archiveMemberName;
+      for (const auto &profile : selected)
+        unit.pathsByTarget[profile.target].push_back(profile.units[peersByTarget[profile.target][i]].capture);
+      result.units.push_back(std::move(unit));
+    }
+    for (const auto &profile : selected) {
+      const auto &peers = peersByTarget[profile.target];
+      bool reordered = false;
+      for (size_t i = 0; i < peers.size(); ++i) reordered |= peers[i] != i;
+      if (!reordered) continue;
+      auto &order = result.ordersByTarget[profile.target];
+      order.resize(peers.size());
+      for (size_t i = 0; i < peers.size(); ++i) order[peers[i]] = i;
+    }
     return result;
   }
-  for (size_t i = 0; i < selected[0].units.size(); ++i) {
-    const auto &left = selected[0].units[i], &right = selected[1].units[i];
-    // Source selection can differ by native profile while serving one explicit
-    // object/link role. The merger still has to prove the two LLVM contracts;
-    // the matching path is evidence for correspondence, not a correctness proof.
-    if ((left.source != right.source && left.key != right.key) ||
-        left.flags != right.flags || left.optimization != right.optimization ||
-        left.archiveMemberName != right.archiveMemberName)
-      return fail("profile source/settings/order divergence cannot be silently paired");
-    result.units.push_back({{left.capture}, {right.capture}, left.optimization, left.archiveMemberName});
+  if (result.kind == "static")
+    return fail("differing static archive inventories need per-target member partition publication");
+  if (reference.empty()) return fail("empty profile-selected application inventory");
+  const auto &settings = reference.front();
+  CapturedUnit group;
+  group.optimization = settings.optimization;
+  for (const auto &profile : selected) {
+    if (profile.units.empty()) return fail("empty profile-selected application inventory");
+    for (const auto &unit : profile.units) {
+      if (unit.flags != settings.flags || unit.optimization != settings.optimization)
+        return fail("differing TU partitions currently require matching effective per-unit settings");
+      group.pathsByTarget[profile.target].push_back(unit.capture);
+    }
   }
+  // The merger must prove shared definitions and reconstruct every original
+  // native optimization unit; matching build paths alone never establishes it.
+  result.units.push_back(std::move(group));
   return result;
 }
 } // namespace
@@ -764,8 +838,8 @@ llvm::Expected<CapturedBuild> selectRetainedBuild(const fs::path &scratch,
   const auto root = absolutePath(scratch);
   if (!fs::is_directory(root)) return fail("retained private build root does not exist");
   std::vector<SelectedBuild> selected;
-  for (const char *profile : {"x86_64", "i686"}) {
-    const auto lane = absolutePath(root / (std::string("build-") + profile));
+  for (const auto &target : sela::targets::all()) {
+    const auto lane = absolutePath(root / ("build-" + target.id.str()));
     const auto metadata = absolutePath(lane / "metadata");
     const auto output = absolutePath(lane / relative);
     if (!inside(lane, root) || !inside(metadata, lane) || !inside(output, lane) ||
@@ -773,9 +847,10 @@ llvm::Expected<CapturedBuild> selectRetainedBuild(const fs::path &scratch,
       return fail("retained selection escaped or lacks a private build lane");
     auto result = selectOutput(metadata, output, true);
     if (!result) return result.takeError();
+    result->target = target.id.str();
     selected.push_back(std::move(*result));
   }
-  return pairSelected(selected);
+  return combineSelected(selected);
 }
 
 llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
@@ -791,16 +866,18 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
     if (target.empty() || target.front() == '-') return fail("build target must be a name, not an option");
   const auto recorder = fs::read_symlink("/proc/self/exe").parent_path() / "sela-native-ld";
   if (!fs::is_regular_file(recorder)) return fail("publisher SDK lacks sela-native-ld");
+  auto emulators = preflightNativeExecution(sdk, scratch);
+  if (!emulators) return emulators.takeError();
   std::vector<SelectedBuild> selected;
-  for (const char *profile : {"x86_64", "i686"}) {
-    const bool x64 = std::string(profile) == "x86_64";
-    const auto lane = absolutePath(scratch) / (std::string("build-") + profile);
+  for (const auto &target : sela::targets::all()) {
+    const auto profile = target.id.str();
+    const auto lane = absolutePath(scratch) / ("build-" + profile);
     if (fs::exists(lane)) return fail("private native build lane already exists");
     fs::create_directories(lane / "metadata"); fs::create_directories(lane / "tmp");
     if (auto error = copySource(source, lane / "source", source)) return error;
-    const auto library = sdk.sysroot(profile) / "usr/lib" / (x64 ? "x86_64-linux-gnu" : "i386-linux-gnu");
+    const auto library = sdk.sysroot(profile) / "usr/lib" / target.multiarch.str();
     std::vector<std::string> config = sdk.compileFlags(profile);
-    config.insert(config.end(), {"--rtlib=compiler-rt", "--unwindlib=none", "-fPIC", "-g", "-fno-temp-file",
+    config.insert(config.end(), {"--rtlib=compiler-rt", "--unwindlib=none", "-fPIC", "-g", "-fno-temp-file", "-frecord-command-line",
       // Native references and captures share the same virtual source identity.
       // Only our transient lane prefix changes; physical provenance paths do not.
       "-ffile-prefix-map=" + lane.string() + "=/sela",
@@ -810,7 +887,7 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
       // particular link (including configure probes). Preserve that declared
       // native SDK default in the artifact; never patch the project script.
       "-Wl,--undefined-version,--strip-all,--build-id,--eh-frame-hdr,--hash-style=gnu,--enable-new-dtags,-z,relro,-z,now",
-      "-Wl,--dynamic-linker," + (library / (x64 ? "ld-linux-x86-64.so.2" : "ld-linux.so.2")).string(),
+      "-Wl,--dynamic-linker," + (library / target.loader.str()).string(),
       "-Wl,-rpath," + library.string(), "-Wl,-z,nodefaultlib"});
     config.insert(config.end(), request.cflags.begin(), request.cflags.end());
     std::string configText;
@@ -826,11 +903,16 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
       {"SELA_BUILD_LANE", lane.string()}, {"SELA_BUILD_METADATA", (lane / "metadata").string()},
       {"CC", compilerCommand}, {"AR", sdk.tool("llvm-ar").string()},
       {"RANLIB", sdk.tool("llvm-ranlib").string()}, {"LD", recorder.string()},
+      {"CHOST", target.gccTriple.str()},
       {"CCACHE_DISABLE", "1"}, {"TMPDIR", (lane / "tmp").string()},
       {"PATH", (sdk.root / "host/usr/bin").string() + ":" + inheritedPath},
       {"LD_LIBRARY_PATH", (sdk.root / "host/usr/lib/llvm-18/lib").string() + ":" +
         (sdk.root / "host/usr/lib/x86_64-linux-gnu").string() +
         (inheritedLibraries.empty() ? "" : ":" + inheritedLibraries)}};
+    const auto runBuild = [&](const std::vector<std::string> &command, const fs::path &directory) {
+      return run(command, directory, environment,
+                 {"LD_PRELOAD", "QEMU_LD_PREFIX", "QEMU_SET_ENV", "QEMU_UNSET_ENV"});
+    };
     fs::path outputDirectory;
     if (request.system == "cmake") {
       for (const auto &argument : request.configureArgs) {
@@ -838,6 +920,8 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
         if (arg.starts_with("-S") || arg.starts_with("-B") || arg.starts_with("-G") ||
             arg.starts_with("--preset") || arg.starts_with("--toolchain") ||
             arg.starts_with("-DCMAKE_C_COMPILER") || arg.starts_with("-DCMAKE_TOOLCHAIN_FILE") ||
+            arg.starts_with("-DCMAKE_SYSTEM") || arg.starts_with("-DCMAKE_SYSROOT") ||
+            arg.starts_with("-DCMAKE_CROSSCOMPILING") || arg.starts_with("-DCMAKE_FIND_ROOT_PATH") ||
             arg.starts_with("-DCMAKE_AR") || arg.starts_with("-DCMAKE_RANLIB") ||
             arg.starts_with("-DCMAKE_MAKE_PROGRAM"))
           return fail("configure argument overrides private SDK integration: " + argument);
@@ -849,13 +933,29 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
         "-DCMAKE_C_COMPILER_ARG1=--config=" + configPath.string(),
         "-DCMAKE_AR=" + sdk.tool("llvm-ar").string(), "-DCMAKE_RANLIB=" + sdk.tool("llvm-ranlib").string(),
         "-DCMAKE_MAKE_PROGRAM=" + (sdk.root / "host/usr/bin/ninja").string()};
+      if (profile != "x86_64") {
+        auto envTool = llvm::sys::findProgramByName("env");
+        if (!envTool) return fail("CMake target execution requires the host env utility");
+        std::string emulator = *envTool + ";-u;LD_LIBRARY_PATH;-u;LD_PRELOAD";
+        if (auto found = emulators->find(profile); found != emulators->end())
+          emulator += ";" + found->second;
+        command.insert(command.end(), {"-DCMAKE_SYSTEM_NAME=Linux",
+          "-DCMAKE_SYSTEM_PROCESSOR=" + profile,
+          "-DCMAKE_SYSROOT=" + sdk.sysroot(profile).string(),
+          "-DCMAKE_CROSSCOMPILING_EMULATOR=" + emulator,
+          "-DCMAKE_FIND_ROOT_PATH=" + sdk.sysroot(profile).string(),
+          "-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER",
+          "-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY",
+          "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY",
+          "-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY"});
+      }
       command.insert(command.end(), request.configureArgs.begin(), request.configureArgs.end());
-      if (auto error = run(command, lane, environment)) return error;
+      if (auto error = runBuild(command, lane)) return error;
       command = {(sdk.root / "host/usr/bin/cmake").string(), "--build", outputDirectory.string(), "--parallel", "2"};
       if (!request.targets.empty()) {
         command.push_back("--target"); command.insert(command.end(), request.targets.begin(), request.targets.end());
       }
-      if (auto error = run(command, lane, environment)) return error;
+      if (auto error = runBuild(command, lane)) return error;
     } else {
       outputDirectory = lane / "source";
       const auto configure = outputDirectory / "configure";
@@ -870,17 +970,18 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
         environment["CC"] = compiler + " --config=" + configPath.string();
         std::vector<std::string> command{configure.string()};
         command.insert(command.end(), request.configureArgs.begin(), request.configureArgs.end());
-        if (auto error = run(command, outputDirectory, environment)) return error;
+        if (auto error = runBuild(command, outputDirectory)) return error;
       } else if (!request.configureArgs.empty()) return fail("configure arguments supplied without a configure script");
       std::vector<std::string> command{"make", "-B", "-j2", "CC=" + compilerCommand,
         "AR=" + sdk.tool("llvm-ar").string(), "RANLIB=" + sdk.tool("llvm-ranlib").string(), "LD=" + recorder.string()};
       command.insert(command.end(), request.targets.begin(), request.targets.end());
-      if (auto error = run(command, outputDirectory, environment)) return error;
+      if (auto error = runBuild(command, outputDirectory)) return error;
     }
     auto result = selectOutput(lane / "metadata", absolutePath(outputDirectory / relativeOutput));
     if (!result) return result.takeError();
+    result->target = profile;
     selected.push_back(std::move(*result));
   }
-  return pairSelected(selected);
+  return combineSelected(selected);
 }
 } // namespace sela::driver

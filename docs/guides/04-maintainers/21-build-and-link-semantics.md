@@ -74,7 +74,7 @@ Third, the selector validates every selected object's provenance.
 Ordinary, thin, grouped and whole archives have tests, but none removes the need for exact correspondence.
 If repeated identical journal identities leave a member ambiguous, publication rejects instead of guessing from names or symbol-table convenience.
 
-Fourth, the two profile selections are paired.
+Fourth, all target selections are related to one common source-unit inventory.
 Positional correspondence is the simple case.
 When order differs, a candidate pairing must be unique and match source or normalized compile role, effective flags, optimization and member identity.
 These checks propose correspondence; the LLVM merger must still prove the actual programs match the common contract.
@@ -110,9 +110,9 @@ Sometimes one profile builds `main.c`, `first.c`, and `second.c`, while another 
 The common program can contain the same functions even though it has three native optimization units on one target and two on the other.
 
 `src/ir/Partitions.cpp` handles a bounded version of this case.
-It establishes unique external definition ownership, intersects the two profiles' ownership partitions, and creates shared fragments.
-It does not store two copies of every target's program.
-It proves that the appropriate private fragments reconstruct each original native translation unit before running the ordinary paired merger for each fragment.
+It establishes unique external definition ownership, intersects all targets' ownership partitions, and creates shared fragments.
+It does not store complete copies of every target's program.
+It proves that the appropriate private fragments reconstruct each original native translation unit before running the shared N-observation merger for each fragment.
 
 The artifact's `compilation_units` plan then says which shared fragment indices belong to each physical unit on each target.
 Every fragment must occur exactly once per target.
@@ -170,6 +170,7 @@ printf 'Lab files: %s\n' "$build_lab"
 
 Compare which helper is defined in `1.ll` and `2.ll` for each target.
 These two-target dumps use `sela_reference_lower`, a publisher-only test helper, not a foreign-target mode shipped in either device compiler.
+They are a small inspection example; the publication domain and device matrix include both ARM targets as well.
 The program's successful exit and the preserved O0 caller/O2 helpers are different observations.
 Keep both when diagnosing an ordering regression.
 

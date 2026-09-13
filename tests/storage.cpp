@@ -136,7 +136,7 @@ int main() {
   bool passed = write(left, native(true)) && write(right, native(false));
   if (passed) {
     sela::ArtifactSummary summary;
-    if (auto error = sela::mergeProfiles(left, right, artifact, &summary)) {
+    if (auto error = sela::mergeProfiles({{"x86_64", left}, {"i686", right}}, artifact, &summary)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "storage producer: ");
       passed = false;
     }

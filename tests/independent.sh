@@ -11,19 +11,20 @@ python3 -B "$repository/tests/consumer-package-boundary.py" "$selac" "$test_work
 "$selac" "$test_work/independent.sela" -o "$test_work/independent"
 env -u LD_LIBRARY_PATH "$test_work/independent"
 target=$("$selac" --print-target)
-case "$target" in
-    x86_64) foreign=i686; width=8; word=i64 ;;
-    i686) foreign=x86_64; width=4; word=i32 ;;
-    *) exit 1 ;;
-esac
+eval "$(python3 -B "$repository/sdk/targets.py" shell "$target")"
+width=$((SELA_TARGET_WORD_BITS / 8))
+word="i$SELA_TARGET_WORD_BITS"
 "$selac" lower "$test_work/independent.sela" --target "$target" --output-dir "$test_work/native-ir"
 rg -q "ret $word $width" "$test_work/native-ir/1.ll"
 rg -q 'ret i32 8' "$test_work/native-ir/1.ll"
-if "$selac" lower "$test_work/independent.sela" --target "$foreign" --output-dir "$test_work/foreign-ir" > "$test_work/foreign.log" 2>&1; then
-    printf 'ERROR: target-specific compiler accepted a foreign native target\n' >&2; exit 1
-fi
-rg -q 'native target unavailable' "$test_work/foreign.log"
-test ! -e "$test_work/foreign-ir"
+while IFS= read -r foreign; do
+    [[ $foreign != "$target" ]] || continue
+    if "$selac" lower "$test_work/independent.sela" --target "$foreign" --output-dir "$test_work/foreign-$foreign-ir" > "$test_work/foreign-$foreign.log" 2>&1; then
+        printf 'ERROR: target-specific compiler accepted a foreign native target\n' >&2; exit 1
+    fi
+    rg -q 'native target unavailable' "$test_work/foreign-$foreign.log"
+    test ! -e "$test_work/foreign-$foreign-ir"
+done < <(python3 -B "$repository/sdk/targets.py" list)
 if tar -xOf "$test_work/independent.sela" manifest.json | rg 'profiles|clang|capture'; then
     printf 'ERROR: independent artifact requires producer provenance\n' >&2; exit 1
 fi

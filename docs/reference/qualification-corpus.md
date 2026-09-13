@@ -6,31 +6,40 @@ cJSON's static and shared configurations each produced 21 artifacts and passed a
 zlib's eight outputs passed the original static, shared and 64-bit-offset Make recipes on both destinations.
 All 50 artifacts were published once and supplied unchanged to the separate native x86-64 and i686 compilers; i686 ran under a real 32-bit Linux kernel.
 Fresh native reference tests also passed on both private profiles. This is configured functional coverage, not full general-C, performance, RE or security acceptance; later compiler changes must requalify it.
-The [compiler distribution reference](compiler-distribution.md#fresh-sela-rename-checkpoint) records the separate fresh Sela qualification; the historical artifacts, tool names, paths, and hashes are not retroactively renamed.
+The [compiler distribution reference](compiler-distribution.md#historical-sela-rename-checkpoint) records the separate historical Sela qualification; the historical artifacts, tool names, paths, and hashes are not retroactively renamed.
 
 Source archives must match `corpus/releases.lock`. Never patch upstream application/test sources or disable a failing required test.
 
-Run the complete gate with the built publisher, independent consumer, and SDK:
+The current runner targets all four registered profiles: x86-64, i686, ARMv7-A hard-float, and AArch64, all Linux/glibc.
+The separate [four-target checkpoint on 2026-09-13](compiler-distribution.md#four-target-corpus-checkpoint-on-2026-09-13) passes all 50 artifacts and the original configured tests on every destination, including genuine 32-bit kernels for i686 and ARMv7.
+It combines two complete fresh project preparations and separate VM acceptance receipts; initial failed attempts and passing unchanged-input continuations remain recorded rather than being relabeled as one combined command.
+
+Run the complete gate with the built publisher, publisher SDK, and a directory containing `selac-x86_64`, `selac-i686`, `selac-armv7`, and `selac-aarch64` bundles:
 
 ```sh
-bash corpus/qualify.sh /path/to/sela-build /path/to/selac /path/to/sdk
+bash corpus/qualify.sh /path/to/sela-build /path/to/sdk \
+  --bundle-parent /path/to/artifacts
 ```
 
 During independent compiler bring-up, append `--project cjson` or `--project zlib` to run one entire pinned project.
 This still requires every selected project's configuration, output, and original test; it does not filter individual tests.
 Single-project success is not full two-project corpus acceptance.
 
-The runner downloads and verifies the exact source archives, retains private evidence, runs the original native tests in both profiles,
-publishes every required executable/static/shared output, and runs the original tests against the destination binaries.
+The runner downloads and verifies the exact source archives, retains private evidence, runs the original native tests in all four profiles,
+publishes every required executable/static/shared output once, and runs the original tests against the destination binaries under each target's real Linux kernel.
 It fails at the first unimplemented compiler contract; an expected rejection never counts as corpus acceptance.
 It does not install software or modify upstream sources.
+The publisher host must already support real native-build probes and generators through explicitly provisioned QEMU/binfmt where necessary; see [native execution prerequisites](build-integration.md#native-execution-prerequisites).
 Each selected publication currently repeats fresh native builds; this qualification path prioritizes traceable evidence over incremental build speed.
 
 Retain the complete runner log, downloaded archives, every per-publication log and private capture lane, destination test/loader logs, and artifact hashes.
 The runner writes `qualification.txt`, recording the exact replay command and terminal pass/fail status
-plus SHA-256 hashes of the actual publisher, consumer, plugins, linker helpers, Clang configuration, SDK lock and corpus recipes, every Sela artifact and destination output.
+plus SHA-256 hashes of the actual publisher, plugins, linker helpers, Clang configuration, SDK lock, target registry and corpus recipes, and every Sela artifact and native configuration.
+Each VM's retained log separately verifies its actual compiler-bundle payload, common fixture hashes, generated native outputs, kernel and boot image.
 It uses the explicit `sela.cfg` beside the supplied built publisher and records each private native configuration.
 Use one coherent publisher build directory for the helper, plugins, linker and configuration. A git revision alone does not identify binaries built from a dirty pre-alpha worktree.
+Core and corpus preparation retain a publisher identity receipt and recheck its hashes before and after every publication and before completing preparation.
+Do not rebuild these tools during a run: changed or missing inputs fail the run as a mixed checkpoint; preserve that failure and start a fresh preparation after the build finishes.
 The initial passing runs also have retrospective local `qualification.txt` reports alongside this evidence; reports are not publication recipes or security attestations.
 
 The pre-rename publisher was additionally checked against all 50 retained native selections using the test-only `corpus_replay_tests` executable, as recorded in commit `be63890`.
@@ -38,7 +47,7 @@ That replay revalidated original capture/dependency/native witnesses, invoked ac
 All 170 unit-artifact occurrences and 50 publications matched. This read-only regression replay is not a fresh configure/native-build/test run or a public publication interface.
 The ordinary corpus command above remains the complete source-to-native qualification path.
 
-Current Sela runs use the SDK's stock Clang `-ffile-prefix-map=<private-lane>=/sela` setting for both profiles.
+Current Sela runs use the SDK's stock Clang `-ffile-prefix-map=<private-lane>=/sela` setting for every profile.
 Thus upstream `__FILE__` values retain their relative source identity without incorporating different temporary profile-directory names.
 Native reference tests use this same configuration; neither upstream sources nor captured string literals are rewritten.
 
@@ -66,7 +75,7 @@ Upstream definitions:
 ## zlib 1.3.2
 
 Use the unchanged upstream configure/Make path, `CFLAGS=-O3`, `./configure
---shared`, `make`, `make test`, and `make test64`, independently in both native profile trees.
+--shared`, `make`, `make test`, and `make test64`, independently in all native profile trees.
 Record the compiler and all flags that configure adds.
 Both static and shared outputs are required; shared-library detection falling back to static is a failure.
 Preserve `libz.so.1` and the upstream `zlib.map` version script.
@@ -87,13 +96,36 @@ This selected Make suite is not a claim to qualify zlib's separate CMake package
 Every selected executable/shared-library link and static-library output produces its own Sela artifact.
 Compile those artifacts with `selac`, then stage native dependencies in the qualified fixture library root and run the original selected tests against them.
 Only test data and the ordinary native runtime/dependencies accompany execution; compiler capture data and build-time generators remain private.
-Native x86-64 and i686 reference runs are separate from testing the independently installed device compilers.
+Native reference runs are separate from testing the independently installed device compilers.
 
-The opt-in `--i686-bundle /path/to/i686-bundle` gate extends destination execution to both independent native compilers, using a real 32-bit Linux kernel for i686.
-Pass the x86-64 bundle's `bin/selac` as the ordinary consumer argument and retain the publisher SDK as the third argument.
-The runner publishes each selected artifact once, completes the x86-64 checks, and stages the same artifacts plus original generated test recipes and runtime data into the offline i686 guest.
-The guest runs all original selected tests with separately pinned test-only runners; it contains no application source or publication frontend.
-See the [compiler distribution reference](compiler-distribution.md#full-corpus-on-both-destination-compilers) for the complete command, prerequisites, resource limits, and evidence locations.
+Publication and device acceptance can run on separate machines or CI jobs:
+
+```sh
+bash corpus/qualify.sh /path/to/sela-build /path/to/sdk --prepare-only
+# Use the exact fixture directory printed by the successful preparation.
+bash tests/consumer-vm.sh armv7 /path/to/selac-armv7 /path/to/consumer-fixtures
+```
+
+Run the second command independently for every target with its own matching bundle and the exact same fixture bytes.
+`--prepare-only` records `Result: PREPARED`, never `PASS`; it does not require a device compiler and does not claim destination acceptance.
+The fixture SHA-256 manifest travels with the fixture directory. CI additionally transfers a hash-checked tar archive so executable modes and bytes survive between jobs.
+
+Every disposable offline guest stages its compiler at `/opt/sela`, providing a stable runtime location independent of host checkout or download paths.
+The guest receives only the compiler bundle, published artifacts, ordinary native reference binaries, original generated test recipes/data, and separately pinned test-only runners.
+It receives no application C sources, captured LLVM IR, publisher frontend, network mount or host filesystem mount.
+The genuine i686 and ARMv7 kernels establish 32-bit-kernel execution; every guest also verifies its native ELF class/machine and rejects a foreign executable through the actual kernel `execve` boundary.
+
+Destination CMake recipes retain every original test and property. Only the absolute native build root and the exact host-only cross-emulator prefix are relocated for direct guest-native execution.
+The complete 19-test inventory is checked before each cJSON run. zlib runs its unchanged `test` and `test64` recipes with rebuilding disabled.
+Test-only CTest/make/readelf dependency closures are independent of the compiler package and never increase the shipped product payload.
+
+The VM defaults to 3 GiB RAM and a 3600-second limit for corpus fixtures containing `corpus.list`; core fixtures retain the 900-second default.
+`SELA_VM_RAM_MIB` and `SELA_VM_TIMEOUT` allow explicit supported resource choices; a supplied timeout overrides either default and must remain between 30 and 3600 seconds.
+Timing is recorded for observability, not treated as a performance acceptance threshold. Logs and failed boot images are retained rather than overwritten with later retry results.
+PR CI requires the core matrix on all four targets; main/manual CI additionally requires all 50 unchanged corpus artifacts on each target.
+
+## Historical evidence distinctions
+
 Before the historical 2026-09-12 fresh run, a retained-artifact i686 regression also compiled all 50 prior artifacts under the real 32-bit kernel and passed the same original selected test inventories.
 Its input hashes matched that checkpoint's publisher replay; source publication and native-reference builds were not rerun for that consumer-only regression.
 The subsequent complete fresh dual-destination command at `63592ab` passed separately, with new source publication/native-reference builds and `Result: PASS (all)` in its `qualification.txt`.

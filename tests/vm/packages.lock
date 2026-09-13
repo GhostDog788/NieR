@@ -1,6 +1,14 @@
-# VM-only package lock: role package architecture version sha256 HTTPS-URL
-# Kernel SHA-256: Debian bookworm/main binary-i386 Packages, version 6.1.176-1.
-# BusyBox SHA-256: Ubuntu noble-security/main binary-i386 Packages.
-# These packages are extracted, never installed; no maintainer scripts run.
-kernel linux-image-6.1.0-50-686-pae i386 6.1.176-1 0d6241268f9344a998c3339c11e527ea8048d409d6c770f67c573707606a3f2e https://snapshot.debian.org/archive/debian/20260910T000000Z/pool/main/l/linux-signed-i386/linux-image-6.1.0-50-686-pae_6.1.176-1_i386.deb
-busybox busybox-static i386 1:1.36.1-6ubuntu3.1 39c410d5bc570ce2a4e14055bcf021afbae75bc0efe850634138234828b3416a https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3.1_i386.deb
+# Target role package architecture version SHA256 HTTPS-URL
+# Ubuntu pins: signed noble/noble-updates snapshot 20260910T000000Z.
+# i686 kernel: retained Debian bookworm 6.1.176-1 exact package pin.
+x86_64 kernel linux-image-6.8.0-139-generic amd64 6.8.0-139.139 99d9e27b999f5c3d26377822212198b3ee664735f758c7cefdf8fd93f2ba138a https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/l/linux-signed/linux-image-6.8.0-139-generic_6.8.0-139.139_amd64.deb
+x86_64 headers linux-headers-6.8.0-139-generic amd64 6.8.0-139.139 15bacf92d51a0ea971d9c1369c6385e8867cd4973eede8f8931fbaf99f3dd173 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/l/linux/linux-headers-6.8.0-139-generic_6.8.0-139.139_amd64.deb
+x86_64 busybox busybox-static amd64 1:1.36.1-6ubuntu3.1 944b2728f53ceb3916cec2c962873c9951e612408099601751db2a0a5d81e0ed https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3.1_amd64.deb
+i686 kernel linux-image-6.1.0-50-686-pae i386 6.1.176-1 0d6241268f9344a998c3339c11e527ea8048d409d6c770f67c573707606a3f2e https://snapshot.debian.org/archive/debian/20260910T000000Z/pool/main/l/linux-signed-i386/linux-image-6.1.0-50-686-pae_6.1.176-1_i386.deb
+i686 busybox busybox-static i386 1:1.36.1-6ubuntu3.1 39c410d5bc570ce2a4e14055bcf021afbae75bc0efe850634138234828b3416a https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3.1_i386.deb
+armv7 kernel linux-image-6.8.0-139-generic armhf 6.8.0-139.139 0885d4f975ad6cd0af1bc006051ce9a79800659805125b257a3a7f4877280134 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/l/linux/linux-image-6.8.0-139-generic_6.8.0-139.139_armhf.deb
+armv7 headers linux-headers-6.8.0-139-generic armhf 6.8.0-139.139 4e1395c866ff6448dc4e18014cde6f9a230777b3ca3e3b470eba84894435e4cd https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/l/linux/linux-headers-6.8.0-139-generic_6.8.0-139.139_armhf.deb
+armv7 busybox busybox-static armhf 1:1.36.1-6ubuntu3.1 431fbce679d7a694038148f324fd44299bddde366ca7e1339e9e8a4d8463120a https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3.1_armhf.deb
+aarch64 kernel linux-image-6.8.0-139-generic arm64 6.8.0-139.139 ac861d4fc65fc2ebf2dff438e5321b7ba92d150fed34abbc919b8b9b2abc7c26 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/l/linux-signed/linux-image-6.8.0-139-generic_6.8.0-139.139_arm64.deb
+aarch64 headers linux-headers-6.8.0-139-generic arm64 6.8.0-139.139 8df9aad9c6d8f76914342de7d2cb11a90ee135f52c7911bccd43be5d3689e10f https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/l/linux/linux-headers-6.8.0-139-generic_6.8.0-139.139_arm64.deb
+aarch64 busybox busybox-static arm64 1:1.36.1-6ubuntu3.1 d96535e0402c011e0ee43449799df2f4504d44b842e4f2b3a6cbc845508eaafc https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3.1_arm64.deb

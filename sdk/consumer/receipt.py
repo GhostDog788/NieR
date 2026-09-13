@@ -9,6 +9,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from targets import get as target_info, load as target_registry
+
 
 def sha256(path):
     with path.open("rb") as stream:
@@ -36,13 +39,13 @@ def read_cache(path, keys):
     return values
 
 
-def validate_linkage(build, linkage):
+def validate_linkage(build, linkage, profile="x86_64"):
     """Record the actual stock LLVM configuration, not only a requested flag."""
     if linkage not in ("shared", "static-components"):
         raise ValueError("LLVM linkage must be shared or static-components")
     dynamic = "ON" if linkage == "shared" else "OFF"
     expected = {"LLVM_BUILD_LLVM_DYLIB": dynamic, "LLVM_LINK_LLVM_DYLIB": dynamic,
-                "BUILD_SHARED_LIBS": "OFF", "LLVM_TARGETS_TO_BUILD": "X86",
+                "BUILD_SHARED_LIBS": "OFF", "LLVM_TARGETS_TO_BUILD": target_info(profile)["llvmBackend"],
                 "LLVM_DYLIB_COMPONENTS": "all"}
     actual = read_cache(build / "CMakeCache.txt", expected)
     for key, value in expected.items():
@@ -53,7 +56,8 @@ def validate_linkage(build, linkage):
 
 def elf_dynamic(path, profile):
     """Inspect either native ABI without executing the input file."""
-    expected_class, expected_machine = (2, 62) if profile == "x86_64" else (1, 3)
+    target = target_info(profile)
+    expected_class, expected_machine = target["elfClass"], target["elfMachine"]
     with path.open("rb") as stream:
         header = stream.read(20)
     if (len(header) != 20 or header[:4] != b"\x7fELF" or header[4] != expected_class or
@@ -114,33 +118,30 @@ def invalidate(destination):
 
 
 def claim_profile(destination, profile):
-    if profile not in ("x86_64", "i686"):
-        raise ValueError("unsupported device profile")
+    target = target_info(profile)
     marker = destination / "consumer-profile"
     if marker.is_symlink():
         raise ValueError("SDK profile marker must not be a symlink")
     if marker.exists() and marker.read_text().strip() != profile:
         raise ValueError("SDK belongs to another profile; choose a fresh output directory")
-    opposite = "x86_64" if profile == "i686" else "i686"
-    opposite_library = "x86_64-linux-gnu" if opposite == "x86_64" else "i386-linux-gnu"
-    forbidden = (destination / "sysroots" / (opposite + "-linux-gnu"),
-                 destination / "host/usr/lib" / opposite_library,
-                 destination / "native-runtime/usr/lib" / opposite_library)
+    forbidden = [path for other in target_registry().values() if other["id"] != profile
+                 for path in (destination / "sysroots" / other["sysrootTriple"],
+                              destination / "host/usr/lib" / other["multiarch"],
+                              destination / "native-runtime/usr/lib" / other["multiarch"])]
     if any(path.exists() or path.is_symlink() for path in forbidden):
         raise ValueError("SDK contains the other profile's files; choose a fresh output directory")
     if not marker.exists():
         # Adopt only the already-created, single-profile development layout.
         # An arbitrary nonempty directory is not a consumer SDK destination.
         existing = {path.name for path in destination.iterdir()} - {"bootstrap.lock"}
-        if existing and not (destination / "sysroots" / (profile + "-linux-gnu")).is_dir():
+        if existing and not (destination / "sysroots" / target["sysrootTriple"]).is_dir():
             raise ValueError("Nonempty output is not an identifiable single-profile consumer SDK")
         atomic_write(marker, (profile + "\n").encode())
 
 
 def validate_build_roots(work, destination, profile, publisher):
     """Reject caches whose compiler/_INIT paths belong to different roots."""
-    if profile not in ("x86_64", "i686"):
-        raise ValueError("unsupported device profile")
+    target_info(profile)
     compiler = publisher / "host/usr/lib/llvm-18/bin"
     expected_compilers = {"CMAKE_C_COMPILER": str(compiler / "clang"),
                           "CMAKE_CXX_COMPILER": str(compiler / "clang++")}
@@ -176,17 +177,18 @@ def main():
     if phase not in ("prepare", "complete") or len(sys.argv) != 7:
         raise ValueError("usage: receipt.py claim SDK PROFILE | invalidate SDK | check-build SDK WORK PROFILE PUBLISHER_SDK | prepare|complete SDK BUILD PROFILE PUBLISHER_SDK shared|static-components")
     build, profile, publisher = Path(sys.argv[3]).resolve(), sys.argv[4], Path(sys.argv[5]).resolve()
-    if profile not in ("x86_64", "i686"):
-        raise ValueError("unsupported device profile")
+    target = target_info(profile)
     linkage = sys.argv[6]
-    llvm_configuration = validate_linkage(build, linkage)
+    llvm_configuration = validate_linkage(build, linkage, profile)
     definition = Path(__file__).resolve().parent
     repository = definition.parent.parent
     inputs = {name: sha256(definition / name) for name in
               ("source.lock", "packages.lock", "toolchain.cmake", "mlir32-probe.cpp", "abi-probe.cpp", "receipt.py")}
     inputs["bootstrap-consumer-sdk.sh"] = sha256(repository / "scripts/bootstrap-consumer-sdk.sh")
+    inputs["targets.json"] = sha256(definition.parent / "targets.json")
+    inputs["targets.py"] = sha256(definition.parent / "targets.py")
     inputs["publisher-sdk-lock"] = (publisher / "sdk-lock.sha256").read_text().strip()
-    identity = {"format": 1, "profile": profile, "llvm_version": "18.1.3", "targets": ["X86"],
+    identity = {"format": 1, "profile": profile, "llvm_version": "18.1.3", "targets": [target["llvmBackend"]],
                 "linkage": linkage, "llvm_configuration": llvm_configuration, "inputs": inputs}
     identity_hash = hashlib.sha256(canonical(identity)).hexdigest()
     if phase == "prepare":

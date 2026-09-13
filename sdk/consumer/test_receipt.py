@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from receipt import (atomic_write, claim_profile, elf_dynamic, invalidate,
                      runtime_libraries, validate_build_roots, validate_linkage,
-                     validate_tool_linkage)
+                     validate_tool_linkage, target_registry)
 
 
 class TemporarySDKTestCase(unittest.TestCase):
@@ -24,6 +24,19 @@ class TemporarySDKTestCase(unittest.TestCase):
 
 
 class ReceiptStateTests(TemporarySDKTestCase):
+    def test_all_foreign_architectures_are_rejected_even_at_equal_word_size(self):
+        for target in target_registry().values():
+            for other in target_registry().values():
+                if target["id"] == other["id"]:
+                    continue
+                with self.subTest(target=target["id"], other=other["id"]):
+                    root = self.sdk / (target["id"] + "-" + other["id"])
+                    root.mkdir()
+                    claim_profile(root, target["id"])
+                    (root / "sysroots" / other["sysrootTriple"]).mkdir(parents=True)
+                    with self.assertRaisesRegex(ValueError, "other profile's files"):
+                        claim_profile(root, target["id"])
+
     def test_fresh_profile_claim_is_readable_and_idempotent(self):
         claim_profile(self.sdk, "i686")
         marker = self.sdk / "consumer-profile"
@@ -185,6 +198,34 @@ class BuildCacheTests(TemporarySDKTestCase):
 
 
 class LinkageReceiptTests(TemporarySDKTestCase):
+    def test_each_target_requires_exactly_its_backend_family(self):
+        for target in target_registry().values():
+            with self.subTest(target=target["id"]):
+                build, values = self.configuration("shared")
+                values["LLVM_TARGETS_TO_BUILD"] = target["llvmBackend"]
+                BuildCacheTests.write_cache(build / "CMakeCache.txt", values)
+                self.assertEqual(validate_linkage(build, "shared", target["id"]), values)
+                values["LLVM_TARGETS_TO_BUILD"] += ";RISCV"
+                BuildCacheTests.write_cache(build / "CMakeCache.txt", values)
+                with self.assertRaisesRegex(ValueError, "LLVM_TARGETS_TO_BUILD"):
+                    validate_linkage(build, "shared", target["id"])
+
+    def test_every_foreign_elf_machine_is_rejected_before_readelf(self):
+        for target in target_registry().values():
+            for other in target_registry().values():
+                if target["id"] == other["id"]:
+                    continue
+                header = bytearray(20)
+                header[:6] = b"\x7fELF" + bytes((other["elfClass"], 1))
+                header[18:20] = other["elfMachine"].to_bytes(2, "little")
+                path = self.sdk / "foreign-elf"
+                path.write_bytes(header)
+                with self.subTest(target=target["id"], other=other["id"]):
+                    with patch("receipt.subprocess.run") as inspect:
+                        with self.assertRaisesRegex(ValueError, "Wrong native ELF ABI"):
+                            elf_dynamic(path, target["id"])
+                    inspect.assert_not_called()
+
     def configuration(self, linkage):
         dynamic = "ON" if linkage == "shared" else "OFF"
         values = {"LLVM_BUILD_LLVM_DYLIB": dynamic, "LLVM_LINK_LLVM_DYLIB": dynamic,

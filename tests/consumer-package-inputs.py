@@ -18,6 +18,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "sdk"))
+from targets import get as target_info, load as target_registry
 
 
 LLVM_ROOT = Path("host/usr/lib/llvm-18")
@@ -115,12 +119,13 @@ class Fixture:
             tools[name] = digest(path)
         (self.sdk / LLVM_ROOT / "bin/ld.lld").symlink_to("lld")
         self.receipt = {
-            "format": 1, "profile": profile, "targets": ["X86"],
+            "format": 1, "profile": profile, "targets": [target_info(profile)["llvmBackend"]],
             "linkage": "shared" if shared else "static-components",
             "inputs": {name: digest(repository / "sdk/consumer" / name)
                        for name in ("source.lock", "packages.lock")},
             "tools": tools, "runtime_libraries": {},
         }
+        self.receipt["inputs"]["targets.json"] = digest(repository / "sdk/targets.json")
         if shared:
             # A copied small DSO supplies genuine ELF SONAME metadata. This is
             # test data, never executed or represented as an LLVM implementation.
@@ -165,10 +170,12 @@ def run(build, sdk, repository):
     with compiler.open("rb") as source:
         elf = source.read(20)
     abi = (elf[4], int.from_bytes(elf[18:20], "little"))
-    if elf[:4] != b"\x7fELF" or abi not in ((2, 62), (1, 3)):
+    matches = [target for target in target_registry().values()
+               if (target["elfClass"], target["elfMachine"]) == abi]
+    if elf[:4] != b"\x7fELF" or len(matches) != 1:
         raise AssertionError("source compiler is not a supported native ELF")
-    profile = "x86_64" if abi == (2, 62) else "i686"
-    multiarch = "x86_64-linux-gnu" if profile == "x86_64" else "i386-linux-gnu"
+    profile = matches[0]["id"]
+    multiarch = matches[0]["multiarch"]
     library = (sdk / "host/usr/lib" / multiarch / "libz.so.1").resolve(strict=True)
     originals = {path: digest(path) for path in (compiler, library)}
     packager = repository / "scripts/package-consumer.sh"
@@ -224,7 +231,8 @@ def run(build, sdk, repository):
 
     def wrong_machine(fixture):
         data = bytearray(fixture.compiler.read_bytes())
-        data[18:20] = (183).to_bytes(2, "little")  # EM_AARCH64 in a private fixture.
+        foreign = 62 if profile == "aarch64" else 183
+        data[18:20] = foreign.to_bytes(2, "little")
         fixture.compiler.write_bytes(data)
 
     def unexpected_dependency(fixture):
@@ -235,6 +243,11 @@ def run(build, sdk, repository):
 
     check("corrupted receipt", corrupt_receipt, "Consumer SDK receipt mismatch")
     check("corrupted tool", corrupt_tool, "Consumer SDK tool changed: opt")
+    def foreign_backend(fixture):
+        fixture.receipt["targets"] = ["AArch64" if profile != "aarch64" else "X86"]
+        fixture.save()
+    check("foreign LLVM backend family", foreign_backend,
+          "Expected a pinned target-family-only consumer SDK")
     check("static SDK / shared compiler mismatch", linkage_mismatch,
           "Compiler LLVM linkage does not match its consumer SDK")
     check("shared SDK / static compiler mismatch", linkage_mismatch,

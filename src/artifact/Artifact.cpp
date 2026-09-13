@@ -1,4 +1,5 @@
 #include "sela/Artifact/Artifact.h"
+#include "sela/Targets.h"
 #include <archive.h>
 #include <archive_entry.h>
 #include <fcntl.h>
@@ -14,6 +15,11 @@ std::string archiveError(archive *a) {
   const char *message = archive_error_string(a);
   return message ? message : "unknown archive error";
 }
+}
+std::vector<std::string> defaultArtifactTargets() {
+  std::vector<std::string> result;
+  for (const auto &target : sela::targets::all()) result.push_back(target.id.str());
+  return result;
 }
 bool validName(llvm::StringRef name) {
   if (name.empty() || name.size() > 64) return false;
@@ -164,7 +170,7 @@ llvm::Expected<llvm::json::Value> validatePackage(const PackageFiles &files) {
   std::set<std::string> seenTargets;
   for (auto &target : *targets) {
     auto name = target.getAsString();
-    if (!name || (*name != "x86_64" && *name != "i686") || !seenTargets.insert(name->str()).second)
+    if (!name || !sela::targets::find(*name) || !seenTargets.insert(name->str()).second)
       return fail("unsupported or duplicate target constraint");
   }
   auto *libraries = object->getArray("libraries");

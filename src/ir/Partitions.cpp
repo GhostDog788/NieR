@@ -1,5 +1,6 @@
 #include "sela/Producer/Partitions.h"
 #include "sela/Producer/LLVM.h"
+#include "sela/Targets.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/InstIterator.h"
@@ -121,51 +122,71 @@ llvm::Error writeCapture(const llvm::Module &module, const std::filesystem::path
 }
 }
 llvm::Expected<MergedPartitions> mergeProfilePartitions(
-    llvm::ArrayRef<std::string> x64Captures, llvm::ArrayRef<std::string> i686Captures,
+    llvm::ArrayRef<ProfilePartitionInput> observations,
     llvm::StringRef privateDirectory) {
-  llvm::LLVMContext leftContext, rightContext;
-  Ownership leftOwners, rightOwners;
-  auto left = load(x64Captures, leftContext, leftOwners);
-  if (!left) return left.takeError();
-  auto right = load(i686Captures, rightContext, rightOwners);
-  if (!right) return right.takeError();
-  if (leftOwners.size() != rightOwners.size())
-    return fail("target-conditioned definition presence needs additional common IR semantics");
-  for (const auto &[name, unit] : leftOwners)
-    if (!rightOwners.count(name)) return fail("unmatched grouped native definition: " + name);
-  struct Fragment { size_t left, right; std::set<std::string> definitions; };
+  if (observations.empty() || observations.size() > 256) return fail("invalid grouped target observation inventory");
+  struct Profile {
+    std::unique_ptr<llvm::LLVMContext> context;
+    NativeModules modules;
+    Ownership owners;
+  };
+  std::vector<Profile> profiles;
+  std::set<std::string> targets;
+  for (const auto &observation : observations) {
+    if (!sela::targets::find(observation.target) || !targets.insert(observation.target).second)
+      return fail("unknown or duplicate grouped target observation");
+    auto context = std::make_unique<llvm::LLVMContext>();
+    Ownership owners;
+    auto modules = load(observation.captures, *context, owners);
+    if (!modules) return modules.takeError();
+    if (!profiles.empty()) {
+      if (owners.size() != profiles.front().owners.size())
+        return fail("target-conditioned definition presence needs additional common IR semantics");
+      for (const auto &[name, unit] : profiles.front().owners)
+        if (!owners.count(name)) return fail("unmatched grouped native definition: " + name);
+    }
+    profiles.push_back({std::move(context), std::move(*modules), std::move(owners)});
+  }
+  struct Fragment { std::vector<size_t> owners; std::set<std::string> definitions; };
   std::vector<Fragment> fragments;
-  std::map<std::pair<size_t, size_t>, size_t> indices;
+  std::map<std::vector<size_t>, size_t> indices;
   MergedPartitions result;
-  result.x64Units.resize(left->size()); result.i686Units.resize(right->size());
+  for (size_t i = 0; i < profiles.size(); ++i)
+    result.unitsByTarget[observations[i].target].resize(profiles[i].modules.size());
   // Use physical definition order, not symbol-name sorting, for native layout.
-  for (size_t i = 0; i < left->size(); ++i)
-    for (const auto &value : (*left)[i]->global_values()) {
-      if (!leftOwners.count(value.getName().str()) || leftOwners.at(value.getName().str()) != i) continue;
-      const size_t peer = rightOwners.at(value.getName().str());
-      auto [found, inserted] = indices.emplace(std::make_pair(i, peer), fragments.size());
+  auto &first = profiles.front();
+  for (size_t i = 0; i < first.modules.size(); ++i)
+    for (const auto &value : first.modules[i]->global_values()) {
+      if (!first.owners.count(value.getName().str()) || first.owners.at(value.getName().str()) != i) continue;
+      std::vector<size_t> owners;
+      for (const auto &profile : profiles) owners.push_back(profile.owners.at(value.getName().str()));
+      auto [found, inserted] = indices.emplace(owners, fragments.size());
       if (inserted) {
-        result.x64Units[i].push_back(fragments.size());
-        fragments.push_back({i, peer, {}});
+        fragments.push_back({owners, {}});
       }
       fragments[found->second].definitions.insert(value.getName().str());
     }
-  for (size_t i = 0; i < right->size(); ++i) {
-    std::set<size_t> seen;
-    for (const auto &value : (*right)[i]->global_values()) {
-      if (!rightOwners.count(value.getName().str()) || rightOwners.at(value.getName().str()) != i) continue;
-      size_t index = indices.at({leftOwners.at(value.getName().str()), i});
-      if (seen.insert(index).second) result.i686Units[i].push_back(index);
+  for (size_t p = 0; p < profiles.size(); ++p) {
+    const auto &profile = profiles[p];
+    for (size_t i = 0; i < profile.modules.size(); ++i) {
+      std::set<size_t> seen;
+      for (const auto &value : profile.modules[i]->global_values()) {
+        if (!profile.owners.count(value.getName().str()) || profile.owners.at(value.getName().str()) != i) continue;
+        std::vector<size_t> owners;
+        for (const auto &other : profiles) owners.push_back(other.owners.at(value.getName().str()));
+        size_t index = indices.at(owners);
+        if (seen.insert(index).second) result.unitsByTarget[observations[p].target][i].push_back(index);
+      }
     }
   }
   const auto directory = std::filesystem::path(privateDirectory.str());
   std::filesystem::create_directories(directory);
-  std::vector<std::string> leftPaths(fragments.size()), rightPaths(fragments.size());
-  for (bool x64 : {true, false}) {
-    auto &modules = x64 ? *left : *right;
-    const auto &units = x64 ? result.x64Units : result.i686Units;
-    const auto &originalPaths = x64 ? x64Captures : i686Captures;
-    auto &paths = x64 ? leftPaths : rightPaths;
+  std::vector<std::vector<std::string>> fragmentPaths(profiles.size(), std::vector<std::string>(fragments.size()));
+  for (size_t p = 0; p < profiles.size(); ++p) {
+    auto &modules = profiles[p].modules;
+    const auto &units = result.unitsByTarget[observations[p].target];
+    const auto &originalPaths = observations[p].captures;
+    auto &paths = fragmentPaths[p];
     for (size_t unit = 0; unit < units.size(); ++unit) {
       if (units[unit].size() == 1) {
         paths[units[unit].front()] = originalPaths[unit];
@@ -176,7 +197,7 @@ llvm::Expected<MergedPartitions> mergeProfilePartitions(
       for (size_t index : units[unit]) {
         auto fragment = slice(*modules[unit], fragments[index].definitions);
         if (!fragment) return fragment.takeError();
-        auto path = directory / ((x64 ? "x64-" : "i686-") + std::to_string(index) + ".bc");
+        auto path = directory / (observations[p].target + "-" + std::to_string(index) + ".bc");
         if (auto error = writeCapture(**fragment, path)) return error;
         paths[index] = path.string();
         slices.push_back(std::move(*fragment));
@@ -186,7 +207,9 @@ llvm::Expected<MergedPartitions> mergeProfilePartitions(
   }
   for (size_t i = 0; i < fragments.size(); ++i) {
     auto output = directory / ("fragment-" + std::to_string(i) + ".selabc");
-    if (auto error = mergeProfiles(leftPaths[i], rightPaths[i], output.string())) return error;
+    std::vector<CaptureObservation> captures;
+    for (size_t p = 0; p < profiles.size(); ++p) captures.push_back({observations[p].target, fragmentPaths[p][i]});
+    if (auto error = mergeProfiles(captures, output.string())) return error;
     result.fragments.push_back(output.string());
   }
   return result;

@@ -205,7 +205,8 @@ The Clang integration is one producer; an independent producer can use the publi
 See [chapter 11](../03-contributors/11-implementing-the-sela-contract.md).
 
 **Profile.** A concrete native configuration used by the C producer to gather evidence.
-The current private profiles are x86-64 and i686; their existence does not mean the device reruns a language frontend.
+The current private profiles are x86-64, i686, ARMv7 hard-float, and AArch64, all on Linux/glibc.
+Their existence does not mean the device reruns a language frontend.
 See [chapter 15](../04-maintainers/15-capturing-native-programs.md).
 
 **Publication.** Developer-side creation of the standalone artifact.
@@ -279,7 +280,8 @@ An external symbol is different from the temporary printed name of an SSA value.
 See [chapter 03](../01-foundations/03-reading-a-sela-program.md).
 
 **Target domain.** The set of native targets an artifact claims to represent.
-The current admitted semantic domain uses `x86_64` and `i686`; separate device compilers each produce only their own native target.
+The current registry contains `x86_64`, `i686`, `armv7`, and `aarch64`; an artifact declares its finite domain explicitly.
+Separate device compilers each produce only their own native target.
 See [chapter 05](../01-foundations/05-architecture-neutral-meaning.md).
 
 **Terminator.** The operation ending a block, such as a branch or return.

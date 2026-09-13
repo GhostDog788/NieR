@@ -6,11 +6,14 @@ config=$(realpath -e -- "$3")
 fixture_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/abi" && pwd)
 abi_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-aggregate-pipeline-XXXXXX")
 llvm_bin="$sdk_root/host/usr/lib/llvm-18/bin"
-library="$sdk_root/sysroots/x86_64-linux-gnu/usr/lib/x86_64-linux-gnu"
-native_flags=(--target=x86_64-unknown-linux-gnu --sysroot="$sdk_root/sysroots/x86_64-linux-gnu"
+registry="$fixture_root/../../sdk/targets.py"
+host_target=$(python3 -B "$registry" host)
+eval "$(python3 -B "$registry" shell "$host_target")"
+library="$sdk_root/sysroots/$SELA_TARGET_SYSROOT_TRIPLE/usr/lib/$SELA_TARGET_MULTIARCH"
+native_flags=(--target="$SELA_TARGET_TRIPLE" "${SELA_TARGET_CLANG_ARGS[@]}" "${SELA_TARGET_PUBLICATION_CLANG_ARGS[@]}" --sysroot="$sdk_root/sysroots/$SELA_TARGET_SYSROOT_TRIPLE"
     -resource-dir="$sdk_root/host/usr/lib/llvm-18/lib/clang/18" -fPIC)
 link_flags=(--rtlib=compiler-rt --unwindlib=none --ld-path="$llvm_bin/ld.lld"
-    -Wl,--dynamic-linker,"$library/ld-linux-x86-64.so.2" -Wl,-rpath,"$library" -Wl,-z,nodefaultlib)
+    -Wl,--dynamic-linker,"$library/$SELA_TARGET_LOADER" -Wl,-rpath,"$library" -Wl,-z,nodefaultlib)
 for level in O0 O2; do
     lane="$abi_work/$level"
     mkdir "$lane"

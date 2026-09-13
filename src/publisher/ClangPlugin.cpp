@@ -2,6 +2,7 @@
 #include "sela/IR/Compiler.h"
 #include "sela/Producer/LLVM.h"
 #include "sela/Producer/Partitions.h"
+#include "sela/Targets.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/Diagnostic.h"
@@ -11,14 +12,21 @@
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendPluginRegistry.h"
 #include "clang/Frontend/Utils.h"
+#include "clang/Driver/Compilation.h"
+#include "clang/Driver/Driver.h"
+#include "clang/Driver/Job.h"
 #include "clang/Lex/HeaderSearchOptions.h"
 #include "clang/Lex/PreprocessorOptions.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/StringSaver.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cstdlib>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <unistd.h>
@@ -71,12 +79,66 @@ void clearFrontendPlugins(clang::CompilerInvocation &invocation) {
 
 // The only language-aware component here is the stock-Clang invocation adapter.
 // It does not inspect the AST or implement a C-to-Sela lowering.
+llvm::Expected<clang::CompilerInvocation> nativeInvocation(
+    const clang::CompilerInvocation &original, const Sdk &sdk,
+    llvm::StringRef profile, clang::DiagnosticsEngine &diagnostics) {
+  // cc1 has already collapsed explicit options into host defaults: for example
+  // x86's default and explicit -fsigned-char have the same LangOptions value.
+  // Use Clang's recorded driver command and its own driver again, never infer
+  // an ARM language configuration by changing a host invocation's triple.
+  const auto &recorded = original.getCodeGenOpts().RecordCommandLine;
+  if (recorded.empty())
+    return fail("source publication requires stock Clang's -frecord-command-line; use the matching sela.cfg and do not disable command recording");
+  llvm::BumpPtrAllocator allocator;
+  llvm::StringSaver saver(allocator);
+  llvm::SmallVector<const char *> tokens;
+  llvm::cl::TokenizeGNUCommandLine(recorded, saver, tokens);
+  if (tokens.empty()) return fail("recorded stock-Clang driver command is empty");
+  std::vector<std::string> arguments{sdk.tool("clang").string()};
+  for (size_t i = 1; i < tokens.size(); ++i) {
+    if (llvm::StringRef(tokens[i]) == "-cc1")
+      return fail("source publication requires a recorded stock-Clang driver command, not direct cc1 input");
+    arguments.emplace_back(tokens[i]);
+  }
+  const auto flags = sdk.compileFlags(profile);
+  arguments.insert(arguments.end(), flags.begin(), flags.end());
+  // Reconstruct frontend actions only: genuine link flags in the original
+  // command are intentionally unused by this private driver run. This is a
+  // driver-only option, not a suppression of the user's frontend diagnostics.
+  arguments.push_back("-Qunused-arguments");
+  arguments.push_back("-fsyntax-only");
+  llvm::SmallVector<const char *> driverArguments;
+  for (const auto &argument : arguments) driverArguments.push_back(argument.c_str());
+  clang::driver::Driver driver(sdk.tool("clang").string(),
+                              sela::targets::find(profile)->triple, diagnostics);
+  std::unique_ptr<clang::driver::Compilation> compilation(driver.BuildCompilation(driverArguments));
+  if (!compilation || diagnostics.hasErrorOccurred())
+    return fail("stock Clang could not construct the " + profile.str() + " native invocation");
+  const auto source = absolutePath(original.getFrontendOpts().Inputs.front().getFile().str());
+  std::optional<clang::CompilerInvocation> selected;
+  for (const auto &job : compilation->getJobs()) {
+    const auto &jobArgs = job.getArguments();
+    if (jobArgs.empty() || llvm::StringRef(jobArgs.front()) != "-cc1") continue;
+    bool matching = false;
+    for (const auto &input : job.getInputInfos())
+      if (input.isFilename() && absolutePath(input.getFilename()) == source) matching = true;
+    if (!matching) continue;
+    if (selected) return fail("recorded driver command has ambiguous repeated source actions");
+    selected.emplace();
+    if (!clang::CompilerInvocation::CreateFromArgs(*selected,
+          llvm::ArrayRef<const char *>(jobArgs).drop_front(), diagnostics))
+      return fail("stock Clang rejected its regenerated native frontend arguments");
+  }
+  if (!selected) return fail("recorded driver command does not identify this C source action");
+  return std::move(*selected);
+}
+
 llvm::Error captureSource(const clang::CompilerInvocation &original,
                           const Sdk &sdk, llvm::StringRef profile,
                           const fs::path &capture, const fs::path &object,
                           bool preserveDependencies,
+                          clang::DiagnosticsEngine &diagnostics,
                           const fs::path &dependencyOutput = {}) {
-  clang::CompilerInvocation invocation(original);
   const auto &originalTarget = original.getTargetOpts();
   if ((!originalTarget.CPU.empty() && originalTarget.CPU != "x86-64" &&
        originalTarget.CPU != "i686") ||
@@ -86,23 +148,15 @@ llvm::Error captureSource(const clang::CompilerInvocation &original,
     return fail("explicit CPU/features/ABI tuning is not qualified by the neutral source producer");
   if (!original.getCodeGenOpts().PassPlugins.empty())
     return fail("additional LLVM pass plugins are not qualified by the source producer");
+  auto regenerated = nativeInvocation(original, sdk, profile, diagnostics);
+  if (!regenerated) return regenerated.takeError();
+  auto invocation = std::move(*regenerated);
   clearFrontendPlugins(invocation);
   invocation.getFrontendOpts().OutputFile = object.string();
   if (!preserveDependencies)
     invocation.getDependencyOutputOpts() = clang::DependencyOutputOptions();
   else if (!dependencyOutput.empty())
     invocation.getDependencyOutputOpts().OutputFile = dependencyOutput.string();
-  auto &target = invocation.getTargetOpts();
-  target.Triple = profile == "x86_64" ? "x86_64-unknown-linux-gnu"
-                                      : "i686-unknown-linux-gnu";
-  target.CPU = profile == "x86_64" ? "x86-64" : "i686";
-  target.TuneCPU = "generic";
-  target.FeaturesAsWritten.clear();
-  target.Features.clear();
-  target.FeatureMap.clear();
-  target.ABI.clear();
-  target.FPMath.clear();
-
   auto &headers = invocation.getHeaderSearchOpts();
   const std::string oldSysroot = headers.Sysroot;
   const std::string oldResource = headers.ResourceDir;
@@ -112,11 +166,11 @@ llvm::Error captureSource(const clang::CompilerInvocation &original,
   // search entries for the selected native profile. Host system paths are not
   // silently accepted as an application's target SDK.
   auto &entries = headers.UserEntries;
-  const std::set<std::string> standardSdkEntries = {
+  std::set<std::string> standardSdkEntries = {
       oldResource + "/include", oldSysroot + "/usr/local/include",
-      oldSysroot + "/include", oldSysroot + "/usr/include",
-      oldSysroot + "/usr/include/x86_64-linux-gnu",
-      oldSysroot + "/usr/include/i386-linux-gnu"};
+      oldSysroot + "/include", oldSysroot + "/usr/include"};
+  for (const auto &target : sela::targets::all())
+    standardSdkEntries.insert(oldSysroot + "/usr/include/" + target.multiarch.str());
   for (const auto &entry : entries) {
     llvm::StringRef path(entry.Path);
     if (path.starts_with("/usr/include") || path.starts_with("/usr/local/include") ||
@@ -124,7 +178,7 @@ llvm::Error captureSource(const clang::CompilerInvocation &original,
       return fail("host system include paths are not a target SDK; use the supplied sela.cfg");
     if (!oldSysroot.empty() && oldSysroot != "/" &&
         path.starts_with(oldSysroot + "/") && !standardSdkEntries.count(path.str()))
-      return fail("custom profile-specific SDK include paths require the paired native-build integration");
+      return fail("custom profile-specific SDK include paths require the native-build integration");
   }
   entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const auto &entry) {
     return standardSdkEntries.count(entry.Path) != 0;
@@ -132,14 +186,15 @@ llvm::Error captureSource(const clang::CompilerInvocation &original,
   headers.UseStandardSystemIncludes = false;
   headers.AddPath(headers.ResourceDir + "/include", clang::frontend::System,
                   false, true);
-  const std::string nativeTriple = profile == "x86_64" ? "x86_64-linux-gnu"
-                                                        : "i386-linux-gnu";
+  const std::string nativeTriple = sela::targets::find(profile)->multiarch.str();
   headers.AddPath((sdk.sysroot(profile) / "usr/include" / nativeTriple).string(),
                   clang::frontend::ExternCSystem, false, true);
   headers.AddPath((sdk.sysroot(profile) / "usr/include").string(),
                   clang::frontend::ExternCSystem, false, true);
 
   auto &codegen = invocation.getCodeGenOpts();
+  codegen.RecordCommandLine.clear();
+  codegen.DwarfDebugFlags.clear();
   codegen.PassPlugins = {SELA_CAPTURE_PLUGIN};
   codegen.setDebugInfo(llvm::codegenoptions::FullDebugInfo);
   std::vector<std::string> command{sdk.tool("clang").string(), "-cc1"};
@@ -154,8 +209,8 @@ llvm::Error captureSource(const clang::CompilerInvocation &original,
 }
 
 class SelaAction final : public clang::PluginASTAction {
-  std::string mode = "source", peer, requestedOptimization, sdkArgument;
-  std::vector<std::string> groupLeft, groupRight;
+  std::string mode = "source", requestedOptimization, sdkArgument;
+  std::map<std::string, std::vector<std::string>> capturesByTarget;
   bool keepWork = false;
   clang::DependencyOutputOptions requestedDependencies;
 
@@ -164,46 +219,52 @@ class SelaAction final : public clang::PluginASTAction {
     const auto &frontend = invocation.getFrontendOpts();
     if (frontend.OutputFile.empty() || frontend.OutputFile == "-")
       return fail("publication requires a file output (-o)");
-    if (sameFile(frontend.OutputFile, getCurrentFile().str()) ||
-        (!peer.empty() && sameFile(frontend.OutputFile, peer)))
+    if (sameFile(frontend.OutputFile, getCurrentFile().str()))
       return fail("the Sela output must not overwrite a compiler input");
-    for (const auto *inputs : {&groupLeft, &groupRight})
-      for (const auto &input : *inputs)
+    for (const auto &[target, inputs] : capturesByTarget)
+      for (const auto &input : inputs)
         if (sameFile(frontend.OutputFile, input)) return fail("grouped output aliases a native capture");
     auto scratch = Scratch::create();
     if (!scratch) return scratch.takeError();
     scratch->keep = keepWork;
     if (keepWork) llvm::errs() << "Private Sela producer workspace: " << scratch->path.string() << '\n';
-    fs::path left, right;
+    std::vector<sela::CaptureObservation> observations;
+    std::vector<std::string> admittedTargets;
     std::string dependencyText;
     std::string opt = optimization(invocation.getCodeGenOpts());
-    if (mode == "group") {
-      if (getCurrentFileKind().getLanguage() != clang::Language::LLVM_IR ||
-          groupLeft.empty() || groupRight.empty() ||
-          !sameFile(getCurrentFile().str(), groupLeft.front()))
-        return fail("grouped capture mode requires ordered left/right LLVM captures");
+    if (mode == "profiles") {
+      if (getCurrentFileKind().getLanguage() != clang::Language::LLVM_IR || capturesByTarget.empty())
+        return fail("profile capture mode requires -x ir and capture=<target>=<LLVM capture>");
       if (!requestedOptimization.empty()) opt = requestedOptimization;
-      auto partition = sela::mergeProfilePartitions(groupLeft, groupRight, scratch->path.string());
-      if (!partition) return partition.takeError();
-      std::vector<ArtifactModule> modules;
-      for (const auto &path : partition->fragments) {
-        auto bytes = read(path);
-        if (!bytes) return bytes.takeError();
-        modules.push_back({std::move(*bytes), opt});
+      std::vector<sela::ProfilePartitionInput> partitions;
+      bool grouped = false, mainInputFound = false;
+      for (const auto &target : sela::targets::all()) {
+        auto inputs = capturesByTarget.find(target.id.str());
+        if (inputs == capturesByTarget.end()) continue;
+        admittedTargets.push_back(target.id.str());
+        partitions.push_back({target.id.str(), inputs->second});
+        grouped |= inputs->second.size() != 1;
+        for (const auto &path : inputs->second)
+          mainInputFound |= sameFile(getCurrentFile().str(), path);
+        observations.push_back({target.id.str(), inputs->second.front()});
       }
-      CompilationPlan plan;
-      for (const auto &unit : partition->x64Units) plan["x86_64"].push_back({unit, opt});
-      for (const auto &unit : partition->i686Units) plan["i686"].push_back({unit, opt});
-      auto artifact = createArtifact("object", modules, {}, {}, {"x86_64", "i686"}, {}, plan);
-      if (!artifact) return artifact.takeError();
-      return writePackage(absolutePath(frontend.OutputFile), *artifact);
-    }
-    if (mode == "pair") {
-      if (getCurrentFileKind().getLanguage() != clang::Language::LLVM_IR || peer.empty())
-        return fail("paired capture mode requires -x ir and peer=<i686 LLVM capture>");
-      left = absolutePath(getCurrentFile().str());
-      right = absolutePath(peer);
-      if (!requestedOptimization.empty()) opt = requestedOptimization;
+      if (!mainInputFound) return fail("frontend input is not among the labelled native captures");
+      if (grouped) {
+        auto partition = sela::mergeProfilePartitions(partitions, scratch->path.string());
+        if (!partition) return partition.takeError();
+        std::vector<ArtifactModule> modules;
+        for (const auto &path : partition->fragments) {
+          auto bytes = read(path);
+          if (!bytes) return bytes.takeError();
+          modules.push_back({std::move(*bytes), opt});
+        }
+        CompilationPlan plan;
+        for (const auto &[target, units] : partition->unitsByTarget)
+          for (const auto &unit : units) plan[target].push_back({unit, opt});
+        auto artifact = createArtifact("object", modules, {}, {}, admittedTargets, {}, plan);
+        if (!artifact) return artifact.takeError();
+        return writePackage(absolutePath(frontend.OutputFile), *artifact);
+      }
     } else {
       if (getCurrentFileKind().getLanguage() != clang::Language::C ||
           getCurrentFileKind().isPreprocessed())
@@ -212,33 +273,32 @@ class SelaAction final : public clang::PluginASTAction {
       Sdk sdk{absolutePath(!sdkArgument.empty() ? sdkArgument :
                        sdkEnvironment ? sdkEnvironment : SELA_DEFAULT_SDK)};
       if (auto error = sdk.validate(true)) return error;
-      left = scratch->path / "x86_64.bc";
-      right = scratch->path / "i686.bc";
       clang::CompilerInvocation sourceInvocation(invocation);
       sourceInvocation.getDependencyOutputOpts() = requestedDependencies;
       const bool emitDependencies = !requestedDependencies.OutputFile.empty();
-      const fs::path deps64 = emitDependencies ? scratch->path / "x86_64.d" : fs::path();
-      const fs::path deps32 = emitDependencies ? scratch->path / "i686.d" : fs::path();
-      if (auto error = captureSource(sourceInvocation, sdk, "x86_64", left,
-                                    scratch->path / "x86_64.o", true, deps64)) return error;
-      if (auto error = captureSource(sourceInvocation, sdk, "i686", right,
-                                    scratch->path / "i686.o", emitDependencies, deps32)) return error;
-      if (emitDependencies) {
-        auto first = read(deps64), second = read(deps32);
-        if (!first) return first.takeError();
-        if (!second) return second.takeError();
-        // Make combines prerequisites from repeated rules for the same target.
-        // Preserve stock Clang's escaping and include both profile-specific
-        // header sets without implementing a second Make dependency parser.
-        dependencyText = *first + *second;
+      for (const auto &target : sela::targets::all()) {
+        const auto capture = scratch->path / (target.id.str() + ".bc");
+        const auto deps = emitDependencies ? scratch->path / (target.id.str() + ".d") : fs::path();
+        if (auto error = captureSource(sourceInvocation, sdk, target.id, capture,
+              scratch->path / (target.id.str() + ".o"), emitDependencies,
+              compiler.getDiagnostics(), deps)) return error;
+        observations.push_back({target.id.str(), capture.string()});
+        admittedTargets.push_back(target.id.str());
+        if (emitDependencies) {
+          auto text = read(deps);
+          if (!text) return text.takeError();
+          // Repeated Make rules combine prerequisites and preserve Clang's
+          // escaping, including every target's own SDK/header dependencies.
+          dependencyText += *text;
+        }
       }
     }
     const fs::path common = scratch->path / "unit.selabc";
-    if (auto error = sela::mergeProfiles(left.string(), right.string(), common.string()))
+    if (auto error = sela::mergeProfiles(observations, common.string()))
       return error;
     auto bytes = read(common);
     if (!bytes) return bytes.takeError();
-    auto artifact = createArtifact("object", {{std::move(*bytes), opt}});
+    auto artifact = createArtifact("object", {{std::move(*bytes), opt}}, {}, {}, admittedTargets);
     if (!artifact) return artifact.takeError();
     if (!dependencyText.empty()) {
       if (requestedDependencies.OutputFile == "-") llvm::outs() << dependencyText;
@@ -265,9 +325,16 @@ public:
     for (const auto &argument : arguments) {
       llvm::StringRef arg(argument);
       if (arg.consume_front("mode=")) mode = arg.str();
-      else if (arg.consume_front("peer=")) peer = arg.str();
-      else if (arg.consume_front("left=")) groupLeft.push_back(arg.str());
-      else if (arg.consume_front("right=")) groupRight.push_back(arg.str());
+      else if (arg.consume_front("capture=")) {
+        const auto [target, path] = arg.split('=');
+        if (!sela::targets::find(target) || path.empty()) {
+          unsigned id = compiler.getDiagnostics().getCustomDiagID(
+              clang::DiagnosticsEngine::Error, "invalid labelled Sela capture: %0");
+          compiler.getDiagnostics().Report(id) << arg;
+          return false;
+        }
+        capturesByTarget[target.str()].push_back(path.str());
+      }
       else if (arg.consume_front("optimization=")) requestedOptimization = arg.str();
       else if (arg.consume_front("sdk=")) sdkArgument = arg.str();
       else if (arg == "keep-work") keepWork = true;
@@ -278,7 +345,8 @@ public:
         return false;
       }
     }
-    if (mode != "source" && mode != "pair" && mode != "group") {
+    if ((mode != "source" && mode != "profiles") ||
+        (mode == "source" && !capturesByTarget.empty())) {
       unsigned id = compiler.getDiagnostics().getCustomDiagID(
           clang::DiagnosticsEngine::Error, "unsupported Sela producer mode: %0");
       compiler.getDiagnostics().Report(id) << mode;
@@ -321,7 +389,7 @@ class CaptureConsumer final : public clang::ASTConsumer {
   clang::CompilerInstance &compiler;
   std::shared_ptr<AllDependencies> dependencies;
   fs::path lane, metadata, capture, output;
-  std::string profile;
+  std::string profile, recordedDriverCommand;
 
   std::string normalize(std::string text) const {
     return replaceAll(std::move(text), lane.string(), "$PRIVATE");
@@ -330,22 +398,34 @@ class CaptureConsumer final : public clang::ASTConsumer {
   llvm::json::Array semanticFlags() const {
     const auto &invocation = compiler.getInvocation();
     const auto &headers = invocation.getHeaderSearchOpts();
+    const auto *target = sela::targets::find(profile);
+    if (!target || recordedDriverCommand.empty())
+      throw std::runtime_error("native capture requires a labelled profile and recorded stock-Clang driver arguments");
     const std::set<std::string> optionWithValue = {
-        "-o", "-triple", "-target-cpu", "-tune-cpu", "-target-feature",
-        "-isysroot", "-resource-dir", "-internal-isystem", "-internal-externc-isystem",
-        "-main-file-name", "-dumpdir", "-load", "-plugin", "-dependency-file",
-        "-MT", "-fdebug-compilation-dir", "-fcoverage-compilation-dir"};
+        "-o", "-target", "--target", "--sysroot", "-isysroot", "-resource-dir",
+        "-MF", "-MT", "-MQ", "-MJ", "-L", "-l", "-Xlinker"};
+    llvm::BumpPtrAllocator allocator;
+    llvm::StringSaver saver(allocator);
+    llvm::SmallVector<const char *> flags;
+    llvm::cl::TokenizeGNUCommandLine(recordedDriverCommand, saver, flags);
+    std::set<std::string> policy;
+    for (auto flag : sela::targets::clangArgs(*target)) policy.insert(flag.str());
+    for (auto flag : sela::targets::publicationArgs(*target)) policy.insert(flag.str());
     llvm::json::Array result;
-    auto flags = invocation.getCC1CommandLine();
     const std::string source = compiler.getFrontendOpts().Inputs.front().getFile().str();
-    for (size_t index = 0; index < flags.size(); ++index) {
+    for (size_t index = 1; index < flags.size(); ++index) {
       llvm::StringRef flag(flags[index]);
       if (optionWithValue.count(flag.str())) { ++index; continue; }
-      if (flag == source || flag == "-disable-free" ||
-          flag.starts_with("-fpass-plugin=") || flag.starts_with("-plugin-arg-")) {
-        if (flag.starts_with("-plugin-arg-")) ++index;
-        continue;
-      }
+      if (flag == source || (!flag.starts_with("-") && absolutePath(flag.str()) == absolutePath(source)) ||
+          flag == "-c" || flag == "-frecord-command-line" || flag == "-fno-temp-file" ||
+          flag.starts_with("--target=") || flag.starts_with("--sysroot=") ||
+          flag.starts_with("-resource-dir=") || flag.starts_with("--ld-path=") ||
+          flag.starts_with("-Wl,") || flag.starts_with("-L") || flag.starts_with("-l") ||
+          flag.starts_with("-fplugin=") || flag.starts_with("-fpass-plugin=") ||
+          policy.count(flag.str())) continue;
+      // Compare source/settings intent from the driver, not target-generated
+      // cc1 defaults such as ARM's unsigned char or floating-point ABI.
+      // Explicit -fsigned-char/-funsigned-char remain part of this evidence.
       auto normalized = normalize(flag.str());
       normalized = replaceAll(std::move(normalized), headers.Sysroot, "$SYSROOT");
       normalized = replaceAll(std::move(normalized), headers.ResourceDir, "$RESOURCE");
@@ -359,7 +439,9 @@ public:
                   fs::path metadata, std::string profile)
       : compiler(compiler), dependencies(std::make_shared<AllDependencies>()),
         lane(std::move(lane)), metadata(std::move(metadata)),
-        output(absolutePath(compiler.getFrontendOpts().OutputFile)), profile(std::move(profile)) {
+        output(absolutePath(compiler.getFrontendOpts().OutputFile)), profile(std::move(profile)),
+        recordedDriverCommand(compiler.getInvocation().getCodeGenOpts().RecordCommandLine) {
+    compiler.getInvocation().getCodeGenOpts().RecordCommandLine.clear();
     fs::create_directories(this->metadata);
     if (compiler.getFrontendOpts().UseTemporary)
       throw std::runtime_error("native SDK capture requires stock Clang -fno-temp-file");

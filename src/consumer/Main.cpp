@@ -1,6 +1,7 @@
 #include "sela/Artifact/Artifact.h"
 #include "sela/IR/Compiler.h"
 #include "sela/IR/CompilationUnits.h"
+#include "sela/Targets.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 
@@ -162,7 +163,14 @@ llvm::Error execute(const Options &options) {
       nativeObject = directory / unit.archiveMember;
     }
     std::string backendLevel = level == "O0" ? "0" : level == "O1" ? "1" : level == "O3" ? "3" : "2";
-    if (auto error = run({options.sdk.tool("llc").string(), "-O=" + backendLevel, "-filetype=obj", "-relocation-model=pic", optimized.string(), "-o", nativeObject.string()}, {}, options.sdk.toolEnvironment())) return error;
+    const auto *target = sela::targets::find(options.target);
+    if (!target) return fail("compiler target has no registered native baseline");
+    std::vector<std::string> codegen{options.sdk.tool("llc").string(), "-O=" + backendLevel,
+        "-filetype=obj", "-relocation-model=pic", "-mcpu=" + target->cpu.str(),
+        "-mattr=" + target->features.str()};
+    if (target->floatABI != "default") codegen.push_back("-float-abi=" + target->floatABI.str());
+    codegen.insert(codegen.end(), {optimized.string(), "-o", nativeObject.string()});
+    if (auto error = run(codegen, {}, options.sdk.toolEnvironment())) return error;
     nativeObjects.push_back(nativeObject);
   }
   if (lower) {

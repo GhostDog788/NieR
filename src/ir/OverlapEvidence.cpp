@@ -1,4 +1,5 @@
 #include "OverlapEvidence.h"
+#include "sela/IR/Domains.h"
 #include "OverlapLayout.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/DebugInfoMetadata.h"
@@ -117,9 +118,10 @@ llvm::Expected<NativeOverlaps> discoverNativeOverlaps(llvm::Module &module) {
 llvm::Expected<ir::OverlapType> mergeNativeOverlap(
     const NativeOverlap &left, const NativeOverlap &right,
     mlir::MLIRContext &context, llvm::StringRef identity,
+    llvm::StringRef leftTarget, llvm::StringRef rightTarget,
     llvm::function_ref<mlir::Type(llvm::Type *, llvm::Type *)> mergeType) {
   llvm::SmallVector<mlir::Type> alternatives;
-  llvm::SmallVector<unsigned> domains;
+  llvm::SmallVector<mlir::Attribute> domains;
   size_t i = 0, j = 0;
   while (i < left.alternatives.size() || j < right.alternatives.size()) {
     auto *a = i < left.alternatives.size() ? &left.alternatives[i] : nullptr;
@@ -137,10 +139,13 @@ llvm::Expected<ir::OverlapType> mergeNativeOverlap(
         : onlyLeft ? mergeType(a->type, a->type) : mergeType(b->type, b->type);
     if (!type) return fail("unsupported overlap alternative type correspondence");
     alternatives.push_back(type);
-    domains.push_back(common ? 3 : onlyLeft ? 1 : 2);
+    llvm::SmallVector<llvm::StringRef> ids;
+    if (common || onlyLeft) ids.push_back(leftTarget);
+    if ((common || !onlyLeft) && !llvm::is_contained(ids, rightTarget)) ids.push_back(rightTarget);
+    domains.push_back(ir::targetSet(&context, ids));
     if (common || onlyLeft) ++i;
     if (common || (!common && !onlyLeft)) ++j;
   }
-  return ir::OverlapType::get(&context, identity, alternatives, domains);
+  return ir::OverlapType::get(&context, identity, alternatives, mlir::ArrayAttr::get(&context, domains));
 }
 }

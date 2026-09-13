@@ -73,8 +73,8 @@ Changing linkage is not necessarily a relink-only operation.
 Generated LLVM configuration headers can invalidate existing objects; the bootstrap prints the planned compilation/linking work before building the target.
 Do not run competing variants against the same profile's SDK or source-build cache, and retain an assembled checkpoint before changing its inputs.
 
-The two architecture builds may run concurrently; neither architecture's result is a prerequisite for starting the other.
-`SELA_CONSUMER_COMPILE_JOBS` accepts 1–8 and defaults to 2 per target, while `SELA_CONSUMER_PARALLEL_TARGETS=1` opts both bootstrap processes into parallel target builds.
+Independent architecture builds may run concurrently; one architecture's result is not a prerequisite for starting another.
+`SELA_CONSUMER_COMPILE_JOBS` accepts 1–8 and defaults to 2 per target, while `SELA_CONSUMER_PARALLEL_TARGETS=1` opts participating bootstrap processes into parallel target builds.
 The default `SELA_CONSUMER_PARALLEL_TARGETS=0` keeps heavyweight target builds serialized.
 With 3 jobs per architecture the combined target compilation limit is 6, so budget CPU and memory for both processes rather than reading the per-target value as a machine-wide limit.
 Per-profile cache locks still exclude competing writers, native generators remain serialized, and a shared target C/C++ link lock prevents overlapping memory-heavy links.
@@ -186,9 +186,11 @@ Finally, the produced application is executed independently.
 Its trace must show the intended managed libc and must not show the artifact or compiler programs being used.
 A successful `Hello World` under a richly configured developer shell would not establish these absence properties.
 
-The `tests/dual-consumer.sh` matrix publishes each artifact once and sends identical bytes to both products, comparing native references at O0 and O2.
-Its i686 half uses `tests/consumer-vm.sh` to boot a real 32-bit Linux kernel, check every compiler tool's ELF class, and require `ENOEXEC` for an ELF64 probe before native compilation can pass.
-The separate corpus option `--i686-bundle` runs the original cJSON and zlib destination recipes in that guest as well.
+The `tests/multi-consumer.sh` matrix publishes each artifact once and sends identical bytes to all four Linux/glibc products, comparing native references at O0 and O2.
+Each target uses `tests/consumer-vm.sh TARGET BUNDLE FIXTURES` with a matching real kernel, including genuine 32-bit kernels for i686 and ARMv7.
+The guest checks every compiler tool's ELF identity and requires `ENOEXEC` for a foreign executable before native compilation can pass.
+The corpus preparation mode publishes once without a device compiler; its source-free fixtures then run the original cJSON and zlib recipes on each target.
+The [distribution reference](../../reference/compiler-distribution.md#four-target-acceptance) gives the current commands, while [adding a native target](../../reference/adding-native-targets.md) explains the generic registry and ABI boundary.
 The following qualification and footprint history predates the Sela rename; commits `63592ab` and `be63890` preserve the original evidence without renaming its tools, artifacts, or receipts.
 The original static-component bundles passed the fresh matrix and the complete fresh dual-destination corpus at the recorded 2026-09-12 checkpoint.
 The earlier compact static checkpoint passed 10 component tests for each device and all 40 publisher tests.

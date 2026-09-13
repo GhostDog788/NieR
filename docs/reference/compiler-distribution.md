@@ -1,8 +1,9 @@
 # Sela native compiler-only distributions
 
-The current distribution interface builds separate **x86-64** and **i686** device compilers from unmodified, pinned LLVM/MLIR 18.1.3 sources.
+The current distribution interface builds separate **x86-64**, **i686**, **ARMv7 hard-float**, and **AArch64** Linux/glibc device compilers from unmodified, pinned LLVM/MLIR 18.1.3 sources.
 Each bundle contains its native `bin/selac`, `opt`, `llc`, `ld.lld`, and `llvm-ar`, their runtime library closure, one matching native link/runtime sysroot, and compiler-rt CRT/builtins.
-The x86-64 bundle contains the x86-64 sysroot; the i686 bundle contains the i686 sysroot. Neither contains the opposite target's sysroot or Sela native ABI implementation.
+Every bundle contains exactly its own target's sysroot and Sela native ABI implementation.
+The [native-target reference](adding-native-targets.md) explains the registry, baseline ABIs, and requirements for a new target.
 The standalone compiler is language-blind. Clang, frontend plugins, publication tools, headers, CMake, source files, and private captures are not included.
 
 The recorded pre-rename static-component device bundles at commit `63592ab` passed the fresh publish-once matrix: each compiled 28 executable outputs, three shared libraries, and one archive, with twelve rejection/preservation cases.
@@ -17,8 +18,8 @@ The new i686 matrix ran on a real 32-bit Linux kernel and rejected the ELF64 pro
 On 2026-09-13 the final shared packages also passed the full 50-artifact dual-device corpus through complete fresh cJSON and zlib project runs.
 The earlier full qualification does not automatically cover newly linked or stripped compilers.
 These historical results are not retroactively renamed Sela executions.
-The newly built Sela packages have separately passed all 40 publisher tests, all 11 consumer CTests for each architecture, and their fresh same-artifact two-device matrix.
-The fresh dual-device zlib corpus has passed.
+The earlier two-target Sela packages separately passed all 40 publisher tests, all 11 consumer CTests for each architecture, and their fresh same-artifact two-device matrix.
+That earlier dual-device zlib corpus passed.
 cJSON's fresh publication, native-reference, and x86-64 stages passed; its i686 stage subsequently passed using the unchanged published fixtures after a failed first VM boot.
 That covers all required stages for all 50 artifacts, but the original cJSON command remains recorded as failed, not retroactively changed to a single-command pass.
 
@@ -30,21 +31,18 @@ Bootstrap the publisher SDK first, then build each selected consumer SDK and mat
 ```bash
 bash scripts/bootstrap-sdk.sh
 source sdk/env.sh
-bash scripts/bootstrap-consumer-sdk.sh x86_64
-bash scripts/bootstrap-consumer-sdk.sh i686
-cmake --preset consumer-x86_64
-cmake --build --preset consumer-x86_64
-ctest --preset consumer-x86_64
-cmake --preset consumer-i686
-cmake --build --preset consumer-i686
-ctest --preset consumer-i686
+device_target=armv7 # choose x86_64, i686, armv7, or aarch64
+bash scripts/bootstrap-consumer-sdk.sh "$device_target"
+cmake --preset "consumer-$device_target"
+cmake --build --preset "consumer-$device_target"
+ctest --preset "consumer-$device_target"
 ```
 
 The consumer bootstrap compiles the pinned upstream sources, rather than extracting a prebuilt monolithic LLVM library.
 Build-host TableGen executables are generated privately and are not device payloads.
 Their compiler and LLVM sources are pinned, but their C/C++ headers and runtime currently come from the supported build host.
 This build-only dependency means the SDK bootstrap is not fully hermetic; a pinned source receipt is not a claim of reproducibility across arbitrary host environments.
-The build registers only LLVM's X86 backend family.
+The build registers only the selected target's LLVM family: X86, ARM, or AArch64.
 `SELA_CONSUMER_LLVM_LINKAGE=shared` is the default layout: stock LLVM builds one native shared library used by the tools and `selac`, while the required MLIR components remain statically linked.
 `SELA_CONSUMER_LLVM_LINKAGE=static-components` retains the component-linked comparison path.
 The completed SDK receipt determines the matching Sela link configuration; `SELA_USE_CONSUMER_SDK=ON` identifies a device SDK independently of that linkage choice.
@@ -67,21 +65,19 @@ Do not run competing linkage variants against the same profile's source-build ca
 Retain an already assembled checkpoint before changing its SDK recipe, and rebuild the matching Sela compiler after the new SDK completes.
 `SELA_CONSUMER_COMPILE_JOBS` accepts 1–8 and defaults to 2 compile jobs per target, not across the complete build machine.
 `SELA_CONSUMER_PARALLEL_TARGETS=0|1` defaults to 0, which serializes the heavyweight target builds.
-Set it to 1 in both bootstrap processes to build x86-64 and i686 concurrently in their separate SDK/build directories.
+Set it to 1 in each bootstrap process to build independent targets concurrently in their separate SDK/build directories.
 For example, 3 jobs for each architecture permit up to 6 concurrent target compilation jobs; choose the combined limit from available CPU and memory headroom.
 Parallel target builds share the compile lock, but each profile retains an exclusive build lock, native-generator builds remain serialized, and a shared link lock serializes memory-heavy target C/C++ links.
-One architecture does not have to finish before the other starts.
+No architecture must finish before another starts.
 See [parallel SDK source builds](building-sela.md#parallel-sdk-source-builds) for an example which waits for and checks both processes.
 The i686 build's host-side component tests use the development machine's 32-bit compatibility support. They do not replace the real 32-bit-kernel acceptance below.
 
-Assemble both already built products into new directories:
+Assemble the selected already built product into a new directory:
 
 ```bash
 mkdir -p artifacts
-bash scripts/package-consumer.sh build/consumer-x86_64 \
-  artifacts/selac-x86_64 .sdk/consumer/x86_64
-bash scripts/package-consumer.sh build/consumer-i686 \
-  artifacts/selac-i686 .sdk/consumer/i686
+bash scripts/package-consumer.sh "build/consumer-$device_target" \
+  "artifacts/selac-$device_target" ".sdk/consumer/$device_target"
 ```
 
 Each output directory must not already exist; its parent must exist.
@@ -116,15 +112,17 @@ Move the entire directory anywhere before compiling:
 No environment setup, compiler wrapper, LLVM source patch, `patchelf`, or native application ELF rewrite is required.
 `selac` locates its sibling `sdk` directory. An explicit `--sdk` or `SELA_SDK_ROOT` overrides that discovery.
 Only its LLVM subprocesses receive the bundle's runtime library search path; the native application runs normally without that environment.
-`--print-target` reports `x86_64` or `i686`. An explicit foreign `--target` rejects for both ordinary compilation and diagnostic `lower` before output staging.
+`--print-target` reports exactly one registered target ID. An explicit foreign `--target` rejects for both ordinary compilation and diagnostic `lower` before output staging.
 Inspection checks the shared schema across all declared domains, but explicitly reports when a foreign plan has no available native validator in this device compiler.
 `--check-sdk` is a read-only installation check: it compares this compiler's embedded SDK identity with the selected SDK's completion receipt and checks required tool files.
-The packager runs it against the staged sibling SDK, catching a stale compiler paired with newly built SDK inputs before assembly succeeds.
+Packaging validates the matching build/SDK identity and inspects the staged ELF/dependency closure without executing a cross-built compiler.
+Runtime `--check-sdk` and real compilation belong to device/component qualification, including the relocated-installation test.
 If it fails after relocation, first clear `SELA_SDK_ROOT` to rule out an unintended developer override, then rebuild/reinstall the matching complete compiler bundle.
 This is consistency validation, not a signature check, tamper-resistant attestation, or SESela enforcement.
 
 The compiler/tool host glibc and dynamic loader use the Noble glibc 2.39 ABI baseline for the matching architecture.
-On i686 the device must provide the normal `/lib/ld-linux.so.2` loader and matching runtime; on x86-64 it provides the normal x86-64 loader/runtime.
+The device must provide its normal native loader and matching host runtime: for example `/lib/ld-linux.so.2` on i686 and `/lib/ld-linux-armhf.so.3` on ARMv7.
+The registry defines the precise loader and multiarch paths; changing CPU does not change the glibc platform contract.
 Other compiler dependencies come from the bundled SDK libraries.
 Native application output uses the bundle's managed glibc/runtime paths as they existed when it was compiled.
 This prototype does not relocate already compiled output when its runtime directory moves.
@@ -140,7 +138,7 @@ The root `LICENSE` carries Sela's Apache-2.0 terms and is included in the payloa
 Ubuntu package copyright notices for included components are retained under `licenses`.
 Release license/source-offer review remains a distribution-release task.
 
-This is not a minimum-footprint SDK: the native C runtime set is intentionally preserved and required optimizer/code-generator components remain substantial even with only the X86 backend family registered.
+This is not a minimum-footprint SDK: the native C runtime set is intentionally preserved and required optimizer/code-generator components remain substantial even with only one LLVM backend family registered.
 Removing publication components does not impose an additional language subset on Sela input. The compiler's existing semantic and native-target qualification limits still apply; this prototype does not claim every C ABI construct is already supported.
 
 ## Footprint measurements and current checkpoint
@@ -148,6 +146,53 @@ Removing publication components does not impose an additional language subset on
 Compare total bundle size as well as the individual `selac` file.
 Moving a dependency into a binary can enlarge that binary while shrinking its complete installed dependency closure; shared LLVM addresses a different duplication cost across the separate tools.
 Neither linkage choice alone proves that a package is smaller.
+
+### Four-target component-qualified packages
+
+The current four-target candidates are retained at `artifacts/four-target-final/selac-TARGET`.
+Their exact measured regular-file inventory is:
+
+| Target | Complete bundle bytes | MiB | Stripped `selac` bytes | Shared LLVM bytes | Native runtime bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| x86-64 | 96,429,504 | 91.96 | 1,873,952 | 59,985,784 | 24,375,736 |
+| i686 | 103,153,655 | 98.37 | 2,333,200 | 70,300,420 | 19,815,135 |
+| ARMv7 | 70,724,546 | 67.45 | 1,603,668 | 47,956,892 | 13,094,743 |
+| AArch64 | 97,589,462 | 93.07 | 1,851,440 | 54,805,600 | 30,993,113 |
+
+The component columns are already included in the complete bundle, not extra costs.
+Other included bytes are the four LLVM executables, their remaining runtime libraries, compiler-rt, licenses, and metadata.
+These are installed regular-file totals, not compressed download sizes, memory usage, or filesystem-rounded `du` values.
+
+Each bundle has one matching sysroot, one Sela native ABI implementation, and one registered stock LLVM backend family.
+The two x86 widths intentionally retain the shared X86 family; ARMv7 registers ARM and AArch64 registers AArch64.
+No shared libarchive, XML, or ICU dependency is shipped, and the dependency inventory has no unreferenced compiler libraries.
+The shipped compiler, LLVM tools, and shared LLVM have no ordinary symbol tables; dynamic symbols and required unwind information remain.
+The managed runtime and link inputs are preserved without that stripping pass, so whole-bundle symbol/debug totals can still be nonzero, particularly in the ARMv7 runtime.
+
+All four final consumer builds passed their complete **11/11 component tests**.
+This includes package/IR validation, malformed inputs, target ABI checks, independent production, relocated installation, and package-input rejection tests.
+The x86-64 tests ran natively, i686 used the host's compatibility mode, and ARM tests used explicitly provisioned user-mode emulation.
+These results do not claim real target-kernel VM acceptance or complete corpus qualification; those are separate gates below.
+Host `strace` evidence is used only for native/compatibility execution; foreign emulation cannot substitute for source-free device evidence.
+
+The initial failures are not hidden: the conditional test incorrectly requested unavailable native backends in thin builds, and ARM32 fixture writing initially used a 32-bit header `time_t` against Noble's 64-bit-time libarchive ABI.
+The conditional test now validates foreign public structure without requesting an unlinked backend.
+Only the two libarchive-calling translation units receive the matching private ARM time64 definitions; direct timestamp-ABI and deterministic-archive regressions pass.
+No public application ABI, archive validation limit, or native comparison proof was weakened for these fixes.
+
+Local component logs are `.work/four-targets/final-consumer-tests/TARGET.log`.
+The local `.work/four-targets/final-consumers.json` snapshot records exact package groups, compiler and payload-index hashes, SDK identities, and execution scope.
+Each delivered bundle also carries its own `payload.sha256` and matching SDK receipt.
+Earlier packages, including `artifacts/four-target/` and the pre-ARM `artifacts/selac-*` products, remain unchanged.
+The final packages retain their assembly-time README snapshots; updating this live reference does not rewrite those measured payloads.
+
+For this local checkpoint, ARM LLVM/MLIR SDKs were genuinely cross-built from the pinned sources on x86.
+The already installed x86 LLVM/MLIR payloads were reused after an explicit relocation audit: the upstream source lock, selected dependency rows, compiler/linkage configuration, and installed tool/shared-library hashes matched their earlier receipts, and native ABI/loader/tool probes passed.
+Their new receipts bind a `reuse_provenance` record describing exactly that local audit and the previous SDK identity.
+This is not a claim that x86 LLVM was rebuilt, a general bypass for stale receipts, or permission to rewrite Ninja dependency history.
+The Sela compilers themselves were rebuilt and separately requalified; future LLVM source builds retain their ordinary cache checks.
+
+### Historical pre-rename measurements
 
 The pre-rename checkpoints recorded in commits `63592ab` and `be63890` have these regular-file payload sizes, rounded to two decimal places in MiB.
 They are historical package measurements, not measurements of the current renamed Sela deliverables:
@@ -193,7 +238,7 @@ These regular-file totals exclude symlink/directory entries and filesystem block
 They are not compressed download sizes, runtime memory use, or guarantees for future builds.
 The [device-compiler retrospective](device-compiler-retrospective.md) preserves the original regression analysis and timing evidence.
 
-### Fresh Sela rename checkpoint
+### Historical Sela rename checkpoint
 
 Fresh Sela compiler builds and assembly produced `artifacts/selac-x86_64` and `artifacts/selac-i686` on 2026-09-13.
 The x86-64 package contains approximately 91.9 MiB of regular-file data; the i686 package contains approximately 98.3 MiB.
@@ -230,10 +275,10 @@ Packaging prints a component report automatically.
 To inspect an existing package or compare two checkpoints, run:
 
 ```bash
-python3 -B scripts/bundle-size.py artifacts/selac-x86_64 \
+python3 -B scripts/bundle-size.py artifacts/four-target-final/selac-x86_64 \
   --compare /path/to/another-sela-bundle
-python3 -B scripts/bundle-size.py artifacts/selac-i686 --json
-python3 -B scripts/bundle-size.py artifacts/selac-x86_64 --compressed
+python3 -B scripts/bundle-size.py artifacts/four-target-final/selac-armv7 --json
+python3 -B scripts/bundle-size.py artifacts/four-target-final/selac-aarch64 --compressed
 ```
 
 The reporter groups `selac`, each LLVM tool, shared LLVM, other compiler libraries, the managed runtime, compiler-rt, and metadata.
@@ -243,85 +288,153 @@ The archive-exclusive dependency subset is already included in the component tot
 `--compressed` measures a normalized tar/gzip-1 stream without writing an archive and is optional to keep ordinary reporting fast.
 Compare compressed values produced by the same reporter; different tar/compression recipes are not interchangeable measurements.
 
-## Dual-device acceptance
+## Four-target acceptance
 
-The distribution now supplies an independent, genuinely 32-bit i686 compiler bundle alongside the x86-64 bundle.
-This is separate from compiling an ELF32 application with a 64-bit compiler or running one under a 64-bit kernel's compatibility support.
-The consumer SDK inputs live under `.sdk/consumer/x86_64` and `.sdk/consumer/i686`; the corresponding assembled bundles remain distinct device products.
-The original 2026-09-12 static-component bundles passed the complete fresh dual script, including per-target stock-native references and the i686 kernel's ELF64 `ENOEXEC` rejection.
-The i686 VM used KVM and 3 GiB RAM. The complete fresh dual-destination corpus also passed with these compiler/runtime/SDK inputs.
-Both pre-rename shared-LLVM packages passed the fresh fixture matrix using the same published artifacts, including the source-free real-kernel i686 stage.
-The fixture and i686 VM locations are preserved in the original evidence record at commit `be63890`.
-Those shared packages also passed the full fresh dual-device corpus in the separate complete cJSON and zlib runs recorded below; this was separate evidence for those final packages, not inherited static-component qualification or qualification of later Sela builds.
-The manually dispatched GitHub Actions workflow `Device compiler qualification`, defined in `.github/workflows/device-compilers.yml`, runs SDK source builds, publisher/device component tests, packaging, this matrix, and the complete dual-destination corpus.
-It is separate from the normal publisher CI smoke workflow; a configured workflow is not a recorded passing run.
+The fresh core matrix passed on all four final bundles on 2026-09-13.
+Its final-publisher refresh used one fixture set, `/tmp/sela-multi-consumer-SerRew/fixtures`, with identical checked artifact bytes for every device.
+Each guest reported 28 executable checks, three shared outputs, one static output, and 24 negative cases, then its unique `SELA_VM_PASS` receipt.
 
-With a coherent publisher build and both already assembled bundles, run from the repository root in Bash:
+| Device | Real Linux kernel | Execution | Elapsed seconds | Retained VM evidence |
+| --- | --- | --- | ---: | --- |
+| x86-64 | `6.8.0-139-generic`, x86-64 | KVM, unchanged-image retry | 6 | `/tmp/sela-consumer-vm-mDnCKF/retry-kvm-t0bO2d.log` |
+| i686 | `6.1.0-50-686-pae`, i686 | KVM | 9 | `/tmp/sela-consumer-vm-S2aKN7` |
+| ARMv7 | `6.8.0-139-generic`, armv7l | TCG | 153 | `/tmp/sela-consumer-vm-Ivc4sD` |
+| AArch64 | `6.8.0-139-generic`, aarch64 | TCG | 192 | `/tmp/sela-consumer-vm-KC9bNO` |
+
+The four guests ran concurrently with 1536 MiB RAM each and a 900-second bound.
+Their initramfs contained only the device bundle, fixtures, native references, and test harness—not publisher/source trees, frontends, shared host filesystems, or networking.
+Both 32-bit products used genuine 32-bit kernels; every guest also required foreign-architecture ELF execution to fail with `ENOEXEC`.
+Logs are retained at `.work/four-targets/core-vm-final-TARGET.log` and the separate x86-64 retry log above; native-reference output equality and unchanged payload/fixture hashes were checked inside each passing guest.
+The first x86-64 attempt failed with `Initramfs unpacking failed: broken padding` before executing the compiler.
+Its original log remains a failure; the separate retry passed with the exact same kernel, image, bundle, and fixture bytes.
+Gzip integrity and a strict scan of all 585 newc records, alignment padding, and the archive trailer passed, and the image SHA-256 remained `676062ff7d1940618fbdef108ee09dfca2f38c84ec61f28c5b445abc2ff8144b` before and after retry.
+The first boot failure's cause is not established; this is not evidence of a compiler fix or a new publication run.
+The preceding four-device core checkpoint is also retained in `.work/four-targets/core-vm-TARGET.log` with fixtures `/tmp/sela-multi-consumer-xIiDSW/fixtures`.
+Elapsed times are functional diagnostics, not native-performance measurements.
+The complete cJSON/zlib corpus is a separate acceptance gate, recorded in the [four-target corpus checkpoint](#four-target-corpus-checkpoint-on-2026-09-13); core success alone does not establish it.
+
+The current generic matrix is `tests/multi-consumer.sh`.
+Prepare portable fixtures once without any device compiler dependency:
 
 ```bash
-bash tests/dual-consumer.sh build/prealpha/sela.cfg .sdk \
-  /absolute/path/to/x86_64-bundle /absolute/path/to/i686-bundle
+bash tests/multi-consumer.sh --prepare-only build/prealpha/sela.cfg .sdk
 ```
 
-The script creates a fresh private fixture directory, publishes each portable artifact once, and checks the same artifact hashes before and after both compilations.
-It compares Hello and shared/static caller behavior with stock-native references, checks duplicate archive-member ordering and lazy extraction, and exercises native callers of generated DSOs.
-The existing scalar, native-width, storage, packed/bitfield, overlapping storage, variadic/forwarded `va_list`, nonlocal-jump, conditional, and aggregate fixtures run at O0 and O2.
-Per device, the runner checks 28 executable outputs, three shared libraries, one static archive, and twelve rejection/preservation cases.
-A foreign-only artifact may pass structural inspection only with an explicit unavailable-native-validation report; native compilation and lowering must reject it.
-Malformed operations in either conditional domain must reject even when that domain is inactive on the device.
-These are bounded functional regressions, not the full C/ABI corpus or a performance measurement.
-
-The i686 half boots a real pinned Linux 6.1 i386 kernel with Noble i386 BusyBox and the bundle's ordinary glibc 2.39 runtime.
-`tests/vm/packages.lock` pins the test-only packages and their SHA-256 values; packages are extracted locally without installation or maintainer scripts.
-The guest has no network device, source frontend, or shared host filesystem.
-It must identify as i686, run ELF32 compiler tools, and reject a supplied ELF64 executable with the kernel's `ENOEXEC` before its compilation checks can pass.
-An explicit serial PASS receipt is required; merely exiting QEMU is insufficient.
-
-The VM host needs `qemu-system-i386`, `cpio`, `gzip`, `curl`, `dpkg-deb`, `readelf`, `timeout`, and ordinary Bash/coreutils.
-Defaults are 3 GiB of guest RAM, a 900-second timeout, and KVM when an actual preflight succeeds; otherwise the runner uses TCG.
-`SELA_VM_ACCEL=auto|kvm|tcg`, `SELA_VM_RAM_MIB` (512–4096), and `SELA_VM_TIMEOUT` (30–3600 seconds) make those test limits explicit.
-TCG results are functional evidence only. The runner records the selected accelerator and does not compare its elapsed time with native compilation performance.
-
-Downloaded test packages are cached under `.sdk/test-vm/downloads` by default; `SELA_VM_CACHE` selects another cache.
-Every use rechecks the pinned package digest.
-Private fixture, root filesystem, initramfs, and serial-log workspaces are retained in the printed temporary locations, including on failure.
-To repeat only the i686 consumer stage against an existing fixture set without claiming a fresh publication, run:
+The command prints its retained workspace; the source-free fixtures are its `fixtures` subdirectory.
+Each target job receives exactly those bytes, checked against `fixtures.sha256`:
 
 ```bash
-bash tests/consumer-vm.sh /absolute/path/to/i686-bundle \
+bash tests/consumer-vm.sh armv7 artifacts/selac-armv7 \
   /absolute/path/to/retained-fixtures
 ```
 
-Keep the original fixture directory for comparison and reporting.
-This repeat is consumer regression evidence, not a fresh source-to-artifact or full upstream-corpus qualification.
-
-### Full corpus on both destination compilers
-
-The opt-in dual-destination corpus command uses the normal publisher SDK and builder, the independent x86-64 compiler, and the independent i686 bundle:
+Repeat for every target, with the matching `selac-TARGET` bundle.
+To prepare and run all four consecutively with existing bundles:
 
 ```bash
-bash corpus/qualify.sh build/prealpha/sela-build \
-  /absolute/path/to/x86_64-bundle/bin/selac .sdk \
-  --i686-bundle /absolute/path/to/i686-bundle
+bash tests/multi-consumer.sh build/prealpha/sela.cfg .sdk artifacts
 ```
 
-Add `--project cjson` or `--project zlib` to qualify only that complete project; this does not filter individual upstream tests.
-Full selection publishes 50 artifacts once and requires both destination compilers to consume those same bytes.
-The existing native-profile checks and x86-64 destination checks run first.
-The i686 guest then runs the original 19 cJSON CTests for each static/shared configuration and zlib's original `test test64` recipes against its own generated native outputs.
-Native-reference callers, shared-library loader traces, SONAME/version checks, and archive-member ordering provide additional evidence.
+The runner preserves the existing 28 executable outputs, three DSOs, and one archive per target, including native references, shared-library callers, duplicate archive-member order, and lazy extraction.
+It also checks 24 rejection/preservation cases per target, covering all three foreign targets and malformed inactive domains.
+These counts are obligations of the current harness, not inherited proof that a newly built candidate passed.
+The same fixtures include scalar/native-width, storage, packed/bitfield, overlap, variadic/forwarded-cursor, nonlocal-jump, conditional, and ordinary aggregate-call cases at O0 and O2.
+A foreign-only artifact can pass structural inspection only with an explicit unavailable-native-validation report; compilation and lowering reject it.
 
-The guest receives the generated test recipes and runtime data, not source files or a frontend.
-Its pinned ELF32 CTest, GNU make, and readelf tools, CTest support data, and runtime dependency closure live under `/opt/test-tools`; they are not included in the distributed compiler.
-`tests/vm/test-tools.lock` records those test-only inputs. Explicit loader arguments scope test-tool libraries to the runners, so application processes do not inherit an accidental test-library override.
-The runner also clears publisher SDK and loader environment overrides before invoking either thin compiler.
-The test-tool dependency closure is staged independently from its own pinned packages, without falling back to compiler-bundle host libraries.
-Slimming the product must not silently remove a test runner's dependencies or require putting those dependencies back into the distributed compiler.
+All four destination stages boot their own real pinned Linux kernel and static BusyBox from `tests/vm/packages.lock`.
+Both 32-bit targets must run a 32-bit kernel, not user-mode emulation or a 64-bit compatibility kernel.
+Guests have no network device, frontend, application sources, or shared host filesystem.
+The bundle is staged at `/opt/sela`, so independently prepared native-reference loader paths remain identical across jobs.
+Checks establish actual kernel identity, compiler-tool ELF class/machine, foreign executable `ENOEXEC`, and an explicit fresh serial PASS receipt.
+Merely exiting QEMU is insufficient.
 
-The full-corpus guest has a default 3600-second bound, configurable through the same `SELA_VM_TIMEOUT` setting.
-Publication, repeated native builds, and emulated compilation can be substantial work; an unchanged upstream test inventory is required regardless of accelerator.
-`qualification.txt`, per-publication logs, the exported fixture hashes, and the VM serial evidence remain under the printed private corpus workspace.
-A successful prior x86-64 run or fixture-preparation pass is not a completed dual-device qualification.
+The host needs the matching `qemu-system-*` tools plus `cpio`, `gzip`, `curl`, `dpkg-deb`, `readelf`, `timeout`, and ordinary Bash/coreutils.
+KVM is used when applicable and its preflight succeeds; foreign ARM guests on x86 use TCG.
+Guest RAM, accelerator and finite time limits are recorded in retained evidence.
+User-mode QEMU/binfmt support for publisher probes is provisioned explicitly and is separate from these full-system guests.
+No guest test-only tools or kernel inputs become compiler-bundle dependencies.
+
+The layered `Device compiler qualification` workflow runs the four-target core matrix on PRs and adds the complete corpus on main/manual runs.
+Each job captures build stderr from the start and collects diagnostics before its always-run artifact upload, including CTest logs and publication/VM receipts even when packaging never finishes.
+The collector uses a dedicated job temporary directory, excludes source and SDK trees, and does not follow symlinks or hardlinks.
+Failed-job boot images and selected private capture evidence are retained within explicit size limits; `evidence-manifest.json` records omissions and any truncated text-log tails, while binary evidence is never truncated.
+The publisher uploads one hash-checked fixture archive and device jobs run independently in parallel.
+Configured CI is not a claim of a completed remote run.
+VM elapsed time is diagnostic, not a native-performance threshold.
+
+### Full corpus on every destination compiler
+
+The publisher can prepare all 50 artifacts and their per-target native references before any device bundle exists:
+
+```bash
+bash corpus/qualify.sh build/prealpha/sela-build .sdk --prepare-only
+```
+
+Use the printed `consumer-fixtures` directory with `tests/consumer-vm.sh TARGET BUNDLE FIXTURES` on each target.
+That direct command selects a 3600-second default when `FIXTURES/corpus.list` exists, while core fixtures default to 900 seconds.
+An explicit `SELA_VM_TIMEOUT` overrides either default within the supported 30–3600-second range; ARM corpus runs under software emulation can exceed the core limit.
+Alternatively, with all four bundles under one parent:
+
+```bash
+bash corpus/qualify.sh build/prealpha/sela-build .sdk --bundle-parent artifacts
+```
+
+`--project cjson` or `--project zlib` selects one complete project, never individual upstream tests.
+Both project runs together must cover all 42 cJSON and eight zlib artifacts, with identical hashes consumed by all four compilers.
+Each guest runs the original 19 cJSON CTests for both static/shared configurations or zlib's original `test test64` recipes.
+Native-reference callers, loader traces, SONAME/version checks, and archive ordering remain mandatory.
+
+Generated recipes and runtime data are source-free.
+Pinned native CTest, GNU make, readelf, and their separate dependency closure are staged under `/opt/test-tools`, not shipped in the compiler.
+Their provenance is recorded by `tests/vm/test-tools.lock`.
+Loader overrides are scoped to tools and cleared for application execution.
+
+A preparation report is marked PREPARED, not PASS.
+Fresh qualification requires every destination receipt against the exact compiler packages and published artifacts.
+Logs and failure evidence remain in the printed private workspaces; replaying retained bytes is explicitly a consumer regression, not fresh publication.
+
+### Four-target corpus checkpoint on 2026-09-13
+
+Two complete fresh project preparations published all 50 artifacts with the final publisher: cJSON's 42 outputs from 13:46:02 to 14:14:29 UTC, and zlib's eight outputs from 13:46:40 to 13:49:55 UTC.
+Every publication rebuilt and tested its original native references on all four targets; upstream sources, required tests, and configurations were not reduced for ARM.
+Their separate `qualification.txt` reports remain correctly marked PREPARED because destination testing runs in separate jobs.
+Both preparations have the identical publisher-input receipt SHA-256 `2f062e7758da8734459dac4f3dc07b25f46804c5dfe5128377935e54d51618ae`; the receipt was checked throughout preparation and after completion.
+
+| Project | Source-free fixture directory | SHA-256 of `fixtures.sha256` |
+| --- | --- | --- |
+| cJSON, 42 artifacts | `/tmp/sela-corpus-344D5N/consumer-fixtures` | `f0022a113cec067fce9435cb4f2a7ae32d7d1d0235cbc94933076ecc25ba53dc` |
+| zlib, eight artifacts | `/tmp/sela-corpus-tJX6sC/consumer-fixtures` | `6a8a97db079caa3e8039d33bef5a5e5fa51a8457b7442eda6ac122618e83c6d9` |
+
+All 50 artifacts passed destination qualification on all four final packages, with the same checked fixture bytes supplied to every device.
+This combines two complete fresh project preparations with separate source-free destination receipts; it is not a single combined `PASS (all)` command or a relabeling of the PREPARED reports.
+
+| Target | cJSON: 42 artifacts, both 19-test suites | zlib: eight artifacts, original `test test64` |
+| --- | --- | --- |
+| x86-64 | PASS, 141 seconds | PASS, 49 seconds |
+| i686 | PASS, 162 seconds | PASS, 55 seconds |
+| ARMv7 | PASS, 2705 seconds | PASS, 884 seconds |
+| AArch64 | PASS, 2730 seconds | PASS, approximately 938 guest seconds; unchanged-image continuation |
+
+Device logs are `.work/four-targets/cjson-vm-final-TARGET.log` and `.work/four-targets/zlib-vm-final-TARGET.log`, with the separate AArch64 zlib continuations described below.
+Times describe these functional VM runs, not native-performance comparisons.
+The cJSON guests retained their full acceptance receipts in `/tmp/sela-consumer-vm-uE98ge` (x86-64), `/tmp/sela-consumer-vm-G8n69P` (i686), `/tmp/sela-consumer-vm-LAbhDe` (ARMv7), and `/tmp/sela-consumer-vm-LZRxXP` (AArch64).
+The first three zlib guests are `/tmp/sela-consumer-vm-EYNAq4`, `/tmp/sela-consumer-vm-ptQ2De`, and `/tmp/sela-consumer-vm-CIAxNS`, respectively; AArch64's continuation is described below.
+Each cJSON guest passed both original 19-test suites, its native caller and loader checks, and the final checksum/nonce receipts; every zlib guest passed the original `test test64` recipes and its library/archive checks.
+No upstream source or required test was weakened, and every compiler-bundle payload remained unchanged from the component-qualified package inventory above.
+
+The original AArch64 zlib attempt in `/tmp/sela-consumer-vm-60fRKv` failed when packaged LLVM `llc` received SIGSEGV while reading optimized bitcode for `deflate.o`.
+The unchanged artifact and bundle subsequently compiled the complete static library under user-mode emulation; explicit `cortex-a53` and `max` runs of the failing stage produced identical objects, and the generated bitcode passed the host LLVM verifier.
+Those controls use regenerated intermediate bitcode: the original guest's failing temporary bitcode was not recovered from its RAM filesystem after shutdown, so byte equality with that intermediate is not established.
+An unchanged-image real-kernel retry then completed seven of eight artifacts without repeating the crash, but hit its 900-second diagnostic limit before the last executable and upstream tests finished.
+That timeout remains a failure, not a full-corpus result.
+The next unchanged-image continuation passed all eight artifacts and the original upstream recipes within its 3600-second bound; its log is `/tmp/sela-consumer-vm-60fRKv/retry-tcg-3600-PhI87z.log`.
+It required matching-kernel identity, foreign ELF `ENOEXEC`, unchanged bundle/fixture checksums, and the exact `SELA_CONSUMER_CORPUS_PASS target=aarch64 artifacts=8` and `SELA_VM_PASS sela-consumer-vm-60fRKv` receipts.
+The original crash's cause is not established, and no compiler, fixture, kernel, or boot-image changes were made for these diagnostic retries.
+The image SHA-256 remained `4ca065c0289435e60f3f93e8e8d2fec6bdcc343b166026f7c70923f5c7064d22`; detailed controls are retained in `.work/four-targets/zlib-aarch64-retry-evidence.txt`.
+After these VMs finished, a host-harness-only change gave manual corpus jobs a 3600-second default while retaining 900 seconds for core fixtures and honoring explicit overrides.
+The passing corpus jobs already used explicit limits; this policy change does not alter their compiler, artifact, guest recipe, or image bytes.
+
+### Historical dual-device acceptance
 
 The recorded 2026-09-12 local run completed the full fresh command with `Result: PASS (all)`.
 All 50 publications and their native references were rebuilt; both devices compiled the same artifact bytes.

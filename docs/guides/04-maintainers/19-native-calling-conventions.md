@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-This chapter explains how one logical function becomes an ordinary native function on two targets without introducing a Sela calling convention into the installed application.
+This chapter explains how one logical function becomes an ordinary native function on each target without introducing a Sela calling convention into the installed application.
 You should understand records, storage layout, LLVM function types, SSA uses, and the producer/consumer separation from earlier chapters.
 The new difficulty is that the function's apparent LLVM parameters are not necessarily its source-language parameters.
 
@@ -23,6 +23,8 @@ struct Pair transform(struct Pair input);
 The logical signature has one record argument and one record result. The native ABI decides how the bytes cross a call boundary.
 In the pinned x86-64 capture, `Pair` is passed as one `i64` and returned as `i64`.
 In the pinned i686 capture, its argument is expanded into two `i32` parameters; its result uses a hidden pointer parameter and a `void` LLVM return.
+ARMv7 carries its argument in a two-element `i32` array and also uses hidden result storage.
+AArch64 carries this same record as `i64` for both argument and result.
 These are observed Clang shapes in [the ABI matrix](../../reference/native-abi-matrix.md), not rules inferred from the name `Pair`.
 
 Two important LLVM attributes describe memory-based boundaries. An `sret` parameter points to result storage supplied by the caller.
@@ -58,6 +60,10 @@ The fixture with `Pair` after six integer arguments still has an `i64` LLVM para
 The LLVM-level ABI description and the eventual machine register assignment are related but are not the same layer.
 Tests must compare the actual pinned Clang signature, not a plausible hand-written approximation.
 
+ARM requires separate ABI classifiers, not a 32-bit/64-bit switch over the x86 rules.
+Homogeneous floating-point aggregates, AArch64 indirect argument ownership, and ARM32 variadic calls have their own physical forms.
+The target registry selects a localized ABI recipe; the rest of native lowering uses the same logical descriptors.
+
 For naturally aligned ordered records, `classifyNativeABI` consumes explicit record assertions.
 A listed type means an ordered, non-overlapping semantic record, including its nested records.
 An arbitrary LLVM structure might instead be a storage carrier for a union or bitfields.
@@ -79,20 +85,21 @@ Those records are useful evidence, but they do not authorize changing instructio
 They can be incomplete, ambiguous, or inconsistent with the actual IR.
 
 Second, the producer proves the complete entry shape.
-For the wide capture, the physical `i64` must be stored into the correct aggregate slot with the qualified offset and alignment.
-For the narrow capture, the two `i32` pieces must populate the corresponding fields.
+For the x86-64 capture, the physical `i64` must be stored into the correct aggregate slot with the qualified offset and alignment.
+For the i686 capture, the two `i32` pieces must populate the corresponding fields.
+The ARM proofs separately verify their array/integer carriers and owned indirect storage.
 Every consumed shim instruction needs the expected uses.
 A value also used by an unrelated instruction cannot simply be erased after its “main” store has been recognized.
 
-Third, it proves the result shape. The narrow hidden `sret` destination can serve as the result-storage anchor.
-The wide result may be built in owned local storage and loaded into its physical return value.
+Third, it proves the result shape. An admitted hidden `sret` destination can serve as the result-storage anchor.
+A coerced result may be built in owned local storage and loaded into its physical return value.
 A dead spill of a hidden result pointer can be normalized away only when its uses and stores prove that it really is dead.
 This is an explicit normalization rule, not permission to ignore arbitrary differences between captures.
 
 Fourth, calls require their own proofs.
 Argument pieces must be traced to the complete input object, and the returned pieces must be stored into the correct result object.
 Scalar arguments, evaluation order, remaining body copies and observable storage behavior must survive.
-Once both captures satisfy these rules, the merger can describe a common storage-oriented body with the logical `native_abi` signature.
+Once every capture satisfies these rules, the merger can describe a common storage-oriented body with the logical `native_abi` signature.
 
 Fifth, the language-blind consumer specializes that signature for a target.
 NativeABIBridge (`src/ir/NativeABIBridge.cpp`) materializes the native entry, call and return forms inside the original functions.
@@ -111,7 +118,12 @@ They do not allocate hidden objects, initialize padding, invent a `memcpy`, or c
 Their caller must establish the storage extent and base alignment before emission.
 Alignment at a piece offset must be conservative: an aligned base does not imply every offset has the same alignment.
 
-Padding also matters. `Mixed` occupies 16 bytes on the wide target and 12 on the narrow target in this configuration.
+The call bridge has an additional ownership obligation when the native ABI uses an indirect pointer without LLVM's `byval` attribute.
+For AArch64 large records it creates the caller-owned copy explicitly; passing the original storage would incorrectly let the callee mutate the caller's value.
+The producer folds only a closed fresh temporary with the exact copy, alignment, size, lifetime, and call uses.
+A pointer to a global record is not evidence of a by-value call merely because its LLVM parameter is `ptr noundef`.
+
+Padding also matters. `Mixed` occupies 12 bytes on i686 and 16 on the other three targets in this configuration.
 Normalizing its call boundary must not silently zero those objects or discard a body copy.
 Removing incidental packing instructions is a justified proof transformation; changing object contents is a program transformation requiring a different argument.
 
@@ -161,6 +173,7 @@ printf 'Lab files: %s\n' "$abi_lab"
 The executable should report that the fixed aggregate matrix passed.
 Inspect the lowered files for hidden result parameters and expanded arguments.
 The publisher-only `sela_reference_lower` test helper demonstrates the narrow specialization; the public x86-64 `selac` rejects foreign-target lowering.
+The same helper also accepts `armv7` and `aarch64`; it is not shipped in any device bundle.
 This inspection is not an installed i686 compiler or native-output acceptance run.
 For the stronger external-caller case, read `tests/aggregate-pipeline.sh`, which also builds a Sela DSO and an independently compiled native caller at O0 and O2.
 

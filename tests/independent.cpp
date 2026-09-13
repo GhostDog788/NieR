@@ -7,7 +7,7 @@
 using namespace sela::driver;
 namespace {
 const char *mainModule = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({}) {id = "native_bytes", type = () -> !sela.word,
     declaration = true, variadic = false, internal = false, dso_local = false,
     attributes = [[], []]} : () -> ()
@@ -34,7 +34,7 @@ module attributes {sela.schema = 1 : i32} {
 }
 )mlir";
 const char *helperModule = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
     %width = "sela.constant"() {value = "pointer_bytes"} : () -> !sela.word
     "sela.return"(%width) : (!sela.word) -> ()

@@ -4,16 +4,16 @@
 
 ## Objective and prerequisites
 
-This chapter explains the reference producer's central algorithm: turning two private native LLVM observations into one public Sela program.
+This chapter explains the reference producer's central algorithm: turning a finite set of private native LLVM observations into one public Sela program.
 You should understand SSA, native-width types, capture provenance, and the integer flags introduced in [chapter 14](../03-contributors/14-testing-debugging-and-features.md).
 
 The result is neither a source reconstruction nor a general equivalence proof.
-It is a common program whose admitted semantics are checked against both qualified native profiles.
+It is a common program whose admitted semantics are checked against every declared native profile.
 The algorithm fails when it cannot establish that relationship. Those failures are compiler limitations, not security policies.
 
 ## Inputs, output, and the claim being made
 
-`mergeProfiles` accepts an x86-64 LLVM capture, an i686 LLVM capture, and a bytecode output path.
+`mergeProfiles` accepts an array of `CaptureObservation` records, each binding one target ID to one LLVM capture, and a bytecode output path.
 Its optional summary is descriptive, not a proof token.
 On success, the output is Sela bytecode; capture paths and mandatory producer provenance are not part of the public module contract.
 
@@ -24,18 +24,20 @@ and compares the admitted normalized native forms before writing the bytecode.
 The essential shape is:
 
 ```text
-left capture  ----\                 /---- reconstructed left
-                  common Sela Code
-right capture ----/                 \---- reconstructed right
-        |                                    |
-        +---- compare each corresponding ----+
-                  native contract
+captures for N targets --> one shared Sela graph --> N reconstructed native contracts
+          |                                                      |
+          +------------- compare each corresponding target -------+
 ```
 
-The two comparisons are separate. Comparing only wide and narrow program stdout would miss ABI mistakes and target-specific behavior.
-Comparing only the wide reconstruction would leave the narrow specialization unproved.
+The per-target comparisons are separate. Comparing only program stdout would miss ABI mistakes and target-specific behavior.
+Checking one reconstruction leaves every other specialization unproved.
 
 ## A small worked correspondence
+
+The following two-target example isolates width differences for readability.
+The public entrypoint accepts an N-observation inventory, currently four targets; its shared graph must reconstruct every observation, including same-width targets with different ABIs.
+The implementation combines private pair-correspondence machinery with per-target semantic projections and shared graph factoring in `src/ir/CommonMerge.cpp`.
+Those projections are producer evidence, never per-target program payloads in the published artifact.
 
 Return to two functions: one returns `sizeof(void *)`, the other literal 8. Suppose their result type in C is `size_t`.
 
@@ -53,7 +55,8 @@ These are valid generic Sela fragments inside functions; `%width` and `%eight` a
 The `i64` on the attribute is the representation of that literal attribute, not a declaration that the result must always be 64 bits.
 The operation's result type is `!sela.word`.
 
-The implementation's `expression` helper also has a finite native-word form for other differing values: a dictionary with `word64` and `word32` entries.
+Other differing values use a finite `target_cases` dictionary whose cases bind explicit target sets to semantic values.
+Equal cases are coalesced, and the same mechanism can represent differences between targets of equal word width.
 This is not a symbolic algebra engine that discovers the original source formula.
 A pair of numbers alone cannot tell us whether the author wrote `sizeof`, a conditional macro, or something else.
 The admitted expression is valid only within the checked domain.
@@ -175,7 +178,7 @@ printf 'Lab files: %s\n' "$guide16_work"
 
 Read the surrounding functions rather than treating a matching text pattern as a proof.
 Both dumps come from the same `.sela` artifact.
-`sela_reference_lower` is a publisher-only test helper with both native validators; public device `selac` builds do not expose foreign-target lowering.
+`sela_reference_lower` is a publisher-only test helper with all registered native validators; public device `selac` builds do not expose foreign-target lowering.
 This demonstrates the qualified two-profile specialization, not a new CPU port or installed i686 execution support.
 
 ## Recap and questions

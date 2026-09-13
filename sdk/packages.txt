@@ -59,3 +59,17 @@ i686-linux-gnu linux-libc-dev:i386
 i686-linux-gnu libcrypt-dev:i386
 i686-linux-gnu libcrypt1:i386
 i686-linux-gnu libgcc-s1:i386
+armv7-linux-gnueabihf libc6:armhf
+armv7-linux-gnueabihf libc6-dev:armhf
+armv7-linux-gnueabihf linux-libc-dev:armhf
+armv7-linux-gnueabihf libcrypt1:armhf
+armv7-linux-gnueabihf libcrypt-dev:armhf
+armv7-linux-gnueabihf libgcc-s1:armhf
+armv7-linux-gnueabihf libclang-rt-18-dev:armhf
+aarch64-linux-gnu libc6:arm64
+aarch64-linux-gnu libc6-dev:arm64
+aarch64-linux-gnu linux-libc-dev:arm64
+aarch64-linux-gnu libcrypt1:arm64
+aarch64-linux-gnu libcrypt-dev:arm64
+aarch64-linux-gnu libgcc-s1:arm64
+aarch64-linux-gnu libclang-rt-18-dev:arm64

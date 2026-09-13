@@ -25,7 +25,41 @@ bool scalar(llvm::Type *type, bool field = false) {
 bool nativePieceScalar(llvm::Type *type) {
   if (scalar(type)) return true;
   auto *integer = llvm::dyn_cast<llvm::IntegerType>(type);
-  return integer && integer->getBitWidth() <= 64 && integer->getBitWidth() % 8 == 0;
+  return integer && integer->getBitWidth() <= 128 && integer->getBitWidth() % 8 == 0;
+}
+
+bool validPieceType(llvm::Type *type, unsigned depth = 0) {
+  if (!type || depth > 32 || !type->isSized()) return false;
+  if (nativePieceScalar(type)) return true;
+  if (auto *vector = llvm::dyn_cast<llvm::FixedVectorType>(type))
+    return vector->getNumElements() == 2 && vector->getElementType()->isFloatTy();
+  if (auto *array = llvm::dyn_cast<llvm::ArrayType>(type))
+    return array->getNumElements() > 0 && array->getNumElements() <= 64 && validPieceType(array->getElementType(), depth + 1);
+  if (auto *record = llvm::dyn_cast<llvm::StructType>(type))
+    return record->getNumElements() > 0 && record->getNumElements() <= 64 &&
+        llvm::all_of(record->elements(), [&](llvm::Type *field) { return validPieceType(field, depth + 1); });
+  return false;
+}
+
+bool validPieceExtent(llvm::Type *type, uint64_t offset, uint64_t extent, const llvm::DataLayout &layout) {
+  if (offset >= extent) return false;
+  if (layout.getTypeStoreSize(type) <= extent - offset) return true;
+  // AAPCS integer coercions round the last register up. Its unused bits are
+  // not permission to access bytes beyond the logical object.
+  if (type->isIntegerTy()) return true;
+  if (auto *array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+    uint64_t stride = layout.getTypeAllocSize(array->getElementType());
+    for (uint64_t i = 0; i < array->getNumElements(); ++i)
+      if (!validPieceExtent(array->getElementType(), offset + i * stride, extent, layout)) return false;
+    return true;
+  }
+  if (auto *record = llvm::dyn_cast<llvm::StructType>(type)) {
+    const auto *positions = layout.getStructLayout(record);
+    for (unsigned i = 0; i < record->getNumElements(); ++i)
+      if (!validPieceExtent(record->getElementType(i), offset + positions->getElementOffset(i), extent, layout)) return false;
+    return true;
+  }
+  return false;
 }
 
 llvm::Error validateAccess(llvm::IRBuilderBase &builder, const NativeABIValue &value,
@@ -45,16 +79,13 @@ llvm::Error validateAccess(llvm::IRBuilderBase &builder, const NativeABIValue &v
     return failure("piece storage disagrees with the insertion module data layout");
   uint64_t end = 0;
   for (auto piece : value.pieces) {
-    bool vector = piece.type && llvm::isa<llvm::FixedVectorType>(piece.type) &&
-        llvm::cast<llvm::FixedVectorType>(piece.type)->getNumElements() == 2 &&
-        llvm::cast<llvm::FixedVectorType>(piece.type)->getElementType()->isFloatTy();
     if (!piece.type || &piece.type->getContext() != &builder.getContext() ||
-        (!nativePieceScalar(piece.type) && !vector))
-      return failure("invalid native scalar piece type");
+        !validPieceType(piece.type))
+      return failure("invalid native piece type");
     uint64_t size = layout.getTypeStoreSize(piece.type);
-    if (piece.offset < end || piece.offset > value.storageSize || size > value.storageSize - piece.offset)
+    if (piece.offset < end || !validPieceExtent(piece.type, piece.offset, value.storageSize, layout))
       return failure("overlapping or out-of-bounds native pieces");
-    end = piece.offset + size;
+    end = piece.offset + std::min(size, value.storageSize - piece.offset);
   }
   return llvm::Error::success();
 }
@@ -66,26 +97,73 @@ llvm::Value *address(llvm::IRBuilderBase &builder, llvm::Value *storage, uint64_
   return builder.CreateInBoundsGEP(builder.getInt8Ty(), storage,
       llvm::ConstantInt::get(indexType, offset), "abi.piece");
 }
+
+llvm::Value *loadPiece(llvm::IRBuilderBase &builder, llvm::Type *type, llvm::Value *storage,
+                      uint64_t offset, uint64_t extent, llvm::Align alignment) {
+  const auto &layout = builder.GetInsertBlock()->getModule()->getDataLayout();
+  auto at = llvm::commonAlignment(alignment, offset);
+  if (layout.getTypeStoreSize(type) <= extent - offset)
+    return builder.CreateAlignedLoad(type, address(builder, storage, offset), at, "abi.load");
+  if (type->isIntegerTy()) {
+    auto *memoryType = llvm::IntegerType::get(builder.getContext(), (extent - offset) * 8);
+    auto *part = builder.CreateAlignedLoad(memoryType, address(builder, storage, offset), at, "abi.load");
+    return builder.CreateZExt(part, type, "abi.extend");
+  }
+  llvm::Value *result = llvm::UndefValue::get(type);
+  if (auto *array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+    uint64_t stride = layout.getTypeAllocSize(array->getElementType());
+    for (unsigned i = 0; i < array->getNumElements(); ++i)
+      result = builder.CreateInsertValue(result, loadPiece(builder, array->getElementType(), storage,
+          offset + i * stride, extent, alignment), i);
+  } else if (auto *record = llvm::dyn_cast<llvm::StructType>(type)) {
+    const auto *positions = layout.getStructLayout(record);
+    for (unsigned i = 0; i < record->getNumElements(); ++i)
+      result = builder.CreateInsertValue(result, loadPiece(builder, record->getElementType(i), storage,
+          offset + positions->getElementOffset(i), extent, alignment), i);
+  }
+  return result;
+}
+
+void storePiece(llvm::IRBuilderBase &builder, llvm::Value *value, llvm::Value *storage,
+                uint64_t offset, uint64_t extent, llvm::Align alignment) {
+  const auto &layout = builder.GetInsertBlock()->getModule()->getDataLayout();
+  auto *type = value->getType();
+  auto at = llvm::commonAlignment(alignment, offset);
+  if (layout.getTypeStoreSize(type) <= extent - offset) {
+    builder.CreateAlignedStore(value, address(builder, storage, offset), at);
+  } else if (type->isIntegerTy()) {
+    auto *memoryType = llvm::IntegerType::get(builder.getContext(), (extent - offset) * 8);
+    builder.CreateAlignedStore(builder.CreateTrunc(value, memoryType, "abi.truncate"), address(builder, storage, offset), at);
+  } else if (auto *array = llvm::dyn_cast<llvm::ArrayType>(type)) {
+    uint64_t stride = layout.getTypeAllocSize(array->getElementType());
+    for (unsigned i = 0; i < array->getNumElements(); ++i)
+      storePiece(builder, builder.CreateExtractValue(value, i), storage, offset + i * stride, extent, alignment);
+  } else if (auto *record = llvm::dyn_cast<llvm::StructType>(type)) {
+    const auto *positions = layout.getStructLayout(record);
+    for (unsigned i = 0; i < record->getNumElements(); ++i)
+      storePiece(builder, builder.CreateExtractValue(value, i), storage, offset + positions->getElementOffset(i), extent, alignment);
+  }
+}
 } // namespace
 
-llvm::Expected<llvm::DataLayout> nativeABIDataLayout(bool x64) {
-  auto *target = findNativeTarget(x64 ? "x86_64" : "i686");
+llvm::Expected<llvm::DataLayout> nativeABIDataLayout(llvm::StringRef targetID) {
+  auto *target = findNativeTarget(targetID);
   if (!target) return failure("requested native target is unavailable in this Sela library");
   return llvm::DataLayout(target->layout);
 }
 
 llvm::Expected<NativeABISignature> classifyNativeABI(
-    llvm::FunctionType *logical, bool x64,
+    llvm::FunctionType *logical, llvm::StringRef targetID,
     llvm::ArrayRef<llvm::StructType *> orderedRecords) {
-  auto *target = findNativeTarget(x64 ? "x86_64" : "i686");
+  auto *target = findNativeTarget(targetID);
   if (!target) return failure("requested native target is unavailable in this Sela library");
   return target->classify(logical, orderedRecords);
 }
 
 llvm::Expected<NativeABISignature> classifyNativeLayoutABI(
-    llvm::FunctionType *logical, bool x64,
+    llvm::FunctionType *logical, llvm::StringRef targetID,
     llvm::ArrayRef<NativeABIRecordLayout> records) {
-  auto *target = findNativeTarget(x64 ? "x86_64" : "i686");
+  auto *target = findNativeTarget(targetID);
   if (!target) return failure("requested native target is unavailable in this Sela library");
   return target->classifyLayout(logical, records);
 }
@@ -96,8 +174,7 @@ llvm::Expected<llvm::SmallVector<llvm::Value *, 2>> loadNativeABIPieces(
   if (auto error = validateAccess(builder, value, storage, baseAlignment)) return std::move(error);
   llvm::SmallVector<llvm::Value *, 2> result;
   for (auto piece : value.pieces)
-    result.push_back(builder.CreateAlignedLoad(piece.type, address(builder, storage, piece.offset),
-        llvm::commonAlignment(baseAlignment, piece.offset), "abi.load"));
+    result.push_back(loadPiece(builder, piece.type, storage, piece.offset, value.storageSize, baseAlignment));
   return result;
 }
 
@@ -112,8 +189,7 @@ llvm::Error storeNativeABIPieces(
       return failure("wrong native piece value type");
   for (unsigned i = 0; i < pieces.size(); ++i) {
     auto offset = value.pieces[i].offset;
-    builder.CreateAlignedStore(pieces[i], address(builder, storage, offset),
-        llvm::commonAlignment(baseAlignment, offset));
+    storePiece(builder, pieces[i], storage, offset, value.storageSize, baseAlignment);
   }
   return llvm::Error::success();
 }

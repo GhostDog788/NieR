@@ -31,7 +31,7 @@ Those checks live principally in `src/ir/Compiler.cpp` and its consumer-safe hel
 This is a minimal function returning zero in the current schema, shown as readable MLIR rather than as the binary publication payload:
 
 ```mlir
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
     %zero = "sela.constant"() {value = 0 : i64} : () -> i32
     "sela.return"(%zero) : (i32) -> ()
@@ -42,7 +42,7 @@ module attributes {sela.schema = 1 : i32} {
 }
 ```
 
-The module carries the current Sela schema number.
+The module carries the current Sela schema number and its explicit finite target domain.
 `sela.func` has no ordinary operands or results of its own; its region holds the function body.
 Its `type` attribute says the function accepts no arguments and returns an `i32` value. The `id` is the linkable function identity.
 
@@ -74,7 +74,8 @@ Sela's schema checks then reject unknown operation/attribute combinations, disal
 Unknown, duplicate, empty, or unavailable native-target requests fail; there is no fallback that calls unavailable native validation successful.
 
 Native-validation APIs require an explicit target list. `sela::supportedNativeTargets()` returns the implementations actually linked into this build, not every domain understood by the shared schema.
-The publisher has both `x86_64` and `i686` implementations and proves both profiles. A thin destination compiler has only its own native implementation.
+The publisher links the `x86_64`, `i686`, `armv7`, and `aarch64` validation implementations and proves every declared capture.
+A thin destination compiler has only its own native implementation.
 Its inspector can structurally admit a foreign-only artifact, but must report that the foreign native plan was not validated; compiling or lowering it rejects.
 Do not confuse selected-target native compilation with independent certification of every other target's execution.
 

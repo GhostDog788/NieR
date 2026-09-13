@@ -10,6 +10,6 @@ namespace sela::detail {
 struct NativeABIInverseHints;
 // Shared target lowering, deliberately independent of LLVM capture/merger inputs.
 llvm::Expected<std::unique_ptr<llvm::Module>> lowerModule(
-    mlir::ModuleOp source, llvm::LLVMContext &context, bool x64,
+    mlir::ModuleOp source, llvm::LLVMContext &context, llvm::StringRef targetID,
     NativeABIInverseHints *inverseHints = nullptr);
 } // namespace sela::detail

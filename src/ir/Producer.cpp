@@ -6,6 +6,8 @@
 #include "ConditionalCFG.h"
 #include "AggregateNormalize.h"
 #include "sela/IR/Dialect.h"
+#include "sela/IR/Domains.h"
+#include "CommonMerge.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -30,6 +32,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/Triple.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 
 #include <map>
 #include <set>
@@ -43,11 +46,6 @@ namespace {
 using mlir::Attribute;
 using mlir::Operation;
 using llvm::StringRef;
-
-constexpr StringRef X64Layout =
-    "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128";
-constexpr StringRef I686Layout =
-    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128";
 
 llvm::Error failure(const llvm::Twine &message) {
   return llvm::createStringError(std::make_error_code(std::errc::invalid_argument), message);
@@ -73,6 +71,14 @@ bool validArithmeticFlags(unsigned opcode, unsigned flags) {
                      opcode == llvm::Instruction::Mul || opcode == llvm::Instruction::Shl;
   return (!(flags & 3) || overflowing) &&
          (!(flags & 4) || llvm::PossiblyExactOperator::isPossiblyExactOpcode(opcode));
+}
+
+bool correspondingInstructionKind(const llvm::Instruction &left, const llvm::Instruction &right) {
+  if (left.getOpcode() == right.getOpcode()) return true;
+  // These alternatives have the same explicit operand/result contract. The
+  // selected opcode remains public semantics and is independently inverted.
+  return (llvm::isa<llvm::BinaryOperator>(left) && llvm::isa<llvm::BinaryOperator>(right)) ||
+      (llvm::isa<llvm::CastInst>(left) && llvm::isa<llvm::CastInst>(right));
 }
 
 bool debugFunction(const llvm::Function &function) {
@@ -129,12 +135,11 @@ bool permittedMetadata(const llvm::Instruction &instruction) {
   return true;
 }
 
-void configureModule(llvm::Module &module, bool x64) {
+void configureModule(llvm::Module &module, const targets::TargetInfo &target) {
   module.setModuleIdentifier("sela");
   module.setSourceFileName("sela");
-  module.setTargetTriple(x64 ? "x86_64-unknown-linux-gnu"
-                            : "i686-unknown-linux-gnu");
-  module.setDataLayout(x64 ? X64Layout : I686Layout);
+  module.setTargetTriple(target.triple);
+  module.setDataLayout(target.layout);
 }
 
 using ModuleFlags = std::map<std::string, std::pair<unsigned, uint64_t>>;
@@ -160,19 +165,21 @@ void canonicalizeFlags(llvm::Module &module) {
                          uint32_t(value.second));
 }
 
-llvm::Error validateCapture(const llvm::Module &module, bool x64) {
+llvm::Error validateCapture(const llvm::Module &module, const targets::TargetInfo &target) {
   llvm::Triple triple(module.getTargetTriple());
+  llvm::Triple expectedTriple(target.triple);
   if (!triple.isOSLinux() ||
-      triple.getArch() != (x64 ? llvm::Triple::x86_64 : llvm::Triple::x86))
-    return failure("capture has the wrong Linux CPU profile");
-  if (module.getDataLayoutStr() != (x64 ? X64Layout : I686Layout))
+      triple.getArch() != expectedTriple.getArch() || triple.getSubArch() != expectedTriple.getSubArch() ||
+      triple.getEnvironment() != expectedTriple.getEnvironment())
+    return failure("capture has the wrong qualified Linux CPU/ABI profile");
+  if (module.getDataLayoutStr() != target.layout)
     return failure("capture data layout is not the pinned LLVM 18 profile");
   if (!module.getModuleInlineAsm().empty() || !module.alias_empty() ||
       !module.ifunc_empty())
     return failure("module assembly, aliases and ifuncs are not supported yet");
   const std::map<std::string, std::string> targetAttributes = {
-      {"target-cpu", x64 ? "x86-64" : "i686"},
-      {"target-features", x64 ? "+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" : "+cmov,+cx8,+x87"},
+      {"target-cpu", target.cpu.str()},
+      {"target-features", target.features.str()},
       {"tune-cpu", "generic"}, {"min-legal-vector-width", "0"}};
   for (const auto &function : module)
     for (const auto &[name, expected] : targetAttributes) {
@@ -182,7 +189,7 @@ llvm::Error validateCapture(const llvm::Module &module, bool x64) {
     }
   const std::map<std::string, uint64_t> expected = {
       {"NumRegisterParameters", 0}, {"wchar_size", 4}, {"PIC Level", 2},
-      {"PIE Level", 2}, {"uwtable", 2}};
+      {"PIE Level", 2}, {"uwtable", 2}, {"min_enum_size", 4}};
   llvm::SmallVector<llvm::Module::ModuleFlagEntry> flags;
   module.getModuleFlagsMetadata(flags);
   for (const auto &flag : flags) {
@@ -194,6 +201,7 @@ llvm::Error validateCapture(const llvm::Module &module, bool x64) {
     auto *number = llvm::mdconst::dyn_extract<llvm::ConstantInt>(flag.Val);
     if (key == "frame-pointer" && number && number->getZExtValue() <= 2)
       continue;
+    if (key == "uwtable" && number && (number->getZExtValue() == 1 || number->getZExtValue() == 2)) continue;
     if (found == expected.end() || !number ||
         number->getZExtValue() != found->second)
       return failure("unsupported module flag: " + key);
@@ -208,25 +216,23 @@ llvm::Error validateCapture(const llvm::Module &module, bool x64) {
 
 // Full instruction semantics remain in this comparison; source spellings,
 // debug/TBAA and the explicitly pinned target configuration do not.
-void canonicalize(llvm::Module &module, bool x64) {
+void canonicalize(llvm::Module &module, const targets::TargetInfo &target) {
   llvm::StripDebugInfo(module);
   if (auto *ident = module.getNamedMetadata("llvm.ident"))
     module.eraseNamedMetadata(ident);
   std::vector<llvm::Function *> erase;
-  std::vector<llvm::Function *> implicitPrimitives;
+  std::vector<llvm::Function *> intrinsicDeclarations;
   unsigned functionIndex = 0;
   for (auto &function : module) {
     if (debugFunction(function)) {
       erase.push_back(&function);
       continue;
     }
-    if (byteSwapPrimitive(function)) {
-      implicitPrimitives.push_back(&function);
-      continue;
-    }
+    if (function.isDeclaration() && function.isIntrinsic()) intrinsicDeclarations.push_back(&function);
+    if (byteSwapPrimitive(function)) continue;
     if (function.hasLocalLinkage())
       function.setName("f" + std::to_string(functionIndex));
-    ++functionIndex;
+    if (!function.isDeclaration()) ++functionIndex;
     for (StringRef name : {"target-cpu", "target-features", "tune-cpu",
                            "min-legal-vector-width"})
       function.removeFnAttr(name);
@@ -264,15 +270,19 @@ void canonicalize(llvm::Module &module, bool x64) {
   }
   for (auto *function : erase)
     function->eraseFromParent();
-  llvm::sort(implicitPrimitives, [](auto *a, auto *b) { return a->getName() < b->getName(); });
-  for (auto *function : implicitPrimitives)
+  // ABI-owned copies can introduce a shared memory intrinsic earlier in one
+  // observation. Declaration placement has no executable semantics: retain
+  // every signature, attribute and use, but compare existing intrinsic
+  // declarations in one order without moving any function definition.
+  llvm::sort(intrinsicDeclarations, [](auto *a, auto *b) { return a->getName() < b->getName(); });
+  for (auto *function : intrinsicDeclarations)
     module.getFunctionList().splice(module.end(), module.getFunctionList(), function->getIterator());
   unsigned globalIndex = 0;
   for (auto &global : module.globals()) {
     if (global.hasLocalLinkage()) global.setName("g" + std::to_string(globalIndex));
     ++globalIndex;
   }
-  configureModule(module, x64);
+  configureModule(module, target);
   canonicalizeFlags(module);
 }
 
@@ -307,15 +317,20 @@ public:
   const detail::NativeOverlaps &leftOverlaps, &rightOverlaps;
   const detail::NormalizedAggregateModule &leftAggregates, &rightAggregates;
   llvm::DenseMap<const llvm::Function *, llvm::FunctionType *> leftNativeABIs, rightNativeABIs;
+  const targets::TargetInfo &leftTarget, &rightTarget;
 
   Merger(const detail::NativeVarargs &leftVA, const detail::NativeVarargs &rightVA,
          const detail::NativeOverlaps &leftOverlap, const detail::NativeOverlaps &rightOverlap,
-         const detail::NormalizedAggregateModule &leftABI, const detail::NormalizedAggregateModule &rightABI)
+         const detail::NormalizedAggregateModule &leftABI, const detail::NormalizedAggregateModule &rightABI,
+         const targets::TargetInfo &leftTarget, const targets::TargetInfo &rightTarget)
       : builder(&context), leftVarargs(leftVA), rightVarargs(rightVA),
-        leftOverlaps(leftOverlap), rightOverlaps(rightOverlap), leftAggregates(leftABI), rightAggregates(rightABI) {
+        leftOverlaps(leftOverlap), rightOverlaps(rightOverlap), leftAggregates(leftABI), rightAggregates(rightABI),
+        leftTarget(leftTarget), rightTarget(rightTarget) {
     context.getOrLoadDialect<ir::SelaDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     (*module)->setAttr("sela.schema", builder.getI32IntegerAttr(1));
+    (*module)->setAttr("sela.targets", ir::targetSet(&context, leftTarget.id == rightTarget.id
+        ? llvm::ArrayRef<StringRef>{leftTarget.id} : llvm::ArrayRef<StringRef>{leftTarget.id, rightTarget.id}));
     builder.setInsertionPointToEnd(module->getBody());
     for (const auto &function : leftABI.functions) leftNativeABIs[function.function] = function.logicalType;
     for (const auto &function : rightABI.functions) rightNativeABIs[function.function] = function.logicalType;
@@ -379,7 +394,7 @@ public:
       if (!other) { fail("array storage kinds differ between profiles"); return {}; }
       auto element = type(array->getElementType(), other->getElementType());
       if (!element) return {};
-      return ir::ArrayType::getForWordWidths(&context, element, array->getNumElements(), other->getNumElements());
+      return ir::ArrayType::get(&context, element, expression(array->getNumElements(), other->getNumElements()));
     }
     if (auto *record = llvm::dyn_cast<llvm::StructType>(left)) {
       auto *other = llvm::dyn_cast<llvm::StructType>(right);
@@ -400,6 +415,7 @@ public:
         }
         auto identity = "r" + std::to_string(leftRecordIDs.size());
         auto overlap = detail::mergeNativeOverlap(leftOverlap->second, rightOverlap->second, context, identity,
+            leftTarget.id, rightTarget.id,
             [&](llvm::Type *a, llvm::Type *b) { return type(a, b); });
         if (!overlap) { fail(llvm::toString(overlap.takeError())); return {}; }
         leftRecordIDs[record] = identity;
@@ -434,22 +450,34 @@ public:
       unsigned lw = left->getIntegerBitWidth(), rw = right->getIntegerBitWidth();
       if (lw == rw && (lw == 1 || lw == 8 || lw == 16 || lw == 32 || lw == 64))
         return builder.getIntegerType(lw);
-      if (lw == 64 && rw == 32)
+      if (lw == leftTarget.wordBits && rw == rightTarget.wordBits && lw != rw)
         return ir::WordType::get(&context);
+      if ((lw == 1 || lw == 8 || lw == 16 || lw == 32 || lw == 64) &&
+          (rw == 1 || rw == 8 || rw == 16 || rw == 32 || rw == 64))
+        return ir::ChoiceType::get(&context, choice(mlir::TypeAttr::get(builder.getIntegerType(lw)),
+                                                   mlir::TypeAttr::get(builder.getIntegerType(rw))));
     }
     fail("unsupported type correspondence; aggregate layout normalization is required");
     return {};
   }
 
+  Attribute choice(Attribute left, Attribute right) {
+    return ir::targetChoice(&context, {{leftTarget.id, left}, {rightTarget.id, right}});
+  }
+
+  mlir::ArrayAttr domain(unsigned mask) {
+    llvm::SmallVector<StringRef> ids;
+    if (mask & 1) ids.push_back(leftTarget.id);
+    if ((mask & 2) && !llvm::is_contained(ids, rightTarget.id)) ids.push_back(rightTarget.id);
+    return ir::targetSet(&context, ids);
+  }
+
   Attribute expression(uint64_t left, uint64_t right) {
     if (left == right)
       return builder.getI64IntegerAttr(left);
-    if (left == 8 && right == 4)
+    if (left == leftTarget.wordBits / 8 && right == rightTarget.wordBits / 8)
       return builder.getStringAttr("pointer_bytes");
-    // A finite native-word predicate, valid only inside the producer's declared
-    // qualified domain. It is not evidence about an uncaptured architecture.
-    return builder.getDictionaryAttr({attr("word64", builder.getI64IntegerAttr(left)),
-                                      attr("word32", builder.getI64IntegerAttr(right))});
+    return choice(builder.getI64IntegerAttr(left), builder.getI64IntegerAttr(right));
   }
 
   mlir::ArrayAttr attributes(llvm::AttributeSet input) {
@@ -475,32 +503,14 @@ public:
     return builder.getArrayAttr(result);
   }
 
-  mlir::ArrayAttr attributeList(llvm::AttributeList left,
+  Attribute attributeList(llvm::AttributeList left,
                                llvm::AttributeList right, unsigned count) {
     llvm::SmallVector<Attribute> result;
     auto add = [&](llvm::AttributeSet a, llvm::AttributeSet b) {
       auto x = attributes(a), y = attributes(b);
       if (!x || !y)
         return;
-      if (x == y) { result.push_back(x); return; }
-      if (x.size() != y.size()) {
-        fail("profile-dependent ABI attribute inventories need normalization"); return;
-      }
-      llvm::SmallVector<Attribute> merged;
-      for (unsigned i = 0; i < x.size(); ++i) {
-        if (x[i] == y[i]) { merged.push_back(x[i]); continue; }
-        auto leftEntry = mlir::cast<mlir::DictionaryAttr>(x[i]);
-        auto rightEntry = mlir::cast<mlir::DictionaryAttr>(y[i]);
-        auto av = leftEntry.getAs<mlir::IntegerAttr>("integer");
-        auto bv = rightEntry.getAs<mlir::IntegerAttr>("integer");
-        if (leftEntry.get("name") != rightEntry.get("name") ||
-            leftEntry.size() != 2 || rightEntry.size() != 2 || !av || !bv) {
-          fail("profile-dependent ABI attribute kinds need normalization"); return;
-        }
-        merged.push_back(builder.getDictionaryAttr({attr("name", leftEntry.get("name")),
-            attr("integer", expression(av.getValue().getZExtValue(), bv.getValue().getZExtValue()))}));
-      }
-      result.push_back(builder.getArrayAttr(merged));
+      result.push_back(choice(x, y));
     };
     add(left.getFnAttrs(), right.getFnAttrs());
     add(left.getRetAttrs(), right.getRetAttrs());
@@ -727,7 +737,7 @@ public:
     const llvm::Value *rightResult = leftSide ? rightSource : cast;
     if (!leftResult->getType()->isIntegerTy() || !rightResult->getType()->isIntegerTy()) return false;
     unsigned a = leftResult->getType()->getIntegerBitWidth(), b = rightResult->getType()->getIntegerBitWidth();
-    if (a != b && !(a == 64 && b == 32)) return false;
+    if (a != b && !(a == leftTarget.wordBits && b == rightTarget.wordBits)) return false;
     auto input = operand(leftSource, rightSource);
     auto resultType = type(leftResult->getType(), rightResult->getType());
     if (!input || !resultType) return false;
@@ -767,29 +777,43 @@ public:
     return true;
   }
 
-  bool normalizeVAForward(const llvm::Instruction *right) {
-    auto *load = llvm::dyn_cast_or_null<llvm::LoadInst>(right);
-    auto *state = load ? llvm::dyn_cast<llvm::AllocaInst>(load->getPointerOperand()) : nullptr;
-    if (!state || !rightVarargs.states.contains(state) || load->isVolatile() || load->isAtomic() ||
-        load->getAlign().value() != 4 || !load->getType()->isPointerTy() || !permittedMetadata(*load)) return false;
-    const llvm::AllocaInst *other = nullptr;
-    for (auto *candidate : leftVarargs.states)
-      if (pairs.lookup(candidate) == state) {
-        if (other) return false;
-        other = candidate;
-      }
-    if (!other || !values.count(other)) return false;
-    auto *forward = op("sela.va_forward", ir::PointerType::get(&context), values.lookup(other));
-    conditionalValues[{other, load}] = forward->getResult(0);
-    domainValues[load] = forward->getResult(0);
-    return true;
+  mlir::Value callArgument(const llvm::CallBase *left, const llvm::CallBase *right, unsigned index) {
+    auto local = [&](const detail::NativeVarargs &proof, const llvm::CallBase *call) {
+      auto entry = proof.forwardedArguments.find(call);
+      return entry == proof.forwardedArguments.end() ? nullptr : entry->second.lookup(index);
+    };
+    auto incoming = [&](const detail::NativeVarargs &proof, const llvm::CallBase *call) {
+      auto entry = proof.forwardedValues.find(call);
+      return entry == proof.forwardedValues.end() ? nullptr : entry->second.lookup(index);
+    };
+    const auto &leftProof = singleDomain == 2 ? rightVarargs : leftVarargs;
+    const auto &rightProof = singleDomain == 1 ? leftVarargs : rightVarargs;
+    auto *a = local(leftProof, left), *b = local(rightProof, right);
+    auto *ai = incoming(leftProof, left), *bi = incoming(rightProof, right);
+    if (ai || bi) {
+      if (!ai || !bi || a || b) { fail("native cursor argument provenance differs"); return {}; }
+      auto source = operand(ai, bi);
+      if (!source) return {};
+      return op("sela.va_forward", ir::VaListArgumentType::get(&context), source)->getResult(0);
+    }
+    if (a || b) {
+      if (!a || !b) { fail("native cursor forwarding lacks paired proof"); return {}; }
+      auto storage = operand(a, b);
+      if (!storage) return {};
+      // The recognizer proves forwarding loads are single-use and immediately
+      // adjacent to this call. Emitting here cannot move the cursor read across
+      // effects. The ABI-owned AArch64 transfer copy is also proved closed and
+      // regenerated by this operation, independently from an explicit va_copy.
+      return op("sela.va_forward", ir::VaListArgumentType::get(&context), storage)->getResult(0);
+    }
+    return operand(left->getArgOperand(index), right->getArgOperand(index));
   }
 
   void mergeInstruction(const llvm::Instruction &left,
                          const llvm::Instruction &right) {
     if (!error.empty())
       return;
-    if (left.getOpcode() != right.getOpcode() || !permittedMetadata(left) ||
+    if (!correspondingInstructionKind(left, right) || !permittedMetadata(left) ||
         !permittedMetadata(right)) {
       fail("unsupported instruction correspondence or semantic metadata");
       return;
@@ -814,13 +838,18 @@ public:
         if (!leftVarargs.states.contains(a) || !rightVarargs.states.contains(b)) {
           fail("native variadic cursor storage correspondence differs"); return;
         }
-        auto *record = llvm::cast<llvm::StructType>(llvm::cast<llvm::ArrayType>(a->getAllocatedType())->getElementType());
-        if (!leftRecordIDs.empty() && llvm::any_of(leftRecordIDs, [&](const auto &entry) {
+        auto recordOf = [](llvm::Type *type) {
+          if (auto *array = llvm::dyn_cast<llvm::ArrayType>(type)) type = array->getElementType();
+          return llvm::dyn_cast<llvm::StructType>(type);
+        };
+        auto *record = recordOf(a->getAllocatedType());
+        if (record && !leftRecordIDs.empty() && llvm::any_of(leftRecordIDs, [&](const auto &entry) {
               return entry.second == "v0" && entry.first != record;
             })) {
           fail("multiple incompatible native variadic cursor types"); return;
         }
-        leftRecordIDs[record] = "v0";
+        if (record) leftRecordIDs[record] = "v0";
+        if (auto *other = recordOf(b->getAllocatedType())) rightRecordIDs[other] = "v0";
         element = ir::VaListType::get(&context);
       } else element = type(a->getAllocatedType(), b->getAllocatedType());
       auto alignment = expression(a->getAlign().value(), b->getAlign().value());
@@ -912,7 +941,7 @@ public:
         arguments.push_back(callee);
       }
       for (unsigned i = 0; i < a->arg_size(); ++i) {
-        auto argument = operand(a->getArgOperand(i), b->getArgOperand(i));
+        auto argument = callArgument(a, b, i);
         if (!argument)
           return;
         arguments.push_back(argument);
@@ -973,7 +1002,7 @@ public:
           // The graph proof pairs only exact same-width labels. One-domain
           // labels are fixed native constants, selected with their own edge.
           cases.push_back(builder.getIntegerAttr(builder.getI64Type(), native->getValue().sextOrTrunc(64)));
-          domains.push_back(builder.getI32IntegerAttr(entry.domain));
+          domains.push_back(domain(entry.domain));
           counts.push_back(0);
           successors.push_back(successor(entry.successor));
         }
@@ -1078,7 +1107,7 @@ public:
         return;
       }
       result = op("sela.binary", valueType, {x, y},
-                  {attr("opcode", builder.getStringAttr(a->getOpcodeName())),
+                  {attr("opcode", choice(builder.getStringAttr(a->getOpcodeName()), builder.getStringAttr(b->getOpcodeName()))),
                    attr("flags", expression(af, bf))});
     } else if (auto *a = llvm::dyn_cast<llvm::SelectInst>(&left)) {
       auto *b = llvm::cast<llvm::SelectInst>(&right);
@@ -1109,23 +1138,19 @@ public:
       if (!valueType || !value)
         return;
       result = op("sela.cast", valueType, value,
-                  {attr("opcode", builder.getStringAttr(a->getOpcodeName()))});
+                  {attr("opcode", choice(builder.getStringAttr(a->getOpcodeName()), builder.getStringAttr(b->getOpcodeName())))});
     } else if (auto *a = llvm::dyn_cast<llvm::CmpInst>(&left)) {
       auto *b = llvm::cast<llvm::CmpInst>(&right);
       if (llvm::isa<llvm::FCmpInst>(a) &&
           (a->getFastMathFlags().any() || b->getFastMathFlags().any())) {
         fail("fast floating comparison flags are not supported yet"); return;
       }
-      if (a->getPredicate() != b->getPredicate()) {
-        fail("comparison predicates differ between profiles");
-        return;
-      }
       auto x = operand(a->getOperand(0), b->getOperand(0));
       auto y = operand(a->getOperand(1), b->getOperand(1));
       if (!x || !y)
         return;
       result = op("sela.compare", builder.getI1Type(), {x, y},
-                  {attr("predicate", builder.getI32IntegerAttr(a->getPredicate()))});
+                  {attr("predicate", choice(builder.getI32IntegerAttr(a->getPredicate()), builder.getI32IntegerAttr(b->getPredicate())))});
     } else {
       fail("unsupported first-checkpoint instruction: " + StringRef(left.getOpcodeName()));
       return;
@@ -1183,21 +1208,21 @@ public:
 
   void merge(llvm::Module &left, llvm::Module &right) {
     auto lf = moduleFlags(left), rf = moduleFlags(right);
-    auto numReg = rf.find("NumRegisterParameters");
-    bool hasNumReg = numReg != rf.end();
-    std::pair<unsigned, uint64_t> numRegValue;
-    if (hasNumReg) { numRegValue = numReg->second; rf.erase(numReg); }
-    if (lf != rf) { fail("profile module flags differ beyond the supported native ABI setting"); return; }
     llvm::SmallVector<Attribute> flags;
-    auto flag = [&](StringRef name, std::pair<unsigned, uint64_t> value, StringRef profile) {
+    auto flag = [&](StringRef name, std::pair<unsigned, uint64_t> value, unsigned mask) {
       flags.push_back(builder.getDictionaryAttr({
           attr("name", builder.getStringAttr(name)),
           attr("behavior", builder.getI32IntegerAttr(value.first)),
           attr("value", builder.getI32IntegerAttr(value.second)),
-          attr("profile", builder.getStringAttr(profile))}));
+          attr("targets", domain(mask))}));
     };
-    for (const auto &[name, value] : lf) flag(name, value, "both");
-    if (hasNumReg) flag("NumRegisterParameters", numRegValue, "i686");
+    for (const auto &[name, value] : lf) {
+      auto peer = rf.find(name);
+      bool common = peer != rf.end() && peer->second == value;
+      flag(name, value, common ? 3 : 1);
+      if (common) rf.erase(peer);
+    }
+    for (const auto &[name, value] : rf) flag(name, value, 2);
     (*module)->setAttr("sela.module_flags", builder.getArrayAttr(flags));
     unsigned globalIndex = 0;
     std::vector<std::pair<llvm::GlobalVariable *, llvm::GlobalVariable *>> globals;
@@ -1238,6 +1263,8 @@ public:
         auto name = a.getName();
         if (name.ends_with(".i64"))
           b = right.getFunction(name.drop_back(4).str() + ".i32");
+        else if (name.ends_with(".i32"))
+          b = right.getFunction(name.drop_back(4).str() + ".i64");
       }
       if (!b || a.isDeclaration() != b->isDeclaration() ||
           a.arg_size() != b->arg_size() || a.isVarArg() != b->isVarArg() ||
@@ -1270,9 +1297,13 @@ public:
       }
       std::string id = (!a.hasLocalLinkage())
                            ? a.getName().str() : "f" + std::to_string(index);
-      if (memoryIntrinsic(a) && a.getName() != b->getName())
+      if (memoryIntrinsic(a) && a.arg_size() >= 3 &&
+          a.getArg(2)->getType()->isIntegerTy(leftTarget.wordBits) &&
+          b->getArg(2)->getType()->isIntegerTy(rightTarget.wordBits))
         id = a.getName().drop_back(4).str() + ".word";
-      ++index;
+      // Private identities follow definition order, never the position of
+      // an intrinsic/import declaration first used by a target ABI shim.
+      if (!a.isDeclaration()) ++index;
       symbols[&a] = id;
       symbols[b] = id;
       pairs[&a] = b;
@@ -1318,7 +1349,11 @@ public:
       builder.setInsertionPointToEnd(module->getBody());
       llvm::SmallVector<mlir::Type> parameters, returns;
       for (unsigned i = 0; i < a->arg_size(); ++i) {
-        auto t = type(a->getArg(i)->getType(), b->getArg(i)->getType());
+        bool leftCursor = leftVarargs.forwardedParameters.lookup(a).contains(i);
+        bool rightCursor = rightVarargs.forwardedParameters.lookup(b).contains(i);
+        if (leftCursor != rightCursor) { fail("native cursor formal lacks paired proof"); return; }
+        auto t = leftCursor ? mlir::Type(ir::VaListArgumentType::get(&context))
+                            : type(a->getArg(i)->getType(), b->getArg(i)->getType());
         if (!t)
           return;
         parameters.push_back(t);
@@ -1355,11 +1390,11 @@ public:
       llvm::SmallVector<detail::ConditionalCFGBlockPair, 16> bodyBlocks;
       if (a->size() != b->size()) {
         auto graph = detail::pairConditionalCFG(*a, *b);
-        if (!graph) { fail(llvm::toString(graph.takeError())); return; }
+        if (!graph) { fail(a->getName() + " (" + leftTarget.id + "/" + rightTarget.id + "): " + llvm::toString(graph.takeError())); return; }
         conditionalCFG = std::move(*graph);
         bodyBlocks = conditionalCFG->blocks;
         llvm::SmallVector<Attribute> domains;
-        for (const auto &pair : bodyBlocks) domains.push_back(builder.getI32IntegerAttr(pair.domain));
+        for (const auto &pair : bodyBlocks) domains.push_back(domain(pair.domain));
         function->setAttr("block_domains", builder.getArrayAttr(domains));
       } else {
         auto right = b->begin();
@@ -1429,16 +1464,17 @@ public:
         const auto *rightBlock = pair.right;
         llvm::SmallVector<const llvm::Instruction *> ai, bi;
         for (auto &instruction : leftBlock)
-          if (!debugInstruction(instruction) && !llvm::isa<llvm::PHINode>(instruction)) ai.push_back(&instruction);
+          if (!debugInstruction(instruction) && !llvm::isa<llvm::PHINode>(instruction) &&
+              !leftVarargs.forwardingScaffolding.contains(&instruction)) ai.push_back(&instruction);
         for (auto &instruction : *rightBlock)
-          if (!debugInstruction(instruction) && !llvm::isa<llvm::PHINode>(instruction)) bi.push_back(&instruction);
+          if (!debugInstruction(instruction) && !llvm::isa<llvm::PHINode>(instruction) &&
+              !rightVarargs.forwardingScaffolding.contains(&instruction)) bi.push_back(&instruction);
         builder.setInsertionPointToEnd(blocks.lookup(&leftBlock));
         size_t i = 0, j = 0;
         while (i < ai.size() || j < bi.size()) {
           const auto *leftInstruction = i < ai.size() ? ai[i] : nullptr;
           const auto *rightInstruction = j < bi.size() ? bi[j] : nullptr;
-          if (!leftInstruction || !rightInstruction || leftInstruction->getOpcode() != rightInstruction->getOpcode()) {
-            if (normalizeVAForward(rightInstruction)) { ++j; continue; }
+          if (!leftInstruction || !rightInstruction || !correspondingInstructionKind(*leftInstruction, *rightInstruction)) {
             if (normalizeOneSidedCast(leftInstruction, rightInstruction, true)) { ++i; continue; }
             if (normalizeOneSidedCast(leftInstruction, rightInstruction, false)) { ++j; continue; }
             fail("profile instruction sequences need additional normalization in " + a->getName() +
@@ -1461,55 +1497,125 @@ public:
 
 } // namespace
 
-llvm::Error mergeProfiles(StringRef x86_64Capture, StringRef i686Capture,
+llvm::Error mergeProfiles(llvm::ArrayRef<CaptureObservation> observations,
                           StringRef bytecodeOutput, ArtifactSummary *summary) {
-  llvm::LLVMContext leftContext, rightContext;
-  llvm::SMDiagnostic diagnostic;
-  auto left = llvm::parseIRFile(x86_64Capture, diagnostic, leftContext);
-  if (!left) return failure("cannot parse x86_64 LLVM capture: " + diagnostic.getMessage());
-  auto right = llvm::parseIRFile(i686Capture, diagnostic, rightContext);
-  if (!right) return failure("cannot parse i686 LLVM capture: " + diagnostic.getMessage());
-  if (auto e = validateCapture(*left, true)) return e;
-  if (auto e = validateCapture(*right, false)) return e;
-  if (llvm::verifyModule(*left) || llvm::verifyModule(*right))
-    return failure("input LLVM capture verification failed");
-  auto leftOverlaps = detail::discoverNativeOverlaps(*left);
-  if (!leftOverlaps) return leftOverlaps.takeError();
-  auto rightOverlaps = detail::discoverNativeOverlaps(*right);
-  if (!rightOverlaps) return rightOverlaps.takeError();
-  auto leftAggregates = detail::normalizeNativeAggregates(*left, true);
-  if (!leftAggregates) return leftAggregates.takeError();
-  auto rightAggregates = detail::normalizeNativeAggregates(*right, false);
-  if (!rightAggregates) return rightAggregates.takeError();
-  auto leftByteSwaps = detail::normalizeNativeByteSwaps(*left);
-  if (!leftByteSwaps) return leftByteSwaps.takeError();
-  auto rightByteSwaps = detail::normalizeNativeByteSwaps(*right);
-  if (!rightByteSwaps) return rightByteSwaps.takeError();
-  auto leftVarargs = detail::normalizeNativeVarargs(*left, true);
-  if (!leftVarargs) return leftVarargs.takeError();
-  auto rightVarargs = detail::normalizeNativeVarargs(*right, false);
-  if (!rightVarargs) return rightVarargs.takeError();
-  if (llvm::verifyModule(*left) || llvm::verifyModule(*right))
-    return failure("native varargs template normalization produced invalid LLVM IR");
-  Merger merger(*leftVarargs, *rightVarargs, *leftOverlaps, *rightOverlaps, *leftAggregates, *rightAggregates);
-  merger.merge(*left, *right);
-  if (!merger.error.empty()) return failure(merger.error);
-  if (mlir::failed(mlir::verify(*merger.module)))
-    return failure("generated common MLIR verification failed");
-  for (bool x64 : {true, false}) {
+  if (observations.empty() || observations.size() > 256) return failure("invalid native observation inventory");
+  struct Prepared {
+    const targets::TargetInfo *target;
+    std::unique_ptr<llvm::LLVMContext> context;
+    std::unique_ptr<llvm::Module> original, normalized;
+    detail::NativeOverlaps overlaps;
+    detail::NativeVarargs varargs;
+    detail::NormalizedAggregateModule aggregates;
+  };
+  std::vector<Prepared> inputs;
+  std::set<std::string> seen;
+  llvm::SmallVector<StringRef> targetIDs;
+  for (const auto &observation : observations) {
+    auto *target = targets::find(observation.target);
+    if (!target || !seen.insert(observation.target).second)
+      return failure("unknown or duplicate native observation target: " + observation.target);
+    auto context = std::make_unique<llvm::LLVMContext>();
+    llvm::SMDiagnostic diagnostic;
+    auto original = llvm::parseIRFile(observation.capture, diagnostic, *context);
+    if (!original) return failure("cannot parse " + observation.target + " LLVM capture: " + diagnostic.getMessage());
+    if (auto error = validateCapture(*original, *target)) return error;
+    if (llvm::verifyModule(*original)) return failure("input LLVM capture verification failed: " + observation.target);
+    // Keep the untouched capture alive through every final native inverse.
+    // Normalization is a proved private transformation, never replacement of
+    // missing observations with a previously synthesized target's output.
+    auto normalized = llvm::CloneModule(*original);
+    auto overlaps = detail::discoverNativeOverlaps(*normalized);
+    if (!overlaps) return overlaps.takeError();
+    auto varargs = detail::normalizeNativeVarargs(*normalized, target->id);
+    if (!varargs) return varargs.takeError();
+    auto aggregates = detail::normalizeNativeAggregates(*normalized, target->id, nullptr, &*varargs);
+    if (!aggregates) return aggregates.takeError();
+    auto byteSwaps = detail::normalizeNativeByteSwaps(*normalized);
+    if (!byteSwaps) return byteSwaps.takeError();
+    if (llvm::verifyModule(*normalized)) return failure("private native normalization produced invalid LLVM IR");
+    inputs.push_back({target, std::move(context), std::move(original), std::move(normalized),
+                      std::move(*overlaps), std::move(*varargs), std::move(*aggregates)});
+    targetIDs.push_back(target->id);
+  }
+  auto makePair = [&](size_t left, size_t right) {
+    auto &a = inputs[left]; auto &b = inputs[right];
+    auto merger = std::make_unique<Merger>(a.varargs, b.varargs, a.overlaps, b.overlaps, a.aggregates, b.aggregates,
+                                         *a.target, *b.target);
+    merger->merge(*a.normalized, *b.normalized);
+    return merger;
+  };
+  // The pair prover remains a reusable correspondence primitive. Public
+  // domains and the N-observation result are not defined by that primitive.
+  auto seed = makePair(0, inputs.size() == 1 ? 0 : 1);
+  if (!seed->error.empty()) return failure(seed->error);
+  std::vector<std::unique_ptr<Merger>> additional;
+  mlir::OwningOpRef<mlir::ModuleOp> merged;
+  std::vector<std::map<std::string, std::string>> sharedStorageIdentities;
+  if (inputs.size() <= 2) merged = mlir::OwningOpRef<mlir::ModuleOp>((*seed->module).clone());
+  else {
+    std::vector<mlir::OwningOpRef<mlir::ModuleOp>> projections;
+    llvm::SmallVector<mlir::ModuleOp> views;
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      mlir::ModuleOp source = *seed->module;
+      if (i >= 2) {
+        additional.push_back(makePair(i, i));
+        if (!additional.back()->error.empty()) return failure(additional.back()->error);
+        std::string text;
+        llvm::raw_string_ostream stream(text);
+        additional.back()->module->print(stream);
+        auto imported = mlir::parseSourceString<mlir::ModuleOp>(text, &seed->context);
+        if (!imported) return failure("cannot construct private shared-context semantic projection");
+        projections.push_back(std::move(imported));
+        source = *projections.back();
+      }
+      auto projection = ir::specializeDomains(source, *inputs[i].target);
+      if (!projection) return projection.takeError();
+      // An optional native-width cast specializes either to its exact integer
+      // cast or to identity. Remove only these explicit identity operations.
+      llvm::SmallVector<Operation *> casts;
+      (*projection)->walk([&](Operation *operation) {
+        if (operation->getName().getStringRef() == "sela.cast") casts.push_back(operation);
+      });
+      for (auto *operation : casts) {
+        auto opcode = operation->getAttrOfType<mlir::StringAttr>("opcode");
+        if (!opcode || !opcode.getValue().starts_with("native_")) continue;
+        if (operation->getOperand(0).getType() == operation->getResult(0).getType()) {
+          operation->getResult(0).replaceAllUsesWith(operation->getOperand(0)); operation->erase();
+        } else operation->setAttr("opcode", mlir::StringAttr::get(&seed->context, opcode.getValue().drop_front(7)));
+      }
+      projections.push_back(std::move(*projection)); views.push_back(*projections.back());
+    }
+    auto common = detail::mergeCommonModules(views, targetIDs);
+    if (!common) return common.takeError();
+    merged = std::move(common->module);
+    sharedStorageIdentities = std::move(common->storageIdentities);
+  }
+  if (auto error = verifyModuleStructure(*merged)) return error;
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    auto &input = inputs[i];
     llvm::LLVMContext loweredContext;
     detail::NativeABIInverseHints inverseHints;
-    auto lowered = detail::lowerModule(*merger.module, loweredContext, x64, &inverseHints);
+    auto lowered = detail::lowerModule(*merged, loweredContext, input.target->id, &inverseHints);
     if (!lowered) return lowered.takeError();
-    auto inverse = detail::normalizeNativeAggregates(**lowered, x64, &inverseHints);
+    auto varargs = detail::normalizeNativeVarargs(**lowered, input.target->id);
+    if (!varargs) return varargs.takeError();
+    auto inverse = detail::normalizeNativeAggregates(**lowered, input.target->id, &inverseHints, &*varargs);
     if (!inverse) return inverse.takeError();
     if (llvm::verifyModule(**lowered)) return failure("native aggregate inverse normalization produced invalid LLVM IR");
-    auto &reference = x64 ? *left : *right;
-    const auto &recordIDs = x64 ? merger.leftRecordIDs : merger.rightRecordIDs;
+    auto &reference = *input.normalized;
+    const auto &recordIDs = i == 0 ? seed->leftRecordIDs : i == 1 ? seed->rightRecordIDs : additional[i - 2]->leftRecordIDs;
     for (auto *record : reference.getIdentifiedStructTypes()) record->setName("");
-    for (const auto &entry : recordIDs) entry.first->setName(entry.second);
-    canonicalize(reference, x64);
-    canonicalize(**lowered, x64);
+    for (const auto &entry : recordIDs) {
+      std::string identity = entry.second;
+      if (!sharedStorageIdentities.empty()) {
+        auto found = sharedStorageIdentities[i].find(identity);
+        if (found != sharedStorageIdentities[i].end()) identity = found->second;
+      }
+      entry.first->setName(identity);
+    }
+    canonicalize(reference, *input.target);
+    canonicalize(**lowered, *input.target);
     auto expected = moduleText(reference), actual = moduleText(**lowered);
     if (expected != actual) {
       size_t mismatch = 0;
@@ -1518,20 +1624,24 @@ llvm::Error mergeProfiles(StringRef x86_64Capture, StringRef i686Capture,
         size_t start = mismatch ? text.rfind('\n', std::min(mismatch - 1, text.size())) : std::string::npos;
         start = start == std::string::npos ? 0 : start + 1;
         size_t end = text.find('\n', start);
-        return text.substr(start, std::min<size_t>(end == std::string::npos ? text.size() - start : end - start, 180));
+        // Attribute comments alone cannot distinguish an ABI-attribute fault
+        // from an import-order fault. Include the adjacent signature as well.
+        if (text.compare(start, 17, "; Function Attrs:") == 0 && end != std::string::npos)
+          end = text.find('\n', end + 1);
+        return text.substr(start, std::min<size_t>(end == std::string::npos ? text.size() - start : end - start, 300));
       };
-      return failure(llvm::Twine(x64 ? "x86_64" : "i686") + " semantic round-trip comparison failed; expected `" +
+      return failure(llvm::Twine(input.target->id) + " semantic round-trip comparison failed; expected `" +
           line(expected) + "`, reconstructed `" + line(actual) + "`");
     }
   }
   std::error_code ec;
   llvm::raw_fd_ostream output(bytecodeOutput, ec, llvm::sys::fs::OF_None);
   if (ec) return llvm::errorCodeToError(ec);
-  if (mlir::failed(mlir::writeBytecodeToFile(merger.module->getOperation(), output)))
+  if (mlir::failed(mlir::writeBytecodeToFile(merged->getOperation(), output)))
     return failure("cannot serialize common MLIR bytecode");
   output.flush();
   if (output.has_error()) return failure("failed writing common MLIR bytecode");
-  if (summary) return inspectArtifact(bytecodeOutput, *summary, {"x86_64", "i686"});
+  if (summary) return inspectArtifact(bytecodeOutput, *summary, targetIDs);
   return llvm::Error::success();
 }
 

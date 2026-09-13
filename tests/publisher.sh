@@ -9,7 +9,7 @@ clang="$SELA_SDK_ROOT/host/usr/lib/llvm-18/bin/clang"
 source_file="$test_root/tests/fixtures/publisher/flags.c"
 include_dir="$test_root/tests/fixtures/publisher/include"
 
-# Ordinary compiler options survive both native captures and device lowering.
+# Ordinary compiler options survive all native captures and device lowering.
 for level in O0 O1 O2 O3 Os Oz; do
     "$clang" --config="$config" "-$level" -std=c17 -DPUBLISHED_VALUE=19 \
       -I "$include_dir" "$source_file" -o "$test_work/$level.sela"
@@ -89,7 +89,7 @@ native_lane="$test_work/native"
 mkdir -p "$native_lane/metadata"
 native_flags=(--target=x86_64-unknown-linux-gnu
     --sysroot="$SELA_SDK_ROOT/sysroots/x86_64-linux-gnu"
-    -fno-temp-file -fPIC -g -fstandalone-debug
+    -fno-temp-file -fPIC -g -fstandalone-debug -frecord-command-line
     -fplugin="$plugin_dir/libsela-clang.so"
     -fpass-plugin="$plugin_dir/sela-capture.so")
 export SELA_BUILD_METADATA="$native_lane/metadata"

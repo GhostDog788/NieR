@@ -16,12 +16,18 @@ Other producers can construct Sela through the public APIs without LLVM captures
 That producer API is implemented; complete Rust, Go, and Kotlin integrations are not.
 
 The development baseline is x86-64 Ubuntu 24.04 with the pinned LLVM 18.1.3 SDK.
-Separate genuinely native x86-64 and i686 compilers use unmodified, source-built LLVM/MLIR SDKs with the X86 backend family registered.
+The current target registry defines four equal Linux/glibc products: x86-64, i686, ARMv7 hard-float, and AArch64.
+Each native compiler uses an unmodified, source-built LLVM/MLIR SDK registering its target's backend family and links only its own Sela native adapter.
+See [native targets](adding-native-targets.md) for exact ABIs and the new increment's qualification obligations.
+The four-target implementation passes all 44 publisher tests and all 11 consumer tests per target.
+Its common core fixture set passes in four source-free, matching-kernel VMs, including real 32-bit i686 and ARMv7 kernels.
+The complete configured cJSON/zlib corpus also passes on all four devices: 42 cJSON artifacts and eight zlib artifacts, supplied unchanged to every native compiler, with the original upstream tests and native-library checks.
+This is two complete fresh project preparations plus separate device receipts, not one combined command; initial VM failures and passing unchanged-input continuations remain explicitly recorded in the [four-target qualification evidence](compiler-distribution.md#four-target-corpus-checkpoint-on-2026-09-13).
 The pre-rename bundles passed the fresh matrix and complete dual-destination corpus at commits `63592ab` and `be63890`, including real 32-bit-kernel execution.
-The fresh Sela builds separately pass all 40 publisher tests, all 11 component tests per device, the new two-device matrix, and the complete dual-device zlib corpus.
+The earlier two-target Sela builds separately passed all 40 publisher tests, all 11 component tests per device, their two-device matrix, and the complete dual-device zlib corpus.
 cJSON's fresh publication/native/x86-64 stages plus a separately passing unchanged-fixture real-i686 continuation cover all 42 artifacts; the original command's VM boot failure remains recorded unchanged in the distribution reference.
 Each public `selac` compiles and lowers only its own native target. Shared structural inspection can report foreign domains, but must explicitly mark their native validation unavailable.
-The C publisher's private two-profile reference builds and publisher-only diagnostic helper are separate evidence; by themselves they establish neither a deployment product nor portability to arbitrary CPUs and ABIs.
+The C publisher's private per-target reference builds and publisher-only diagnostic helper are separate evidence; by themselves they establish neither a deployment product nor portability to arbitrary CPUs and ABIs.
 See the [compiler distribution reference](compiler-distribution.md) for current source-SDK, packaging, VM, corpus commands, and qualification boundaries.
 
 The archive carries a manifest and Sela bytecode for separate translation units.
@@ -32,7 +38,9 @@ This is source exclusion from the published artifact, not closed-source licensin
 ## Existing C projects and native libraries
 
 The SDK adapters support Make or CMake as independent alternatives.
-They run an existing project's native build in two private trees, keeping configure probes, generators, and target-generated headers native.
+They run an existing project's native build in one private tree per target, keeping configure probes, generators, and target-generated headers native to that target.
+Foreign build-time programs need explicitly provisioned QEMU/binfmt support; CMake also receives target metadata and an emulator.
+Missing support fails preflight instead of generating fake configure results or silently installing system handlers.
 Only the selected application's captures pass through the stock-Clang Sela publication path.
 A global `CC="clang --config=sela.cfg"` is not suitable for a build that executes compiler probes or generators.
 See the [integration reference](build-integration.md) and [practical user guide](../guides/02-toolchain-users/using-sela-with-your-c-project.md).
@@ -70,10 +78,10 @@ Regression coverage includes artifact validation, independent producers, CFG/SSA
 Qualified aggregate calls include integer, mixed floating/integer, and larger native-width records across translation units and native shared-library boundaries.
 Union, packed, and bitfield records by value, aggregate `va_arg`, and general divergent function inventories remain qualification limits.
 
-The [locked qualification corpus](qualification-corpus.md) records historical pre-rename fresh passing checkpoints for cJSON and zlib on both independent native device compilers:
-cJSON's static and shared configurations each produced 21 artifacts and passed all 19 original CTests on each destination; zlib's eight outputs passed the original static, shared, and 64-bit-offset recipes on both.
-Each selected artifact was published once and supplied unchanged to both consumers, after rebuilding and testing the original native references.
-That is recorded configured functional evidence, not a fresh qualification claim for every later commit.
+The [locked qualification corpus](qualification-corpus.md) passes at the four-target checkpoint recorded on 2026-09-13:
+cJSON's static and shared configurations each produced 21 artifacts and passed all 19 original CTests on every destination; zlib's eight outputs passed the original static, shared, and 64-bit-offset recipes on all four.
+Each selected artifact was published once and supplied unchanged to all four consumers, after rebuilding and testing the original native references for every target.
+That is configured functional evidence for the recorded compiler and artifact hashes, not a fresh qualification claim for every later commit.
 The complete corpus must be rerun when qualifying compiler changes.
 The shorter CI smoke suite is a regression signal, not a substitute for corpus, performance, or reverse-engineering qualification.
 

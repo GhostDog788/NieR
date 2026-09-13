@@ -236,6 +236,13 @@ void manifestTests(Tests &tests) {
     tests.check("empty static archive accepted", false, llvm::toString(emptyArchive.takeError()));
   else
     tests.validate("empty static archive accepted", *emptyArchive, true);
+  tests.check("default publication domain covers all four distinct targets",
+      defaultArtifactTargets() == std::vector<std::string>{"x86_64", "i686", "armv7", "aarch64"});
+  auto armArchive = createArtifact("static", {}, {}, {}, {"armv7", "aarch64"});
+  if (!armArchive)
+    tests.check("independent ARM target domain accepted", false, llvm::toString(armArchive.takeError()));
+  else
+    tests.validate("independent ARM target domain accepted", *armArchive, true);
   tests.validate("static archive member accepted",
                  mutateManifest([](auto &m) {
                    m["kind"] = "static";
@@ -479,6 +486,28 @@ void archiveTests(Tests &tests) {
 }
 
 void writerTests(Tests &tests) {
+  // libarchive exposes time_t in its public ABI. A header/library width
+  // mismatch can corrupt archive metadata even when every tar operation
+  // reports success (notably Noble's ARM32 libarchive13t64).
+  std::unique_ptr<archive_entry, decltype(&archive_entry_free)> timeEntry(
+      archive_entry_new(), archive_entry_free);
+  if (!timeEntry) {
+    tests.check("libarchive timestamp ABI", false, "cannot allocate archive entry");
+    return;
+  }
+  archive_entry_set_mtime(timeEntry.get(), 0, 0);
+  tests.check("libarchive timestamp ABI preserves exact zero",
+              archive_entry_mtime_is_set(timeEntry.get()) &&
+                  archive_entry_mtime(timeEntry.get()) == time_t{0} &&
+                  archive_entry_mtime_nsec(timeEntry.get()) == 0,
+              "time_t bytes=" + std::to_string(sizeof(time_t)));
+  const time_t seconds = static_cast<time_t>(sizeof(time_t) > 4 ? 3703703670LL
+                                                              : 1234567890LL);
+  constexpr long nanoseconds = 314159265;
+  archive_entry_set_mtime(timeEntry.get(), seconds, nanoseconds);
+  tests.check("libarchive timestamp ABI preserves seconds and nanoseconds",
+              archive_entry_mtime(timeEntry.get()) == seconds &&
+                  archive_entry_mtime_nsec(timeEntry.get()) == nanoseconds);
   auto path = tests.nextPath();
   auto files = validFiles();
   if (auto error = writePackage(path, files)) {

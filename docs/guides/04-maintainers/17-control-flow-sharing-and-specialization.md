@@ -74,17 +74,19 @@ A restriction on the captured producer template is not a ban on LLVM optimizing 
 
 ## The public domain representation
 
-Sela records conditional presence with native-word domain masks:
+Sela records conditional presence with explicit finite target sets:
 
-| Mask | Meaning in the current contract |
-|---|---|
-| `1` | wide domain only |
-| `2` | narrow domain only |
-| `3` | both domains |
+| Target set | Meaning in this example |
+| --- | --- |
+| `["x86_64", "aarch64"]` | the two 64-bit targets |
+| `["i686", "armv7"]` | the two 32-bit targets |
+| `["x86_64", "i686", "armv7", "aarch64"]` | every declared target |
 
 A function can carry `block_domains`, aligned with its block inventory. A switch can carry `case_domains`, aligned with its case inventory.
-The shared entry remains present in both domains.
-These masks describe the current semantic target domain; they are not C preprocessor directives or evidence about all 64-bit and 32-bit architectures.
+The shared entry remains present in every declared domain.
+These sets describe exact identities, not C preprocessor directives or evidence about all 64-bit and 32-bit architectures.
+An ARM-only difference can name ARM targets directly without assigning them a new word-width mask.
+Duplicate, overlapping, unknown, and uncovered target cases reject; inactive regions still undergo public schema validation.
 
 The instructions themselves are ordinary Sela operations. A one-sided arm is not an opaque LLVM payload.
 In its single-domain translation mode, the producer must still resolve values against established shared correspondences or supported values within that arm.

@@ -23,5 +23,6 @@ llvm::Expected<NativeOverlaps> discoverNativeOverlaps(llvm::Module &module);
 llvm::Expected<ir::OverlapType> mergeNativeOverlap(
     const NativeOverlap &left, const NativeOverlap &right,
     mlir::MLIRContext &context, llvm::StringRef identity,
+    llvm::StringRef leftTarget, llvm::StringRef rightTarget,
     llvm::function_ref<mlir::Type(llvm::Type *, llvm::Type *)> mergeType);
 }

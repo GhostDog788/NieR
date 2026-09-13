@@ -120,8 +120,9 @@ Removing private spelling is not permission to remove symbol relationships.
 
 ## Different array extents without opaque target payloads
 
-The current dialect prints an equal-extent array as `!sela.array<N, T>` and a native-word-dependent array as `!sela.word_array<N64, N32, T>`.
-The latter is one element-type contract with two admitted extents, not two opaque modules.
+The current dialect represents an array with one element type and a count attribute.
+That count can be fixed or a finite `target_cases` expression; native-word relationships can also use `pointer_bytes`.
+This is one element-type contract with explicit admitted extents, not separate opaque modules.
 
 The zlib CRC tables motivated an additional initializer form. A bounded shared element sequence can have a target-dependent selected count.
 Common prefix elements are paired normally; a one-domain tail must contain pure literal data, not arbitrary symbol or address expressions.
@@ -137,11 +138,11 @@ The finite-domain array form is not permission to embed whole native programs in
 A union's fields overlap. An LLVM record used as its storage carrier does not necessarily list every source alternative.
 Treating that carrier as an ordinary ordered record would lose important layout and future ABI facts.
 
-Sela therefore has an explicit `!sela.overlap` type. It contains an opaque identity, scalar alternatives in semantic order, and their domain masks.
-For example, this is valid type syntax for two alternatives present in both domains:
+Sela therefore has an explicit `!sela.overlap` type. It contains an opaque identity, scalar alternatives in semantic order, and their target sets.
+For example, this is valid type syntax for two alternatives present on all four targets:
 
 ```mlir
-!sela.overlap<"r1", [i32, f32], [3, 3]>
+!sela.overlap<"r1", [i32, f32], [["x86_64", "i686", "armv7", "aarch64"], ["x86_64", "i686", "armv7", "aarch64"]]>
 ```
 
 Our producer discovers qualified union evidence from actual global or local storage associations.

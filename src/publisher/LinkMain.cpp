@@ -1,5 +1,6 @@
 #include "sela/Artifact/Artifact.h"
 #include "sela/IR/Compiler.h"
+#include "sela/Targets.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/CommandLine.h"
@@ -48,7 +49,7 @@ llvm::Error link(int argc, char **argv) {
   std::vector<fs::path> inputs;
   std::vector<std::string> libraries, linkOptions;
   std::vector<std::string> archiveNames;
-  std::optional<std::vector<size_t>> narrowUnitOrder;
+  std::map<std::string, std::vector<size_t>> unitOrders;
   std::string versionScript, interpreter, emulation = "elf_x86_64";
   bool bothHashStyles = false;
   for (size_t i = 0; i < args.size(); ++i) {
@@ -56,8 +57,12 @@ llvm::Error link(int argc, char **argv) {
     if (arg == "-o" || arg == "-m" || arg == "-z" || arg == "-dynamic-linker" || arg == "--dynamic-linker" || arg == "-L" || arg == "-soname" || arg == "--soname" || arg == "--version-script") {
       if (++i == args.size()) return fail("missing linker argument after " + arg.str());
       if (arg == "-o") output = args[i];
-      else if (arg == "-m" && args[i] != "elf_x86_64" && args[i] != "elf_i386") return fail("unsupported linker emulation");
-      else if (arg == "-m") emulation = args[i];
+      else if (arg == "-m") {
+        if (llvm::none_of(sela::targets::all(), [&](const auto &target) {
+              return target.lldEmulation == args[i];
+            })) return fail("unsupported linker emulation");
+        emulation = args[i];
+      }
       else if (arg == "-dynamic-linker" || arg == "--dynamic-linker") interpreter = args[i];
       else if (arg == "-z" && args[i] != "relro" && args[i] != "now") return fail("unqualified native link setting: -z " + args[i]);
       else if (arg == "-soname" || arg == "--soname") linkOptions.push_back("-soname=" + args[i]);
@@ -67,18 +72,19 @@ llvm::Error link(int argc, char **argv) {
         if (!contents) return contents.takeError();
         versionScript = std::move(*contents);
       }
-    } else if (arg.starts_with("--sela-unit-order-i686=")) {
-      if (narrowUnitOrder) return fail("multiple i686 native-unit permutations are not qualified");
-      auto order = arg.drop_front(llvm::StringRef("--sela-unit-order-i686=").size());
-      if (order.empty() || order.size() > 4096) return fail("invalid i686 native-unit permutation");
+    } else if (arg.starts_with("--sela-unit-order=")) {
+      auto [target, order] = arg.drop_front(llvm::StringRef("--sela-unit-order=").size()).split(':');
+      if (!sela::targets::find(target) || unitOrders.count(target.str()))
+        return fail("unsupported or duplicate target native-unit permutation");
+      if (order.empty() || order.size() > 4096) return fail("invalid target native-unit permutation");
       llvm::SmallVector<llvm::StringRef> indices;
       order.split(indices, ',');
-      if (indices.size() > 512) return fail("oversized i686 native-unit permutation");
-      narrowUnitOrder.emplace();
+      if (indices.size() > 512) return fail("oversized target native-unit permutation");
+      auto &permutation = unitOrders[target.str()];
       for (auto index : indices) {
         unsigned number;
-        if (index.empty() || index.getAsInteger(10, number)) return fail("invalid i686 native-unit permutation index");
-        narrowUnitOrder->push_back(number);
+        if (index.empty() || index.getAsInteger(10, number)) return fail("invalid target native-unit permutation index");
+        permutation.push_back(number);
       }
     } else if (arg == "--sela-static") kind = "static";
     else if (arg.starts_with("--sela-member-name=")) {
@@ -119,8 +125,11 @@ llvm::Error link(int argc, char **argv) {
   }
   // Only Clang's ordinary profile loader is a portable default. An explicit
   // custom interpreter cannot silently become the destination SDK loader.
-  if (!interpreter.empty() && interpreter != (emulation == "elf_i386"
-        ? "/lib/ld-linux.so.2" : "/lib64/ld-linux-x86-64.so.2"))
+  const auto nativeTarget = llvm::find_if(sela::targets::all(), [&](const auto &target) {
+    return target.lldEmulation == emulation;
+  });
+  const auto ordinaryLoader = std::string(nativeTarget->id == "x86_64" ? "/lib64/" : "/lib/") + nativeTarget->loader.str();
+  if (!interpreter.empty() && interpreter != ordinaryLoader)
     return fail("unqualified native dynamic interpreter " + interpreter);
   if (bothHashStyles) linkOptions.push_back("--hash-style=both");
   if (inputs.empty() && kind != "static") return fail("publication link has no Sela object inputs");
@@ -130,7 +139,7 @@ llvm::Error link(int argc, char **argv) {
   std::vector<ArtifactModule> modules;
   CompilationPlan compilationPlan;
   size_t aggregateBytes = 0;
-  std::vector<std::string> targets{"x86_64", "i686"};
+  std::vector<std::string> targets = defaultArtifactTargets();
   auto scratch = Scratch::create();
   if (!scratch) return scratch.takeError();
   for (auto &input : inputs) {
@@ -185,14 +194,14 @@ llvm::Error link(int argc, char **argv) {
         units[i].archiveMember = archiveNames.empty() ? "m" + std::to_string(i) + ".o" : archiveNames[i];
     }
   } else if (!archiveNames.empty()) return fail("archive member names require --sela-static");
-  if (narrowUnitOrder) {
-    auto plan = compilationPlan.find("i686");
-    if (plan == compilationPlan.end() || narrowUnitOrder->size() != plan->second.size())
-      return fail("i686 native-unit permutation does not match the admitted unit inventory");
+  for (const auto &[target, indices] : unitOrders) {
+    auto plan = compilationPlan.find(target);
+    if (plan == compilationPlan.end() || indices.size() != plan->second.size())
+      return fail(target + " native-unit permutation does not match the admitted unit inventory");
     std::vector<bool> seen(plan->second.size());
     std::vector<ArtifactUnit> ordered;
-    for (auto index : *narrowUnitOrder) {
-      if (index >= seen.size() || seen[index]) return fail("i686 native-unit permutation must reference each unit exactly once");
+    for (auto index : indices) {
+      if (index >= seen.size() || seen[index]) return fail(target + " native-unit permutation must reference each unit exactly once");
       seen[index] = true;
       ordered.push_back(std::move(plan->second[index]));
     }

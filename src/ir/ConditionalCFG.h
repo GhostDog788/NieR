@@ -14,7 +14,8 @@ class SwitchInst;
 
 namespace sela::detail {
 
-// Domains match the public native-word contract: 1=word64, 2=word32, 3=both.
+// Private binary correspondence labels only: 1=left, 2=right, 3=both.
+// Public qualification uses explicit target identities, never these bit masks.
 // A missing original is permitted only for a proved one-sided switch arm.
 struct ConditionalCFGBlockPair {
   const llvm::BasicBlock *left = nullptr;

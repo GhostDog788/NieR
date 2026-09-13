@@ -5,7 +5,7 @@ namespace sela::ir {
 
 SelaDialect::SelaDialect(mlir::MLIRContext *context)
     : Dialect(getDialectNamespace(), context, mlir::TypeID::get<SelaDialect>()) {
-  addTypes<WordType, PointerType, ArrayType, RecordType, VaListType, OverlapType>();
+  addTypes<WordType, PointerType, ArrayType, RecordType, VaListType, VaListArgumentType, OverlapType, ChoiceType>();
   addOperations<FunctionOp, GlobalOp, ConstantOp, AddressOp, AllocaOp, LoadOp,
                 StoreOp, CallOp, IndirectCallOp, BinaryOp, CastOp, CompareOp, ReturnOp,
                 BranchOp, CondBranchOp, SwitchOp, UnreachableOp, AddressIndexOp,
@@ -22,6 +22,8 @@ mlir::Type SelaDialect::parseType(mlir::DialectAsmParser &parser) const {
     return PointerType::get(getContext());
   if (keyword == "va_list")
     return VaListType::get(getContext());
+  if (keyword == "va_list_argument")
+    return VaListArgumentType::get(getContext());
   if (keyword == "array") {
     uint64_t count;
     mlir::Type element;
@@ -29,18 +31,22 @@ mlir::Type SelaDialect::parseType(mlir::DialectAsmParser &parser) const {
         parser.parseType(element) || parser.parseGreater()) return {};
     return ArrayType::get(getContext(), element, count);
   }
-  if (keyword == "word_array") {
-    uint64_t count64, count32;
+  if (keyword == "target_array") {
+    mlir::Attribute count;
     mlir::Type element;
-    if (parser.parseLess() || parser.parseInteger(count64) || parser.parseComma() ||
-        parser.parseInteger(count32) || parser.parseComma() || parser.parseType(element) ||
+    if (parser.parseLess() || parser.parseAttribute(count) || parser.parseComma() || parser.parseType(element) ||
         parser.parseGreater()) return {};
-    return ArrayType::getForWordWidths(getContext(), element, count64, count32);
+    return ArrayType::get(getContext(), element, count);
+  }
+  if (keyword == "choice") {
+    mlir::Attribute cases;
+    if (parser.parseLess() || parser.parseAttribute(cases) || parser.parseGreater()) return {};
+    return ChoiceType::get(getContext(), cases);
   }
   if (keyword == "overlap") {
     std::string identity;
     llvm::SmallVector<mlir::Type> alternatives;
-    llvm::SmallVector<unsigned> domains;
+    mlir::ArrayAttr domains;
     if (parser.parseLess() || parser.parseString(&identity) || parser.parseComma() || parser.parseLSquare()) return {};
     if (mlir::failed(parser.parseOptionalRSquare())) {
       do {
@@ -50,15 +56,7 @@ mlir::Type SelaDialect::parseType(mlir::DialectAsmParser &parser) const {
       } while (mlir::succeeded(parser.parseOptionalComma()));
       if (parser.parseRSquare()) return {};
     }
-    if (parser.parseComma() || parser.parseLSquare()) return {};
-    if (mlir::failed(parser.parseOptionalRSquare())) {
-      do {
-        unsigned domain;
-        if (parser.parseInteger(domain)) return {};
-        domains.push_back(domain);
-      } while (mlir::succeeded(parser.parseOptionalComma()));
-      if (parser.parseRSquare()) return {};
-    }
+    if (parser.parseComma() || parser.parseAttribute(domains)) return {};
     if (parser.parseGreater()) return {};
     return OverlapType::get(getContext(), identity, alternatives, domains);
   }
@@ -91,16 +89,18 @@ void SelaDialect::printType(mlir::Type type,
     printer << "ptr";
   else if (mlir::isa<VaListType>(type))
     printer << "va_list";
+  else if (mlir::isa<VaListArgumentType>(type))
+    printer << "va_list_argument";
   else if (auto array = mlir::dyn_cast<ArrayType>(type)) {
-    if (array.getNumElements(true) == array.getNumElements(false))
+    if (mlir::isa<mlir::IntegerAttr>(array.getCount()))
       printer << "array<" << array.getNumElements() << ", " << array.getElementType() << ">";
-    else printer << "word_array<" << array.getNumElements(true) << ", " << array.getNumElements(false) << ", " << array.getElementType() << ">";
+    else printer << "target_array<" << array.getCount() << ", " << array.getElementType() << ">";
+  } else if (auto choice = mlir::dyn_cast<ChoiceType>(type)) {
+    printer << "choice<" << choice.getCases() << ">";
   } else if (auto overlap = mlir::dyn_cast<OverlapType>(type)) {
     printer << "overlap<\"" << overlap.getIdentity() << "\", [";
     llvm::interleaveComma(overlap.getAlternatives(), printer, [&](mlir::Type alternative) { printer << alternative; });
-    printer << "], [";
-    llvm::interleaveComma(overlap.getDomains(), printer);
-    printer << "]>";
+    printer << "], " << overlap.getDomains() << ">";
   } else if (auto record = mlir::dyn_cast<RecordType>(type)) {
     printer << "record<\"" << record.getIdentity() << "\", " << unsigned(record.isPacked()) << ", [";
     llvm::interleaveComma(record.getFields(), printer, [&](mlir::Type field) { printer << field; });

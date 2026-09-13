@@ -1,10 +1,13 @@
 #include "sela/Producer/LLVM.h"
+#include "sela/IR/Domains.h"
+#include "sela/Targets.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <string>
+#include <map>
 
 namespace {
 const char *cfg = R"llvm(
@@ -130,13 +133,97 @@ int main() {
       "define i32 @signed_domain(i32 %input) { %value = sub nsw i32 %input, 1\n ret i32 %value }\n");
   if (passed) {
     sela::ArtifactSummary summary;
-    if (auto error = sela::mergeProfiles(left, right, artifact, &summary)) {
+    if (auto error = sela::mergeProfiles({{"x86_64", left}, {"i686", right}}, artifact, &summary)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "producer: ");
       passed = false;
     } else if (summary.functions != 10) {
       llvm::errs() << "incorrect merged CFG inventory\n"; passed = false;
     }
   }
+  std::map<std::string, std::string> captures;
+  std::map<std::string, std::string> captureTexts;
+  for (const auto &target : sela::targets::all()) {
+    auto path = base + "/" + target.id.str() + "-generic.ll";
+    captures[target.id.str()] = path;
+    std::string text = "target triple = \"" + target.triple.str() + "\"\ntarget datalayout = \"" + target.layout.str() + "\"\n" + cfg;
+    text += target.wordBits == 64
+        ? "define i64 @wordcast(i64 %input) { %low = trunc i64 %input to i32\n %wide = zext i32 %low to i64\n ret i64 %wide }\n"
+        : "define i32 @wordcast(i32 %input) { ret i32 %input }\n";
+    text += "define i32 @character(i8 %input) { %value = " +
+        std::string(target.plainCharSigned ? "sext" : "zext") + " i8 %input to i32\n ret i32 %value }\n";
+    // Opaque source spellings have no cross-target identity. Nested uses must
+    // establish and consistently retain their structural correspondence.
+    auto outer = "%private_outer_" + target.id.str(), inner = "%private_inner_" + target.id.str();
+    text += inner + " = type { i32 }\n" + outer + " = type { i8, " + inner + " }\n";
+    text += "define i32 @nested_storage() { %storage = alloca " + outer + ", align 8\n"
+        " %field = getelementptr inbounds " + outer + ", ptr %storage, i32 0, i32 1, i32 0\n"
+        " store i32 17, ptr %field, align 4\n %result = load i32, ptr %field, align 4\n ret i32 %result }\n";
+    auto memoryName = "llvm.memcpy.p0.p0.i" + std::to_string(target.wordBits);
+    auto lengthType = "i" + std::to_string(target.wordBits);
+    std::string declaration = "declare void @" + memoryName + "(ptr, ptr, " + lengthType + ", i1 immarg)\n";
+    // An ABI transfer can cause the same still-used intrinsic declaration to
+    // appear earlier without changing the definition graph or native code.
+    if (!target.plainCharSigned) text += declaration;
+    text += "define internal i32 @private_copy(ptr %out, ptr %in) { call void @" + memoryName +
+        "(ptr %out, ptr %in, " + lengthType + " 8, i1 false)\n ret i32 23 }\n"
+        "define i32 @use_private_copy(ptr %out, ptr %in) { %value = call i32 @private_copy(ptr %out, ptr %in)\n"
+        " ret i32 %value }\n";
+    if (target.plainCharSigned) text += declaration;
+    captureTexts[target.id.str()] = text;
+    passed &= write(path, text);
+  }
+  // Exercise arbitrary observation order, more than two targets, and
+  // same-width ABI families. No ordering encodes a public word-size domain.
+  const llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> orders = {
+      {"x86_64", "i686", "armv7", "aarch64"}, {"aarch64", "armv7", "i686", "x86_64"},
+      {"i686", "armv7"}, {"x86_64", "aarch64"}, {"armv7"}};
+  for (const auto &order : orders) {
+    llvm::SmallVector<sela::CaptureObservation> observations;
+    for (auto target : order) observations.push_back({target.str(), captures.at(target.str())});
+    sela::ArtifactSummary summary;
+    if (auto error = sela::mergeProfiles(observations, artifact, &summary)) {
+      llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "generic producer: "); passed = false;
+    } else {
+      mlir::MLIRContext context;
+      auto module = sela::readModuleStructure(artifact, context);
+      if (!module) { llvm::consumeError(module.takeError()); passed = false; }
+      else {
+        auto declared = sela::ir::declaredTargets(**module);
+        if (!declared) { llvm::consumeError(declared.takeError()); passed = false; }
+        else if (llvm::ArrayRef<llvm::StringRef>(*declared) != llvm::ArrayRef<llvm::StringRef>(order) || summary.functions != 14) {
+          llvm::errs() << "incorrect generic declaration/definition inventory: " << summary.functions << '\n';
+          passed = false;
+        }
+      }
+    }
+  }
+  for (auto observations : {
+        std::vector<sela::CaptureObservation>{{"x86_64", captures.at("x86_64")}, {"x86_64", captures.at("x86_64")}},
+        std::vector<sela::CaptureObservation>{{"riscv64", captures.at("x86_64")}},
+        std::vector<sela::CaptureObservation>{{"armv7", captures.at("i686")}}}) {
+    auto error = sela::mergeProfiles(observations, artifact);
+    if (!error) passed = false;
+    else llvm::consumeError(std::move(error));
+  }
+  const auto *arm = sela::targets::find("armv7");
+  auto softFloat = base + "/soft-float.ll";
+  passed &= write(softFloat, "target triple = \"armv7-unknown-linux-gnueabi\"\ntarget datalayout = \"" +
+      arm->layout.str() + "\"\ndefine i32 @main() { ret i32 0 }\n");
+  auto wrongABI = sela::mergeProfiles({{"armv7", softFloat}}, artifact);
+  if (!wrongABI) passed = false;
+  else llvm::consumeError(std::move(wrongABI));
+  // Declaration-order normalization must not discard an unmatched real
+  // definition, even when its private spelling is not a public identity.
+  auto extraDefinition = base + "/extra-definition.ll";
+  passed &= write(extraDefinition, captureTexts.at("aarch64") +
+      "define internal i32 @unmatched_definition() { ret i32 0 }\n");
+  auto differentDefinitions = sela::mergeProfiles({{"x86_64", captures.at("x86_64")},
+      {"i686", captures.at("i686")}, {"armv7", captures.at("armv7")}, {"aarch64", extraDefinition}}, artifact);
+  if (!differentDefinitions) passed = false;
+  else llvm::consumeError(std::move(differentDefinitions));
+  llvm::sys::fs::remove(extraDefinition);
+  llvm::sys::fs::remove(softFloat);
+  for (const auto &[target, path] : captures) llvm::sys::fs::remove(path);
   for (const auto &path : {left, right, artifact}) llvm::sys::fs::remove(path);
   llvm::sys::fs::remove(directory);
   return passed ? 0 : 1;

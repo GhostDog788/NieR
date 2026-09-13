@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/GhostDog788/Sela/actions/workflows/ci.yml"><img src="https://github.com/GhostDog788/Sela/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI workflow status"></a>
   <a href="#project-status"><img src="https://img.shields.io/badge/status-pre--alpha-f59e0b" alt="Status: pre-alpha"></a>
-  <a href="docs/reference/development-sdk.md"><img src="https://img.shields.io/badge/platform-Linux%20x86--64-64748b" alt="Current platform: Linux x86-64"></a>
+  <a href="docs/reference/adding-native-targets.md"><img src="https://img.shields.io/badge/platform-Linux%20%2B%20glibc-64748b" alt="Platform: Linux + glibc; x86-64, i686, ARMv7 and AArch64"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-38d9c5" alt="License: Apache-2.0"></a>
 </p>
 
@@ -95,7 +95,7 @@ For an existing application, use [Publish your C project with Sela](docs/guides/
 | --- | --- |
 | Format and compiler | Independent `.sela` artifacts, public producer APIs, and a separate LLVM-based `selac`. |
 | C publication | Stock-Clang plugin; qualified Make/CMake builds; executable, shared-library, and static-archive outputs. |
-| Native targets | Separate Linux x86-64 and i686 compiler bundles on the documented glibc 2.39 runtime baseline; i686 verified under a real 32-bit Linux kernel. |
+| Native targets | Separate x86-64, i686, ARMv7 hard-float, and AArch64 Linux/glibc compiler bundles; the core matrix and all 50 configured cJSON/zlib artifacts pass in four matching-kernel VMs. |
 | Still being qualified | General C/ABI coverage, broader build semantics, native-equivalent performance, and reverse-engineering resistance. |
 | Planned | More languages and targets; production distribution; SESela (SES) for signing and executable-memory security enforcement. |
 

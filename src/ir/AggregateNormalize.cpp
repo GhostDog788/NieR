@@ -1,4 +1,5 @@
 #include "AggregateNormalize.h"
+#include "Varargs.h"
 
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/IR/Constants.h"
@@ -128,7 +129,8 @@ public:
 };
 }
 
-llvm::Expected<llvm::SmallVector<LogicalAggregateABI, 8>> discoverAggregateABIs(llvm::Module &module, bool x64) {
+llvm::Expected<llvm::SmallVector<LogicalAggregateABI, 8>> discoverAggregateABIs(
+    llvm::Module &module, llvm::StringRef targetID, const NativeVarargs *varargs) {
   llvm::SmallVector<LogicalAggregateABI, 8> plans;
   for (auto &function : module) {
     if (function.isDeclaration()) continue;
@@ -137,6 +139,19 @@ llvm::Expected<llvm::SmallVector<LogicalAggregateABI, 8>> discoverAggregateABIs(
     if (!signature) continue;
     auto arguments = signature->getTypeArray();
     if (!arguments.size() || !llvm::any_of(arguments, [](const llvm::DIType *type) { return aggregate(type); })) continue;
+    if (varargs && !aggregate(arguments[0])) {
+      // The varargs recognizer owns native cursor formals. In particular an
+      // ARM32 [1 x i32] cursor is not an ordinary by-value record merely
+      // because debug information represents va_list as a structure.
+      bool onlyCursors = true, cursor = false;
+      for (unsigned i = 1; i < arguments.size(); ++i) {
+        if (!aggregate(arguments[i])) continue;
+        bool proved = i - 1 < function.arg_size() && varargs->incomingArguments.contains(function.getArg(i - 1));
+        cursor |= proved;
+        onlyCursors &= proved;
+      }
+      if (cursor && onlyCursors) continue;
+    }
     LayoutProof proof(module);
     auto result = proof.resolve(arguments[0], true);
     if (!result) return failure(function.getName() + ": " + llvm::toString(result.takeError()));
@@ -149,7 +164,7 @@ llvm::Expected<llvm::SmallVector<LogicalAggregateABI, 8>> discoverAggregateABIs(
       parameters.push_back(*parameter);
     }
     auto *logical = llvm::FunctionType::get(*result, parameters, function.isVarArg());
-    auto classification = classifyNativeABI(logical, x64, proof.ordered);
+    auto classification = classifyNativeABI(logical, targetID, proof.ordered);
     if (!classification) return failure(function.getName() + ": " + llvm::toString(classification.takeError()));
     if (classification->nativeType != function.getFunctionType())
       return failure(function.getName() + ": logical aggregate ABI classification disagrees with captured native signature");
@@ -162,6 +177,23 @@ llvm::Expected<llvm::SmallVector<LogicalAggregateABI, 8>> discoverAggregateABIs(
       if (auto *declare = llvm::dyn_cast<llvm::DbgDeclareInst>(&instruction)) {
         variable = declare->getVariable();
         if (declare->getExpression()->getNumElements() == 0) address = declare->getAddress();
+        // AAPCS64 indirect, non-byval parameters have no typed native
+        // attribute. Pinned Clang describes their debug-only pointer spill
+        // with a single dereference. Recover only a closed, unique spill;
+        // the logical debug type and full native signature are still proved.
+        if (declare->getExpression()->getElements() == llvm::ArrayRef<uint64_t>{llvm::dwarf::DW_OP_deref}) {
+          auto *spill = llvm::dyn_cast<llvm::AllocaInst>(declare->getAddress());
+          llvm::StoreInst *store = nullptr;
+          bool closed = spill && spill->isStaticAlloca() && spill->getAllocatedType()->isPointerTy();
+          if (closed) for (auto *user : spill->users()) {
+            if (llvm::isa<llvm::DbgInfoIntrinsic>(user)) continue;
+            auto *candidate = llvm::dyn_cast<llvm::StoreInst>(user);
+            if (store || !candidate || candidate->getPointerOperand() != spill ||
+                candidate->isVolatile() || candidate->isAtomic()) { closed = false; break; }
+            store = candidate;
+          }
+          if (closed && store && llvm::isa<llvm::Argument>(store->getValueOperand())) address = store->getValueOperand();
+        }
       } else if (auto *assign = llvm::dyn_cast<llvm::DbgAssignIntrinsic>(&instruction)) {
         variable = assign->getVariable();
         if (assign->getExpression()->getNumElements() == 0 && assign->getAddressExpression()->getNumElements() == 0)
@@ -223,15 +255,19 @@ llvm::Expected<AggregateDefinitionProof> proveAggregateDefinition(LogicalAggrega
   auto qualifiedAttributes = [&](const NativeABIValue &value, bool result) {
     llvm::SmallVector<llvm::Attribute> attributes;
     if (value.kind == NativeABIKind::Indirect) {
-      attributes.push_back(llvm::Attribute::get(context, result ? llvm::Attribute::StructRet : llvm::Attribute::ByVal,
-                                               value.storageType));
-      attributes.push_back(llvm::Attribute::getWithAlignment(context, value.abiAlignment));
+      if (result || value.byVal) {
+        attributes.push_back(llvm::Attribute::get(context, result ? llvm::Attribute::StructRet : llvm::Attribute::ByVal,
+                                                 value.storageType));
+        attributes.push_back(llvm::Attribute::getWithAlignment(context, value.abiAlignment));
+      }
       if (result) {
         attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::DeadOnUnwind));
         attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::NoAlias));
         attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::Writable));
       } else attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::NoUndef));
     }
+    if (!result && value.stackAlignment)
+      attributes.push_back(llvm::Attribute::getWithStackAlignment(context, *value.stackAlignment));
     return llvm::AttributeSet::get(context, attributes);
   };
   if (proof.abi.native.sretIndex &&
@@ -258,9 +294,20 @@ llvm::Expected<AggregateDefinitionProof> proveAggregateDefinition(LogicalAggrega
     if (!storage) return failure(function.getName() + ": aggregate parameter has no owned storage anchor");
     if (value.kind == NativeABIKind::Indirect) {
       auto *argument = function.getArg(value.nativeBegin);
-      if (storage != argument || !argument->hasByValAttr() || argument->getParamByValType() != value.storageType ||
-          argument->getParamAlign() != value.abiAlignment)
-        return failure(function.getName() + ": aggregate byval anchor disagrees with classified native ownership");
+      if (storage != argument || argument->hasByValAttr() != value.byVal ||
+          (value.byVal && (argument->getParamByValType() != value.storageType ||
+                          argument->getParamAlign() != value.abiAlignment)))
+        return failure(function.getName() + ": aggregate indirect anchor disagrees with classified native ownership");
+      for (auto *user : argument->users()) {
+        auto *store = llvm::dyn_cast<llvm::StoreInst>(user);
+        auto *spill = store ? llvm::dyn_cast<llvm::AllocaInst>(store->getPointerOperand()) : nullptr;
+        if (!store || store->getValueOperand() != argument || !ordinaryAlloca(spill, argument->getType()) ||
+            store->isVolatile() || store->isAtomic() || !ordinaryMetadata(*store) ||
+            llvm::any_of(spill->users(), [&](auto *use) {
+              return use != store && !llvm::isa<llvm::DbgInfoIntrinsic>(use);
+            })) continue;
+        proof.entryShims.push_back(store); proof.entryShims.push_back(spill);
+      }
       continue;
     }
     auto *allocation = llvm::dyn_cast<llvm::AllocaInst>(storage);
@@ -395,8 +442,8 @@ static llvm::SmallVector<LogicalAggregateABI, 8> rewriteAggregateDefinitions(
   return normalized;
 }
 
-llvm::Expected<llvm::SmallVector<LogicalAggregateABI, 8>> normalizeAggregateDefinitions(llvm::Module &module, bool x64) {
-  auto discovered = discoverAggregateABIs(module, x64);
+llvm::Expected<llvm::SmallVector<LogicalAggregateABI, 8>> normalizeAggregateDefinitions(llvm::Module &module, llvm::StringRef targetID) {
+  auto discovered = discoverAggregateABIs(module, targetID);
   if (!discovered) return discovered.takeError();
   llvm::SmallVector<AggregateDefinitionProof, 8> proofs;
   for (auto &abi : *discovered) {
@@ -436,20 +483,74 @@ llvm::MaybeAlign anchorAlignment(llvm::Value *storage, const llvm::DataLayout &l
 llvm::AttributeSet callABIAttributes(llvm::LLVMContext &context, const NativeABIValue &value, bool result) {
   llvm::SmallVector<llvm::Attribute> attributes;
   if (value.kind == NativeABIKind::Indirect) {
-    attributes.push_back(llvm::Attribute::get(context, result ? llvm::Attribute::StructRet : llvm::Attribute::ByVal,
-                                             value.storageType));
-    attributes.push_back(llvm::Attribute::getWithAlignment(context, value.abiAlignment));
+    if (result || value.byVal) {
+      attributes.push_back(llvm::Attribute::get(context, result ? llvm::Attribute::StructRet : llvm::Attribute::ByVal,
+                                               value.storageType));
+      attributes.push_back(llvm::Attribute::getWithAlignment(context, value.abiAlignment));
+    }
     if (result) {
       attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::DeadOnUnwind));
       attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::Writable));
     } else attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::NoUndef));
   }
+  if (!result && value.stackAlignment)
+    attributes.push_back(llvm::Attribute::getWithStackAlignment(context, *value.stackAlignment));
   return llvm::AttributeSet::get(context, attributes);
+}
+
+struct OwnedIndirectCopy {
+  llvm::AllocaInst *allocation = nullptr;
+  llvm::MemCpyInst *copy = nullptr;
+  llvm::SmallVector<llvm::Instruction *, 2> lifetimes;
+};
+
+// A plain pointer is not evidence of an aggregate ABI. Only this closed
+// caller-owned copy establishes the implicit AAPCS64 by-value transfer.
+// It is folded in original and inverse alike; native lowering recreates it.
+std::optional<OwnedIndirectCopy> ownedIndirectCopy(llvm::CallInst &call,
+    unsigned nativeIndex, const NativeABIValue &value) {
+  auto *allocation = llvm::dyn_cast<llvm::AllocaInst>(call.getArgOperand(nativeIndex));
+  if (!ordinaryAlloca(allocation, value.storageType) || allocation->getAlign() != value.storageAlignment)
+    return std::nullopt;
+  unsigned usesInCall = 0;
+  for (auto &argument : call.args()) usesInCall += argument.get() == allocation;
+  if (usesInCall != 1 || call.getCalledOperand() == allocation) return std::nullopt;
+  OwnedIndirectCopy result;
+  result.allocation = allocation;
+  for (auto *user : allocation->users()) {
+    if (user == &call) continue;
+    if (auto *copy = llvm::dyn_cast<llvm::MemCpyInst>(user)) {
+      auto *length = llvm::dyn_cast<llvm::ConstantInt>(copy->getLength());
+      if (result.copy || copy->getRawDest() != allocation || copy->getRawSource() == allocation ||
+          copy->isVolatile() || !length || length->getZExtValue() != value.storageSize ||
+          copy->getDestAlign() != value.storageAlignment || copy->getSourceAlign() != value.storageAlignment ||
+          copy->getParent() != call.getParent() || !copy->comesBefore(&call) ||
+          !ordinaryMetadata(*copy) || copy->hasOperandBundles()) return std::nullopt;
+      result.copy = copy;
+      continue;
+    }
+    auto *lifetime = llvm::dyn_cast<llvm::IntrinsicInst>(user);
+    if (!lifetime || (lifetime->getIntrinsicID() != llvm::Intrinsic::lifetime_start &&
+                      lifetime->getIntrinsicID() != llvm::Intrinsic::lifetime_end) ||
+        lifetime->getParent() != call.getParent() || lifetime->getArgOperand(1) != allocation ||
+        !ordinaryMetadata(*lifetime) || lifetime->hasOperandBundles()) return std::nullopt;
+    auto *length = llvm::dyn_cast<llvm::ConstantInt>(lifetime->getArgOperand(0));
+    if (!length || length->getZExtValue() != value.storageSize) return std::nullopt;
+    result.lifetimes.push_back(lifetime);
+  }
+  if (!result.copy) return std::nullopt;
+  for (auto *lifetime : result.lifetimes) {
+    auto id = llvm::cast<llvm::IntrinsicInst>(lifetime)->getIntrinsicID();
+    if ((id == llvm::Intrinsic::lifetime_start && !lifetime->comesBefore(result.copy)) ||
+        (id == llvm::Intrinsic::lifetime_end && !call.comesBefore(lifetime))) return std::nullopt;
+  }
+  return result;
 }
 }
 
 llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
-    llvm::Module &module, bool x64, llvm::ArrayRef<llvm::StructType *> ordered) {
+    llvm::Module &module, llvm::StringRef targetID, llvm::ArrayRef<llvm::StructType *> ordered,
+    const NativeVarargs *varargs) {
   llvm::SmallVector<AggregateCallProof, 8> proofs;
   const auto &layout = module.getDataLayout();
   for (auto &function : module) for (auto &instruction : llvm::instructions(function)) {
@@ -499,7 +600,7 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
       }
       if (matched && storage && !resultStores.empty()) {
         auto *candidateType = anchoredRecord(storage, ordered);
-        auto candidate = classifyNativeABI(llvm::FunctionType::get(candidateType, false), x64, ordered);
+        auto candidate = classifyNativeABI(llvm::FunctionType::get(candidateType, false), targetID, ordered);
         // A scalar result assigned to one field of a record is not an
         // aggregate return. Establish the complete physical result form
         // before proposing any result-storage normalization. This check is
@@ -518,12 +619,41 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
     bool anyAggregate = resultType->isAggregateType();
     while (nativeIndex < call->arg_size()) {
       auto *argument = call->getArgOperand(nativeIndex);
+      if (varargs) {
+        auto states = varargs->forwardedArguments.find(call);
+        auto incoming = varargs->forwardedValues.find(call);
+        if ((states != varargs->forwardedArguments.end() && states->second.count(nativeIndex)) ||
+            (incoming != varargs->forwardedValues.end() && incoming->second.count(nativeIndex))) {
+          parameters.push_back(argument->getType()); proof.arguments.push_back(argument);
+          ++nativeIndex;
+          continue;
+        }
+      }
       if (call->paramHasAttr(nativeIndex, llvm::Attribute::ByVal)) {
         auto *storageType = call->getAttributes().getParamByValType(nativeIndex);
         if (anchoredRecord(argument, ordered) != storageType)
           return failure("native aggregate call byval has no qualified storage anchor");
         parameters.push_back(storageType); proof.arguments.push_back(argument);
         ++nativeIndex; anyAggregate = true; continue;
+      }
+      // AAPCS64 passes large owned record copies as ordinary noundef
+      // pointers. Propose a logical boundary only for a qualified record
+      // storage anchor whose classifier reproduces this precise carrier and
+      // attributes; the complete call and closed graph are rechecked below.
+      if (auto *record = anchoredRecord(argument, ordered)) {
+        auto candidateParameters = parameters;
+        candidateParameters.push_back(record);
+        auto candidate = classifyNativeABI(llvm::FunctionType::get(resultType, candidateParameters, false), targetID, ordered);
+        if (!candidate) llvm::consumeError(candidate.takeError());
+        else {
+          const auto &value = candidate->parameters.back();
+          if (value.kind == NativeABIKind::Indirect && !value.byVal && value.nativeBegin == nativeIndex &&
+              ownedIndirectCopy(*call, nativeIndex, value) &&
+              call->getAttributes().getParamAttrs(nativeIndex) == callABIAttributes(module.getContext(), value, false)) {
+            parameters.push_back(record); proof.arguments.push_back(argument);
+            ++nativeIndex; anyAggregate = true; continue;
+          }
+        }
       }
       auto *load = llvm::dyn_cast<llvm::LoadInst>(argument);
       auto *storage = load ? storageBase(load->getPointerOperand()) : nullptr;
@@ -533,7 +663,7 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
         auto candidateParameters = parameters;
         candidateParameters.push_back(record);
         auto *candidateType = llvm::FunctionType::get(resultType, candidateParameters, false);
-        auto candidate = classifyNativeABI(candidateType, x64, ordered);
+        auto candidate = classifyNativeABI(candidateType, targetID, ordered);
         if (!candidate) llvm::consumeError(candidate.takeError());
         else {
           const auto &value = candidate->parameters.back();
@@ -546,7 +676,7 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
               if (!part || !part->hasOneUse() || part->isVolatile() || part->isAtomic() ||
                   part->getType() != value.pieces[piece].type || !ordinaryMetadata(*part) ||
                   part->getParent() != call->getParent() ||
-                  call->getAttributes().getParamAttrs(nativeIndex + piece).hasAttributes() ||
+                  call->getAttributes().getParamAttrs(nativeIndex + piece) != callABIAttributes(module.getContext(), value, false) ||
                   !atStorageOffset(part->getPointerOperand(), storage, value.pieces[piece].offset, layout, addresses)) {
                 groupMatches = false; break;
               }
@@ -564,7 +694,7 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
     }
     if (!anyAggregate) continue;
     proof.logicalType = llvm::FunctionType::get(resultType, parameters, false);
-    auto native = classifyNativeABI(proof.logicalType, x64, ordered);
+    auto native = classifyNativeABI(proof.logicalType, targetID, ordered);
     if (!native) return native.takeError();
     if (native->nativeType != call->getFunctionType())
       return failure(function.getName() + ": recovered aggregate call storage does not reproduce its complete native signature for " +
@@ -578,7 +708,7 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
       return failure("native aggregate call sret attributes are not the qualified contract");
     // Discovery above only proposes groups. Recheck every complete descriptor
     // and closed packing graph, including absence of intervening effects.
-    llvm::DenseSet<llvm::Instruction *> inputShims, outputShims;
+    llvm::DenseSet<llvm::Instruction *> inputShims, outputShims, ownedCopyStorage;
     for (unsigned index = 0; index < proof.native.parameters.size(); ++index) {
       const auto &value = proof.native.parameters[index];
       if (!value.storageType->isAggregateType()) continue;
@@ -589,7 +719,17 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
         if (call->getAttributes().getParamAttrs(value.nativeBegin + piece) !=
             callABIAttributes(module.getContext(), value, false))
           return failure("aggregate call argument has unsupported native attributes");
-      if (value.kind == NativeABIKind::Indirect) continue;
+      if (value.kind == NativeABIKind::Indirect) {
+        if (!value.byVal) {
+          auto copy = ownedIndirectCopy(*call, value.nativeBegin, value);
+          if (!copy) return failure("indirect aggregate argument lacks its closed owned-copy transfer");
+          proof.arguments[index] = copy->copy->getRawSource();
+          inputShims.insert(copy->copy);
+          ownedCopyStorage.insert(copy->allocation);
+          for (auto *lifetime : copy->lifetimes) ownedCopyStorage.insert(lifetime);
+        }
+        continue;
+      }
       for (unsigned piece = 0; piece < value.nativeCount; ++piece) {
         auto *load = llvm::cast<llvm::LoadInst>(call->getArgOperand(value.nativeBegin + piece));
         if (load->getAlign() > llvm::commonAlignment(*alignment, value.pieces[piece].offset))
@@ -627,7 +767,7 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
     }
     for (auto *shim : inputShims) {
       for (auto *next = shim->getNextNode(); next != call; next = next ? next->getNextNode() : nullptr) {
-        if (!next || (!inputShims.contains(next) && !llvm::isa<llvm::DbgInfoIntrinsic>(next) &&
+        if (!next || (!inputShims.contains(next) && !ownedCopyStorage.contains(next) && !llvm::isa<llvm::DbgInfoIntrinsic>(next) &&
                       next->mayHaveSideEffects()))
           return failure("native aggregate call input pack crosses an observable effect");
       }
@@ -641,12 +781,14 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
     proof.shims.clear();
     for (auto *shim : inputShims) proof.shims.push_back(shim);
     for (auto *shim : outputShims) proof.shims.push_back(shim);
+    for (auto *shim : ownedCopyStorage) proof.shims.push_back(shim);
     proofs.push_back(std::move(proof));
   }
   return proofs;
 }
 
-llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(llvm::Module &module, bool x64) {
+llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(
+    llvm::Module &module, llvm::StringRef targetID, const NativeVarargs *varargs) {
   llvm::DebugInfoFinder debug;
   debug.processModule(module);
   LayoutProof layouts(module);
@@ -659,7 +801,7 @@ llvm::Expected<llvm::SmallVector<AggregateCallProof, 8>> proveAggregateCalls(llv
     auto resolved = layouts.resolve(record);
     if (!resolved) llvm::consumeError(resolved.takeError());
   }
-  return proveAggregateCalls(module, x64, layouts.ordered);
+  return proveAggregateCalls(module, targetID, layouts.ordered, varargs);
 }
 
 namespace {
@@ -689,11 +831,12 @@ llvm::Expected<llvm::AttributeList> storageAttributes(llvm::LLVMContext &context
 }
 
 llvm::Expected<NormalizedAggregateModule> normalizeNativeAggregates(
-    llvm::Module &module, bool x64, const NativeABIInverseHints *inverseHints) {
+    llvm::Module &module, llvm::StringRef targetID, const NativeABIInverseHints *inverseHints,
+    const NativeVarargs *varargs) {
   llvm::SmallVector<LogicalAggregateABI, 8> discovered;
   if (inverseHints) discovered = inverseHints->definitions;
   else {
-    auto definitions = discoverAggregateABIs(module, x64);
+    auto definitions = discoverAggregateABIs(module, targetID, varargs);
     if (!definitions) return definitions.takeError();
     discovered = std::move(*definitions);
   }
@@ -706,7 +849,8 @@ llvm::Expected<NormalizedAggregateModule> normalizeNativeAggregates(
     if (!proof) return proof.takeError();
     definitions.push_back(std::move(*proof));
   }
-  auto calls = inverseHints ? proveAggregateCalls(module, x64, inverseHints->orderedRecords) : proveAggregateCalls(module, x64);
+  auto calls = inverseHints ? proveAggregateCalls(module, targetID, inverseHints->orderedRecords, varargs)
+                           : proveAggregateCalls(module, targetID, varargs);
   if (!calls) return calls.takeError();
   llvm::DenseMap<llvm::CallInst *, llvm::AttributeList> callAttributes;
   for (const auto &proof : *calls) {
@@ -744,6 +888,7 @@ llvm::Expected<NormalizedAggregateModule> normalizeNativeAggregates(
   // Every graph and signature has now been proved. Mutation below contains no
   // speculative matching and cannot turn a failed candidate into a partial IR.
   NormalizedAggregateModule result;
+  llvm::SmallPtrSet<llvm::Function *, 8> consumedIntrinsics;
   for (auto &proof : *calls) {
     auto *original = proof.call;
     llvm::SmallVector<llvm::Value *> arguments;
@@ -753,6 +898,13 @@ llvm::Expected<NormalizedAggregateModule> normalizeNativeAggregates(
     call->setAttributes(callAttributes.lookup(original));
     call->setDebugLoc(original->getDebugLoc());
     if (!proof.resultStorage) original->replaceAllUsesWith(call);
+    for (auto *shim : proof.shims) {
+      auto *intrinsic = llvm::dyn_cast<llvm::IntrinsicInst>(shim);
+      if (intrinsic && (intrinsic->getIntrinsicID() == llvm::Intrinsic::memcpy ||
+                        intrinsic->getIntrinsicID() == llvm::Intrinsic::lifetime_start ||
+                        intrinsic->getIntrinsicID() == llvm::Intrinsic::lifetime_end))
+        consumedIntrinsics.insert(intrinsic->getCalledFunction());
+    }
     for (auto *shim : proof.shims) shim->dropAllReferences();
     for (auto *shim : proof.shims) shim->eraseFromParent();
     original->eraseFromParent();
@@ -774,6 +926,8 @@ llvm::Expected<NormalizedAggregateModule> normalizeNativeAggregates(
   }
   auto normalizedDefinitions = rewriteAggregateDefinitions(module, std::move(definitions));
   result.functions.append(std::make_move_iterator(normalizedDefinitions.begin()), std::make_move_iterator(normalizedDefinitions.end()));
+  for (auto *intrinsic : consumedIntrinsics)
+    if (intrinsic->use_empty()) intrinsic->eraseFromParent();
   return result;
 }
 }

@@ -12,15 +12,19 @@ llvm::AttributeSet physicalAttributes(llvm::LLVMContext &context, const NativeAB
                                      bool result, bool definition) {
   llvm::SmallVector<llvm::Attribute> attributes;
   if (value.kind == NativeABIKind::Indirect) {
-    attributes.push_back(llvm::Attribute::get(context,
-        result ? llvm::Attribute::StructRet : llvm::Attribute::ByVal, value.storageType));
-    attributes.push_back(llvm::Attribute::getWithAlignment(context, value.abiAlignment));
+    if (result || value.byVal) {
+      attributes.push_back(llvm::Attribute::get(context,
+          result ? llvm::Attribute::StructRet : llvm::Attribute::ByVal, value.storageType));
+      attributes.push_back(llvm::Attribute::getWithAlignment(context, value.abiAlignment));
+    }
     if (result) {
       attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::DeadOnUnwind));
       attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::Writable));
       if (definition) attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::NoAlias));
     } else attributes.push_back(llvm::Attribute::get(context, llvm::Attribute::NoUndef));
   }
+  if (!result && value.stackAlignment)
+    attributes.push_back(llvm::Attribute::getWithStackAlignment(context, *value.stackAlignment));
   return llvm::AttributeSet::get(context, attributes);
 }
 llvm::Expected<llvm::AttributeList> physicalAttributeList(llvm::LLVMContext &context,
@@ -111,8 +115,15 @@ llvm::Expected<llvm::Function *> materializeNativeAggregateDefinition(llvm::Func
         if (auto *ret = llvm::dyn_cast<llvm::ReturnInst>(block.getTerminator())) returns.push_back(ret);
       for (auto *ret : returns) {
         builder.SetInsertPoint(ret);
-        auto *load = builder.CreateAlignedLoad(native.nativeType->getReturnType(), resultStorage, native.result.storageAlignment);
-        builder.CreateRet(load);
+        if (module.getDataLayout().getTypeStoreSize(native.nativeType->getReturnType()) <= native.result.storageSize) {
+          auto *load = builder.CreateAlignedLoad(native.nativeType->getReturnType(), resultStorage, native.result.storageAlignment);
+          builder.CreateRet(load);
+        } else {
+          auto pieces = loadNativeABIPieces(builder, native.result, resultStorage, native.result.storageAlignment);
+          if (!pieces) return pieces.takeError();
+          if (pieces->size() != 1) return failure("oversized native return requires one bounded coercion");
+          builder.CreateRet(pieces->front());
+        }
         ret->eraseFromParent();
       }
     }
@@ -142,7 +153,18 @@ llvm::Expected<llvm::CallInst *> materializeNativeAggregateCall(llvm::CallInst &
   for (unsigned index = 0; index < native.parameters.size(); ++index) {
     const auto &value = native.parameters[index];
     auto *argument = bodyCall.getArgOperand(index + offset);
-    if (!value.storageType->isAggregateType() || value.kind == NativeABIKind::Indirect) arguments.push_back(argument);
+    if (value.storageType->isAggregateType() && value.kind == NativeABIKind::Indirect && !value.byVal) {
+      // AAPCS64's ordinary indirect pointer does not ask LLVM to make the
+      // by-value copy. Preserve the logical argument's owned-value semantics
+      // explicitly, including when the caller forwards its own argument.
+      auto *function = bodyCall.getFunction();
+      llvm::IRBuilder<llvm::NoFolder> allocationBuilder(&function->getEntryBlock(), function->getEntryBlock().begin());
+      auto *copy = allocationBuilder.CreateAlloca(value.storageType);
+      copy->setAlignment(value.storageAlignment);
+      builder.CreateMemCpy(copy, value.storageAlignment, argument, value.storageAlignment,
+          builder.getInt64(value.storageSize));
+      arguments.push_back(copy);
+    } else if (!value.storageType->isAggregateType() || value.kind == NativeABIKind::Indirect) arguments.push_back(argument);
     else {
       auto pieces = loadNativeABIPieces(builder, value, argument, value.storageAlignment);
       if (!pieces) return pieces.takeError();
@@ -154,7 +176,7 @@ llvm::Expected<llvm::CallInst *> materializeNativeAggregateCall(llvm::CallInst &
   call->setDebugLoc(bodyCall.getDebugLoc());
   if (aggregateResult && !native.sretIndex) {
     llvm::SmallVector<llvm::Value *> pieces;
-    if (native.nativeType->getReturnType()->isStructTy())
+    if (native.result.pieces.size() > 1)
       for (unsigned index = 0; index < native.result.pieces.size(); ++index) pieces.push_back(builder.CreateExtractValue(call, index));
     else pieces.push_back(call);
     if (auto error = storeNativeABIPieces(builder, native.result, bodyCall.getArgOperand(0), native.result.storageAlignment, pieces))

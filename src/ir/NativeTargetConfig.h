@@ -1,27 +1,34 @@
 #pragma once
 
-// Each native implementation is compiled independently. Public word-domain
-// data remain shared; these constants select executable native compiler code.
-#if SELA_NATIVE_WORD_BITS == 64
-#define SELA_NATIVE_NAMESPACE native64
-#elif SELA_NATIVE_WORD_BITS == 32
-#define SELA_NATIVE_NAMESPACE native32
-#else
-#error "Compile native Sela sources with SELA_NATIVE_WORD_BITS=32 or 64"
+// Each object library implements one registered device ABI. Word size is a
+// property of that ABI, never a backend selector.
+#if !defined(SELA_NATIVE_NAMESPACE) || !defined(SELA_NATIVE_TARGET_ID)
+#error "Native sources require their registered target and namespace"
 #endif
 
-#include "llvm/ADT/StringRef.h"
+#include "NativeTargets.h"
+#include "sela/Targets.h"
+#include <string_view>
 namespace sela::detail::SELA_NATIVE_NAMESPACE {
-inline constexpr bool x64 = SELA_NATIVE_WORD_BITS == 64;
-#if SELA_NATIVE_WORD_BITS == 64
-inline constexpr llvm::StringRef TargetID = "x86_64";
-inline constexpr llvm::StringRef TargetTriple = "x86_64-unknown-linux-gnu";
-inline constexpr llvm::StringRef TargetLayout =
-    "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128";
-#else
-inline constexpr llvm::StringRef TargetID = "i686";
-inline constexpr llvm::StringRef TargetTriple = "i686-unknown-linux-gnu";
-inline constexpr llvm::StringRef TargetLayout =
-    "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128";
-#endif
+inline constexpr bool word64 = SELA_NATIVE_WORD_BITS == 64;
+inline constexpr llvm::StringRef TargetID = SELA_NATIVE_TARGET_ID;
+inline const targets::TargetInfo &targetInfo() { return *targets::find(TargetID); }
+inline const llvm::StringRef TargetTriple = targetInfo().triple;
+inline const llvm::StringRef TargetLayout = targetInfo().layout;
+// These traits belong to the isolated ABI implementation, not the public IR.
+inline constexpr bool x64 = std::string_view(SELA_NATIVE_ABI) == "sysv-amd64";
+inline constexpr bool aapcs64 = std::string_view(SELA_NATIVE_ABI) == "aapcs64";
+
+const NativeTargetBackend &backend();
+llvm::Expected<std::unique_ptr<llvm::Module>> lowerModule(
+    mlir::ModuleOp, llvm::LLVMContext &, NativeABIInverseHints *);
+llvm::Expected<NativeABISignature> classifyNativeABI(
+    llvm::FunctionType *, llvm::ArrayRef<llvm::StructType *>);
+llvm::Expected<NativeABISignature> classifyNativeLayoutABI(
+    llvm::FunctionType *, llvm::ArrayRef<NativeABIRecordLayout>);
+llvm::Type *nativeVaListType(llvm::LLVMContext &);
+llvm::Type *nativeVaListArgumentType(llvm::LLVMContext &);
+llvm::Value *nativeVaForward(llvm::IRBuilderBase &, llvm::Value *, bool incoming = false);
+llvm::Value *nativeVaArg(llvm::IRBuilderBase &, llvm::Value *, llvm::Type *);
+bool nativeModuleFlag(llvm::StringRef, uint64_t);
 } // namespace sela::detail::SELA_NATIVE_NAMESPACE

@@ -8,8 +8,8 @@
 
 namespace {
 const char *valid = R"mlir(
-module attributes {sela.schema = 1 : i32} {
-  "sela.global"() {id = "rdata", element = !sela.overlap<"r0", [i8, i16, i32, i64, f32, f64], [3, 3, 3, 1, 3, 3]>,
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686"]} {
+  "sela.global"() {id = "rdata", element = !sela.overlap<"r0", [i8, i16, i32, i64, f32, f64], [["x86_64", "i686"], ["x86_64", "i686"], ["x86_64", "i686"], ["x86_64"], ["x86_64", "i686"], ["x86_64", "i686"]]>,
     initializer = "zero", constant = false, declaration = false,
     linkage = "internal", dso_local = true, alignment = "pointer_bytes", unnamed = 0 : i32} : () -> ()
 }
@@ -24,7 +24,7 @@ bool validate(std::string text, bool accept) {
   auto module = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
   if (!module) return !accept;
   module->walk([&](mlir::Operation *op) { op->setLoc(mlir::UnknownLoc::get(&context)); });
-  auto error = sela::verifyModule(*module, sela::supportedNativeTargets());
+  auto error = sela::verifyModule(*module, llvm::ArrayRef<llvm::StringRef>{"x86_64", "i686"});
   bool passed = !error;
   if (error) llvm::consumeError(std::move(error));
   return passed == accept;
@@ -54,9 +54,10 @@ bool evidence(llvm::StringRef path) {
 }
 int main(int argc, char **argv) {
   bool passed = check("generic overlap accepted", validate(valid, true));
-  passed &= check("mismatched masks rejected", validate(replace("[3, 3, 3, 1, 3, 3]", "[3]"), false));
-  passed &= check("unknown domain rejected", validate(replace("[3, 3, 3, 1, 3, 3]", "[3, 3, 3, 4, 3, 3]"), false));
-  passed &= check("missing domain rejected", validate(replace("[3, 3, 3, 1, 3, 3]", "[1, 1, 1, 1, 1, 1]"), false));
+  const std::string domains = "[[\"x86_64\", \"i686\"], [\"x86_64\", \"i686\"], [\"x86_64\", \"i686\"], [\"x86_64\"], [\"x86_64\", \"i686\"], [\"x86_64\", \"i686\"]]";
+  passed &= check("mismatched domains rejected", validate(replace(domains, "[[\"x86_64\", \"i686\"]]"), false));
+  passed &= check("unknown domain rejected", validate(replace(domains, "[[\"x86_64\", \"i686\"], [\"x86_64\", \"i686\"], [\"x86_64\", \"i686\"], [\"unknown\"], [\"x86_64\", \"i686\"], [\"x86_64\", \"i686\"]]"), false));
+  passed &= check("missing domain rejected", validate(replace(domains, "[[\"x86_64\"], [\"x86_64\"], [\"x86_64\"], [\"x86_64\"], [\"x86_64\"], [\"x86_64\"]]"), false));
   passed &= check("private identity rejected", validate(replace("\"r0\"", "\"SourceUnion\""), false));
   passed &= check("unqualified alternative rejected", validate(replace("i64, f32", "!sela.array<8, i8>, f32"), false));
   passed &= check("inactive alternative validated", validate(replace("i64, f32", "i128, f32"), false));

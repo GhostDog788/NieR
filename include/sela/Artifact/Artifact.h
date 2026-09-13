@@ -15,6 +15,7 @@ struct ArtifactUnit {
   std::string archiveMember;
 };
 using CompilationPlan = std::map<std::string, std::vector<ArtifactUnit>>;
+std::vector<std::string> defaultArtifactTargets();
 // Call after validatePackage. Every fragment occurs exactly once per target;
 // ordered groups restore native translation units before their optimization.
 llvm::Expected<CompilationPlan> readCompilationPlan(const llvm::json::Object &manifest);
@@ -22,7 +23,7 @@ llvm::Expected<PackageFiles> createArtifact(
     llvm::StringRef kind, const std::vector<ArtifactModule> &modules,
     const std::vector<std::string> &libraries = {},
     const std::vector<std::string> &linkOptions = {},
-    const std::vector<std::string> &targets = {"x86_64", "i686"},
+    const std::vector<std::string> &targets = defaultArtifactTargets(),
     llvm::StringRef versionScript = {},
     const CompilationPlan &compilationPlan = {});
 bool validLibrary(llvm::StringRef name);

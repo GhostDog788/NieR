@@ -29,9 +29,10 @@ Capturing earlier in LLVM does not reverse frontend decisions that have already 
 Preprocessing selected source branches, source constant evaluation, record layout, and native calling-convention lowering all affect the emitted module.
 “Before optimization” does not mean “before the target matters.”
 
-Our producer therefore captures two qualified native profiles. The captures are observations of the program under those profiles.
+Our producer therefore captures every target in the publication domain, currently four Linux/glibc profiles.
+The captures are observations of the program under those profiles.
 Later algorithms try to construct one common representation that specializes back correctly.
-Two observations are not a proof for every architecture or a way to recover the unique original source expression.
+Even four observations are not a proof for every architecture or a way to recover the unique original source expression.
 The finite target domain is part of the resulting claim.
 
 ## The capture point
@@ -60,7 +61,9 @@ Its `captureSource` helper copies a Clang invocation and asks unmodified Clang t
 
 The helper must distinguish project choices from target configuration.
 It retains explicit project include paths, while rebuilding the configured SDK system-header search for the selected profile.
-The x86-64 and i686 invocations must not accidentally include the same host-specific libc headers because some absolute host search path leaked into the command.
+The x86 and ARM invocations must not accidentally include the same host-specific libc headers because some absolute host search path leaked into the command.
+The captured stock-driver arguments let each target regenerate its native driver defaults instead of copying the host's internal Clang arguments.
+The registry separates ISA/ABI build flags from publication policy flags, such as the explicit AArch64 outline-atomics and function-multiversioning policy.
 
 It also rejects explicit CPU, feature, or ABI tuning outside the qualified neutral producer contract.
 Silently replacing `-march=native` with a baseline target would change the request.
@@ -72,7 +75,7 @@ Native lowering may turn a source aggregate argument into several scalar argumen
 Those records are hints to be checked against layouts and actual instructions, not authority to rewrite a program.
 They are not copied into the public Sela module as a source-language dependency.
 
-After both captures exist, the action calls the shared merger and packages the resulting common bytecode.
+After all captures exist, the action calls the shared N-observation merger and packages the resulting common bytecode.
 The stock driver invokes the internal publication linker for normal separate compilation and final publication.
 The capture objects and private debug material do not become ordinary application payloads inside the `.sela` archive.
 
@@ -117,7 +120,7 @@ The optional signed security platform is a different axis, and is not implemente
 ## A worked generator case
 
 The generated-input fixture includes a small native generator that writes a header containing `GENERATED_WIDTH`.
-On the wide profile it writes 8; on the narrow profile it writes 4.
+On each 64-bit profile it writes 8; on each 32-bit profile it writes 4.
 
 The correct sequence is to build and run the generator separately in each native lane,
 then capture the application compiled with that lane's generated header.
@@ -129,7 +132,8 @@ The common merger must not repair different runtime strings by deleting or rewri
 Observable strings are program data, even if they resemble paths.
 
 The next stages prove whether the resulting application captures can share one common graph.
-A generator succeeding on both targets does not guarantee that their application graphs are representable by the current merger.
+A generator succeeding on every target does not guarantee that their application graphs are representable by the current merger.
+Foreign build-time programs run through explicitly provisioned emulation, not invented probe results.
 
 ## Failure cases and maintainer discipline
 
@@ -148,18 +152,21 @@ but do not confuse a developer's debugging convenience with permission to export
 
 ## Optional independent lab
 
-This lab observes two native compilations without publishing their objects.
+This lab observes every registered native target without publishing their objects.
 Use Bash from the repository root with the SDK and capture plugin already built:
 
 ```sh
 source sdk/env.sh
 set -euo pipefail
 guide15_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide15-XXXXXX")
-for guide15_target in x86_64 i686; do
+mapfile -t guide15_targets < <(python3 sdk/targets.py list)
+for guide15_target in "${guide15_targets[@]}"; do
+  eval "$(python3 sdk/targets.py shell "$guide15_target")"
   SELA_BUILD_METADATA= \
   SELA_CAPTURE_PATH="$guide15_work/$guide15_target.bc" \
-  clang --target="$guide15_target-unknown-linux-gnu" \
-    --sysroot="$SELA_SDK_ROOT/sysroots/$guide15_target-linux-gnu" \
+  clang --target="$SELA_TARGET_TRIPLE" \
+    "${SELA_TARGET_CLANG_ARGS[@]}" "${SELA_TARGET_PUBLICATION_CLANG_ARGS[@]}" \
+    --sysroot="$SELA_SDK_ROOT/sysroots/$SELA_TARGET_SYSROOT_TRIPLE" \
     -O0 -fPIC -g -fstandalone-debug \
     -fpass-plugin="$PWD/build/prealpha/sela-capture.so" \
     -c tests/fixtures/width.c -o "$guide15_work/$guide15_target.o"
@@ -167,7 +174,7 @@ for guide15_target in x86_64 i686; do
     -o "$guide15_work/$guide15_target.ll"
 done
 rg -n 'target triple|target datalayout|pointer_size|ret i(32|64) [48]' \
-  "$guide15_work/x86_64.ll" "$guide15_work/i686.ll"
+  "$guide15_work/"*.ll
 printf 'Private lab evidence: %s\n' "$guide15_work"
 ```
 

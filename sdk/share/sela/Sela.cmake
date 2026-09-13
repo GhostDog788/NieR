@@ -1,5 +1,8 @@
 # Publisher integration for existing CMake projects. This is a coordinator
 # project, not a replacement C compiler/toolchain for native configure probes.
+# Each registered target gets its own genuine configure/build, with explicit
+# cross/emulator settings for foreign targets. QEMU/binfmt must be provisioned
+# before invoking this coordinator; configure results are never fabricated.
 cmake_minimum_required(VERSION 3.20)
 include_guard(GLOBAL)
 

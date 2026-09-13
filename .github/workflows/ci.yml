@@ -40,7 +40,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
             build-essential ca-certificates curl dpkg-dev file git ripgrep \
-            binutils util-linux xz-utils zstd pkg-config libcurl4t64
+            binutils util-linux xz-utils zstd pkg-config libcurl4t64 \
+            python3 qemu-user-binfmt libc6-i386
 
       - name: Restore pinned package archives
         id: sdk-cache

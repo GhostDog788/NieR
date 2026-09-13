@@ -1,4 +1,5 @@
 #include "ConditionalSpecialization.h"
+#include "sela/IR/Domains.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseMap.h"
@@ -8,17 +9,15 @@ namespace {
 llvm::Error fail(llvm::StringRef text) {
   return llvm::createStringError(std::make_error_code(std::errc::invalid_argument), text);
 }
-llvm::Expected<unsigned> mask(mlir::Attribute attribute) {
-  auto value = mlir::dyn_cast_or_null<mlir::IntegerAttr>(attribute);
-  if (!value || value.getValue().getBitWidth() > 64 || value.getInt() < 1 || value.getInt() > 3)
-    return fail("invalid conditional CFG native-word domain");
-  return unsigned(value.getInt());
-}
 }
 llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeConditionalCFG(
-    mlir::ModuleOp source, bool word64) {
+    mlir::ModuleOp source, llvm::StringRef selected) {
+  auto targets = ir::declaredTargets(source);
+  if (!targets) return targets.takeError();
+  if (!llvm::is_contained(*targets, selected)) return fail("conditional target is outside module qualification");
+  if (auto error = ir::verifyTargetDomains(source)) return std::move(error);
   mlir::OwningOpRef<mlir::ModuleOp> result(source.clone());
-  const unsigned selected = word64 ? 1 : 2;
+  auto all = ir::targetSet(source.getContext(), *targets);
   for (auto &function : result->getBody()->getOperations()) {
     if (function.getName().getStringRef() != "sela.func") continue;
     if (function.getNumRegions() != 1) return fail("conditional CFG requires one function region");
@@ -27,16 +26,11 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeConditionalCFG(
     auto domains = mlir::dyn_cast_or_null<mlir::ArrayAttr>(rawDomains);
     if (rawDomains && (!domains || domains.size() != region.getBlocks().size() || region.empty()))
       return fail("conditional CFG block inventory mismatch");
-    llvm::DenseMap<mlir::Block *, unsigned> blockDomains;
+    llvm::DenseMap<mlir::Block *, mlir::ArrayAttr> blockDomains;
     size_t index = 0;
     for (auto &block : region) {
-      unsigned domain = 3;
-      if (domains) {
-        auto value = mask(domains[index++]);
-        if (!value) return value.takeError();
-        domain = *value;
-      }
-      if (block.isEntryBlock() && domain != 3)
+      auto domain = domains ? mlir::cast<mlir::ArrayAttr>(domains[index++]) : all;
+      if (block.isEntryBlock() && !llvm::all_of(*targets, [&](llvm::StringRef id) { return ir::containsTarget(domain, id); }))
         return fail("conditional CFG must retain a shared entry block");
       blockDomains[&block] = domain;
     }
@@ -62,17 +56,14 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeConditionalCFG(
           auto count = counts[edge];
           if (count < 0 || uint64_t(count) > operation.getNumOperands() - offset)
             return fail("invalid conditional switch argument segment");
-          unsigned domain = 3;
-          if (edge && caseDomains) {
-            auto value = mask(caseDomains[edge - 1]);
-            if (!value) return value.takeError();
-            domain = *value;
-          }
+          auto domain = edge && caseDomains ? mlir::cast<mlir::ArrayAttr>(caseDomains[edge - 1]) : all;
           auto *successor = operation.getSuccessor(edge);
           if (!blockDomains.count(successor)) return fail("conditional switch leaves its function");
-          if ((blockDomains[&block] & domain & ~blockDomains[successor]) != 0)
-            return fail("active conditional switch edge reaches an absent block");
-          if (domain & selected) {
+          for (auto id : *targets)
+            if (ir::containsTarget(blockDomains[&block], id) && ir::containsTarget(domain, id) &&
+                !ir::containsTarget(blockDomains[successor], id))
+              return fail("active conditional switch edge reaches an absent block");
+          if (ir::containsTarget(domain, selected)) {
             successors.push_back(successor);
             selectedCounts.push_back(count);
             if (edge) selectedCases.push_back(cases[edge - 1]);
@@ -97,21 +88,21 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeConditionalCFG(
     // Check all surviving edges and SSA uses before dropping blocks. Otherwise
     // erasing an inactive definition could leave malformed dangling IR behind.
     for (auto &block : region) {
-      if (!(blockDomains[&block] & selected)) continue;
+      if (!ir::containsTarget(blockDomains[&block], selected)) continue;
       for (auto &operation : block) {
         for (auto *successor : operation.getSuccessors())
-          if (!blockDomains.count(successor) || !(blockDomains[successor] & selected))
+          if (!blockDomains.count(successor) || !ir::containsTarget(blockDomains[successor], selected))
             return fail("active branch reaches an absent conditional block");
         for (auto operand : operation.getOperands()) {
           auto *owner = operand.getParentBlock();
-          if (!blockDomains.count(owner) || !(blockDomains[owner] & selected))
+          if (!blockDomains.count(owner) || !ir::containsTarget(blockDomains[owner], selected))
             return fail("active operation uses an absent conditional value");
         }
       }
     }
     llvm::SmallVector<mlir::Block *> removed;
     for (auto &block : region)
-      if (!(blockDomains[&block] & selected)) removed.push_back(&block);
+      if (!ir::containsTarget(blockDomains[&block], selected)) removed.push_back(&block);
     for (auto *block : removed) block->dropAllReferences();
     for (auto *block : removed) block->erase();
     function.removeAttr("block_domains");

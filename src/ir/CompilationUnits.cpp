@@ -1,5 +1,6 @@
 #include "sela/IR/CompilationUnits.h"
 #include "Internal.h"
+#include "sela/Targets.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Linker/Linker.h"
 #include "llvm/Support/FileSystem.h"
@@ -14,7 +15,7 @@ llvm::Error lowerCompilationUnit(llvm::ArrayRef<llvm::StringRef> fragments,
     return llvm::createStringError(std::make_error_code(std::errc::invalid_argument), text);
   };
   if (fragments.empty() || fragments.size() > 512 ||
-      (profile != "x86_64" && profile != "i686"))
+      !targets::find(profile))
     return fail("invalid Sela compilation-unit contract");
   mlir::MLIRContext context;
   llvm::LLVMContext nativeContext;
@@ -23,7 +24,7 @@ llvm::Error lowerCompilationUnit(llvm::ArrayRef<llvm::StringRef> fragments,
   for (auto path : fragments) {
     auto source = readModule(path, context, {profile});
     if (!source) return source.takeError();
-    auto lowered = detail::lowerModule(**source, nativeContext, profile == "x86_64");
+    auto lowered = detail::lowerModule(**source, nativeContext, profile);
     if (!lowered) return lowered.takeError();
     // A grouped unit is semantic reconstruction, not a native-link symbol
     // selection mechanism. Never allow weak/common resolution or local-name

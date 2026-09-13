@@ -27,15 +27,29 @@ Aggregate `va_arg` extraction remains a separate, future qualification; these na
 
 ## Current qualification status
 
+The four-target increment extends the classifier, ordinary-record normalization, and regenerated native-callback tests to every registered Linux/glibc target at O0/O2.
+Run these focused gates with the publisher build:
+
+```bash
+bash tests/aggregate-abi.sh build/prealpha/aggregate_abi_tests .sdk
+bash tests/aggregate-layout.sh build/prealpha/aggregate_layout_tests .sdk
+bash tests/aggregate-normalize.sh build/prealpha/aggregate_normalize_tests .sdk
+bash tests/aggregate-native.sh build/prealpha/aggregate_normalize_tests .sdk
+```
+
+All four commands passed on the initial four-target implementation checkpoint, including ARM execution through user-mode emulation for the last command.
+They do not establish matching-kernel device-bundle acceptance or full corpus qualification.
+The older x86-only baseline scripts above remain useful historical/reference controls; the generic commands above derive their target inventory from the shared registry.
+
 | Gate | Evidence |
 | --- | --- |
 | Unchanged native baseline | x86-64/i686 at O0/O2, including a separately built native callback library |
 | Ordinary-record entry/call/result proof | Complete signatures and closed storage shims; negative tests retain or reject unmatched effects |
-| Native materialization and inverse | Exact normalized native-to-common-to-native comparison on both widths at O0/O2 |
-| Native callback execution | Regenerated application boundaries linked to an unchanged native shared library, both widths at O0/O2 |
-| Shared Sela artifact and core-only consumer | Fixed-argument main, boundary and bridge units merge with both strict inverses; the same Sela units execute on both widths at O0/O2 |
+| Native materialization and inverse | Exact normalized native-to-common-to-native comparison on all four targets at O0/O2 |
+| Native callback execution | Regenerated application boundaries linked to an unchanged native shared library, all four targets at O0/O2 |
+| Shared Sela artifact and core-only consumer | Fixed-argument main, boundary and bridge units merge with a strict inverse for each declared target; the same Sela units execute on all four devices at O0/O2 in the core matrix |
 | Public stock-Clang publication | `aggregate_pipeline` passes Clang to standalone `.sela` to `selac`, plus a stock-native caller of a Sela-produced DSO, on x86-64 at O0/O2 |
-| Independent native device compilers | The fresh `dual-consumer.sh` matrix publishes the fixed-argument aggregate fixtures once and runs native executable/DSO callers on both devices at O0/O2; i686 uses a real 32-bit kernel |
+| Independent native device compilers | `multi-consumer.sh` publishes fixed-argument aggregate fixtures once; all four matching-kernel devices passed compilation of the same bytes and native executable/DSO callers at O0/O2 |
 | Aggregate variadic extraction | Native-only baseline; not qualified by the aggregate importer |
 | Union/packed/bitfield fixed by-value boundaries | Explicit classifier and native baselines pass; producer/core boundary integration is not yet qualified |
 
@@ -43,7 +57,7 @@ Aggregate `va_arg` extraction remains a separate, future qualification; these na
 Union and packed or bitfield **storage** have separate positive Sela pipeline tests; those tests do not establish their by-value calling convention support.
 
 These are qualified fixture shapes, not every ABI combination or general C coverage.
-Private i686 specialization/execution is reference evidence, not an installed i686 product claim.
+Private cross-target specialization/execution is reference evidence, not by itself an installed native product claim.
 The independent native-device matrix is separate positive evidence; the [distribution reference](compiler-distribution.md) records its scope and the distinct full-corpus gate.
 No gate here establishes the complete 01 product, native-performance parity, RE/privacy parity, or security enforcement.
 
@@ -79,6 +93,27 @@ Pair still has an `i64` LLVM parameter after six preceding integer arguments; LL
 This case must not be incorrectly rewritten to `byval`.
 Mixed's memory fallback really changes its LLVM signature.
 Physical classification therefore depends on the complete logical signature, including earlier arguments and hidden result parameters, not only on the aggregate type.
+
+### ARM observations
+
+The same pinned-Clang signature tests check the ARM adapters, including aggregate arrays, homogeneous floating-point records, explicit stack alignment, and indirect ownership without `byval`.
+
+| Logical boundary | ARMv7 hard-float LLVM | AArch64 LLVM |
+| --- | --- | --- |
+| Pair input/result | `[2 x i32]` input; hidden `sret(Pair)` result | `i64` input and result |
+| Mixed input/result | `[2 x i64]` input; hidden `sret(Mixed)` result, align 8 | `[2 x i64]` input and result |
+| Large input/result | `[3 x i64]` input; hidden result, align 8, size 24 | Ordinary `noundef` pointer input, no `byval`; hidden result, align 8, size 24 |
+| Two doubles forming a homogeneous record | Record-valued native input/result | `[2 x double] alignstack(8)` input; record-valued result |
+| Native variadic cursor storage | A record containing one pointer | Three pointers and two 32-bit offsets, 32 bytes total |
+
+ARM32 and i686 therefore cannot share a classifier merely because their pointers are both 32-bit.
+The ARM adapters remain language-blind and consume explicit native ABI/layout semantics.
+Sela's private normalizer also recognizes AArch64's closed debug-only indirect-parameter spill; debug hints alone still do not authorize a rewrite.
+
+Native cursor forwarding is an ABI operation, not a promise that every target passes one pointer unchanged.
+AArch64 requires an owned by-value cursor copy; ARM32 passes a `[1 x i32]` value, and the x86 forms follow their respective native contracts.
+Only the proved implicit AArch64 forwarding copy is folded into that ABI operation.
+An explicit source `va_copy` remains a separate semantic operation, and forwarding a proved incoming cursor must retain the same ownership rules.
 
 ## Implemented bounded ordinary-record normalization
 

@@ -7,6 +7,10 @@ publisher_bin=$(dirname -- "$clang_config")
 build_tool="$publisher_bin/sela-build"
 test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 test_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-build-test-XXXXXX")
+# Empty/invalid QEMU environment values are not equivalent to unset values.
+# The publisher's child-only execution environment must remove them while
+# leaving this caller's environment unchanged.
+export QEMU_SET_ENV=sela-deliberately-invalid QEMU_UNSET_ENV=
 for fixture in build generated file-identity; do
   for system in make cmake; do
     artifact="$test_work/$fixture-$system.sela"
@@ -37,6 +41,19 @@ for fixture in build generated file-identity; do
     fi
   done
 done
+# ARM's native stack-protector guard comes from its managed dynamic loader.
+# That genuine DT_NEEDED edge must not become an architecture-named artifact
+# library or be confused with an uncaptured project DSO.
+"$build_tool" --system make --source "$test_root/tests/fixtures/build" \
+  --output hello --target hello --cflag -fstack-protector-all \
+  --clang-config "$clang_config" --artifact "$test_work/stack-protected.sela" \
+  --keep-private > "$test_work/stack-protected.log" 2>&1
+protected_private=$(sed -n 's/^Private build evidence: //p' "$test_work/stack-protected.log")
+readelf -d "$protected_private/build-armv7/source/hello" | grep -F 'Shared library: [ld-linux-armhf.so.3]'
+tar -xOf "$test_work/stack-protected.sela" manifest.json | python3 -c \
+  'import json,sys; assert json.load(sys.stdin)["libraries"] == []'
+"$selac" "$test_work/stack-protected.sela" -o "$test_work/stack-protected-native"
+test "$(env -u LD_LIBRARY_PATH "$test_work/stack-protected-native")" = 'Hello from a normal build: 8'
 # A normal existing build's selected shared link remains its own Sela artifact.
 make -f "$test_root/sdk/share/sela/Sela.mk" SELA_BUILD_TOOL="$build_tool" \
   SELA_SOURCE_DIR="$test_root/tests/fixtures/shared-build" SELA_NATIVE_OUTPUT=libselafixture.so \
@@ -178,4 +195,6 @@ test ! -e "$test_root/tests/fixtures/build/hello.o"
 test ! -e "$test_root/tests/fixtures/build/CMakeCache.txt"
 test ! -e "$test_root/tests/fixtures/generated/generated.h"
 test ! -e "$test_root/tests/fixtures/generated/generator"
+test "$QEMU_SET_ENV" = sela-deliberately-invalid
+test -z "$QEMU_UNSET_ENV"
 printf 'Stock-Clang Make/CMake, generators/probes, archives, source selection and versioned native DSO dependencies passed.\n'

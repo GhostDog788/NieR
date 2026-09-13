@@ -1,5 +1,7 @@
 # Publisher integration for an unchanged Make project. Invoke this file as a
-# separate makefile; the SDK privately runs the project's own Makefile twice.
+# separate makefile; the SDK runs the project's own Makefile once per target.
+# All registered targets are captured; foreign generators require explicitly
+# provisioned QEMU/binfmt execution. The coordinator never installs handlers.
 # Required: SELA_SOURCE_DIR, SELA_NATIVE_OUTPUT, SELA_ARTIFACT.
 # Optional: SELA_BUILD_TOOL, SELA_TARGETS, SELA_CONFIGURE_ARGS, SELA_CFLAGS.
 SELA_BUILD_TOOL ?= sela-build

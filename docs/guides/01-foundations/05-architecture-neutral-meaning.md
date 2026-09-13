@@ -21,7 +21,7 @@ Sela distinguishes at least three ideas you should never merge into one:
 - a native-width integer such as `!sela.word`;
 - a pointer such as `!sela.ptr`.
 
-An `i32` remains 32 bits on both current targets.
+An `i32` remains 32 bits on every current target.
 A `!sela.word` specializes to the integer width associated with the target's native pointer width.
 A pointer is still a pointer, not merely a word with a different spelling.
 Operations and conversion rules express relationships between those types.
@@ -44,14 +44,14 @@ printf("pointer=%zu word=%zu fixed=%u,%u\n",
 This is a **source excerpt**; its headers and surrounding function are omitted.
 The fixed literals are deliberate controls, not incidental output formatting.
 
-For the two currently modeled native profiles:
+For the four currently modeled Linux/glibc profiles:
 
-| Property | x86-64 Linux profile | i686 Linux profile |
-| --- | --- | --- |
-| Pointer size | 8 bytes | 4 bytes |
-| `size_t` size | 8 bytes | 4 bytes |
-| C `int` size | 4 bytes | 4 bytes |
-| Literal `8u` | Value eight | Value eight |
+| Property | x86-64 | i686 | ARMv7 hard-float | AArch64 |
+| --- | --- | --- | --- | --- |
+| Pointer size | 8 bytes | 4 bytes | 4 bytes | 8 bytes |
+| `size_t` size | 8 bytes | 4 bytes | 4 bytes | 8 bytes |
+| C `int` size | 4 bytes | 4 bytes | 4 bytes | 4 bytes |
+| Literal `8u` | Value eight | Value eight | Value eight | Value eight |
 
 The useful common expression is not “whichever constant differs must be a pointer size.”
 It is an admitted symbolic expression whose specialization reproduces the required native contracts.
@@ -78,29 +78,29 @@ Portability requires preserving the difference, not choosing a convenient global
 
 ## Target domain: the boundary around the claim
 
-The current core admits profile IDs `x86_64` and `i686`.
+The current core admits profile IDs `x86_64`, `i686`, `armv7`, and `aarch64`.
 The artifact declares the targets for which its semantics are intended, and the consumer validates that declaration.
 A target domain is part of the meaning of a qualification claim, not an optional marketing label.
 
-The current C producer obtains private native evidence from both profiles.
-Two observations cannot uniquely reconstruct every original source expression.
+The current C producer obtains private native evidence from every declared profile.
+A finite observation set cannot uniquely reconstruct every original source expression.
 For example, “pointer bytes” and “four times the number of four-byte pieces in a pointer” agree here.
 The producer's task is not to recover the exact source spelling.
 It must construct an admitted common representation and validate that representation against the profiles it claims.
 
 This distinction permits useful bounded transformations without claiming a general theorem about all architectures.
-A future target may differ in a way that neither existing profile exposes.
+A future target may differ in a way that no existing profile exposes.
 Adding it requires native rules, producer/consumer reasoning, and new tests—not simply adding a string to the manifest.
 
-The first product native-output path was x86-64; separate x86-64 and i686 compiler bundles now exist and have passed a fresh publish-once two-device matrix.
-The i686 consumer ran under a real 32-bit kernel, rather than relying on private lowering or the development host's compatibility mode.
+The four products have the same source-free device qualification obligations.
+Both i686 and ARMv7 require real 32-bit kernels for those checks, rather than relying on private lowering or host compatibility mode.
 The [distribution reference](../../reference/compiler-distribution.md) records the separate full-corpus gate and current qualification boundaries.
 Keep target semantics and deployment support separate when reading test results.
 
 ## Data models explain more than pointer size
 
-On the current x86-64 Linux profile, the common C data model is LP64: `long` and pointers are 64 bits while `int` is 32.
-On i686 it is ILP32: those three categories are 32 bits.
+On x86-64 and AArch64, the common C data model is LP64: `long` and pointers are 64 bits while `int` is 32.
+On i686 and ARMv7 it is ILP32: those three categories are 32 bits.
 The names summarize widths; they do not specify every ABI detail.
 
 You must not define Sela's meaning as “every C `long` is always a pointer-sized integer on every platform.”
@@ -108,7 +108,8 @@ That relationship holds for these particular models, not all possible C targets.
 The neutral type has its own semantics; the producer is responsible for expressing source types correctly within the supported domain.
 
 Similarly, two targets with equal pointer widths can disagree about alignment, record passing, or other native behavior.
-A boolean “64-bit” switch is the current implementation's bounded target choice, not a sufficient design for arbitrary future target support.
+Sela therefore uses explicit target identities and finite target sets, not a boolean “64-bit” target selector.
+For example, i686 and ARMv7 have equal pointer widths but different `double` alignment and variadic calling conventions.
 
 ## Layout is a relationship, not just a total size
 

@@ -1,5 +1,6 @@
 #include "sela/IR/Compiler.h"
 #include "sela/IR/Dialect.h"
+#include "sela/Targets.h"
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Parser/Parser.h"
@@ -14,7 +15,7 @@
 
 namespace {
 const char *validAggregateABI = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
   ^entry(%output: !sela.ptr, %input: !sela.ptr):
     %zero = "sela.constant"() {value = 0 : i64} : () -> i32
@@ -45,15 +46,15 @@ module attributes {sela.schema = 1 : i32} {
 }
 )mlir";
 const char *validIndexDomain = R"mlir(
-module attributes {sela.schema = 1 : i32} {
-  "sela.global"() {id = "table", element = !sela.word_array<3, 2, i32>,
-    initializer = {array = [{word64 = 1 : i64, word32 = 4 : i64}, {word64 = 2 : i64, word32 = 5 : i64}, 3 : i64], count = {word64 = 3 : i64, word32 = 2 : i64}},
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
+  "sela.global"() {id = "table", element = !sela.target_array<{target_cases = [{targets = ["x86_64", "aarch64"], value = 3 : i64}, {targets = ["i686", "armv7"], value = 2 : i64}]}, i32>,
+    initializer = {array = [{target_cases = [{targets = ["x86_64", "aarch64"], value = 1 : i64}, {targets = ["i686", "armv7"], value = 4 : i64}]}, {target_cases = [{targets = ["x86_64", "aarch64"], value = 2 : i64}, {targets = ["i686", "armv7"], value = 5 : i64}]}, 3 : i64], count = {target_cases = [{targets = ["x86_64", "aarch64"], value = 3 : i64}, {targets = ["i686", "armv7"], value = 2 : i64}]}},
     constant = true, declaration = false, linkage = "internal", dso_local = true,
     alignment = 4 : i64, unnamed = 0 : i32} : () -> ()
 }
 )mlir";
 const char *validVarargs = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({}) {id = "llvm.va_start", type = (!sela.ptr) -> (), declaration = true, variadic = false, internal = false, dso_local = false, attributes = [[], [], []]} : () -> ()
   "sela.func"() ({}) {id = "llvm.va_end", type = (!sela.ptr) -> (), declaration = true, variadic = false, internal = false, dso_local = false, attributes = [[], [], []]} : () -> ()
   "sela.func"() ({
@@ -67,7 +68,7 @@ module attributes {sela.schema = 1 : i32} {
 }
 )mlir";
 const char *valid = R"mlir(
-module attributes {sela.schema = 1 : i32, sela.module_flags = []} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"], sela.module_flags = []} {
   "sela.func"() ({
     %0 = "sela.constant"() {value = 1 : i64} : () -> i32
     %1 = "sela.constant"() {value = 2 : i64} : () -> i32
@@ -79,7 +80,7 @@ module attributes {sela.schema = 1 : i32, sela.module_flags = []} {
 )mlir";
 
 const char *validCFG = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
     %condition = "sela.constant"() {value = 1 : i64} : () -> i1
     "sela.cond_br"(%condition)[^yes, ^no] {true_count = 0 : i32} : (i1) -> ()
@@ -97,7 +98,7 @@ module attributes {sela.schema = 1 : i32} {
 )mlir";
 
 const char *validLoop = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
     %zero = "sela.constant"() {value = 0 : i64} : () -> i32
     "sela.br"(%zero)[^loop] : (i32) -> ()
@@ -115,7 +116,7 @@ module attributes {sela.schema = 1 : i32} {
 )mlir";
 
 const char *validFP = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
     %a = "sela.constant"() {value = 2.500000e+00 : f64} : () -> f64
     %b = "sela.constant"() {value = 1.500000e+00 : f64} : () -> f64
@@ -128,7 +129,7 @@ module attributes {sela.schema = 1 : i32} {
 )mlir";
 
 const char *validArray = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
     %storage = "sela.alloca"() {element = !sela.array<4, i32>, alignment = 16 : i64} : () -> !sela.ptr
     %zero = "sela.constant"() {value = 0 : i64} : () -> !sela.word
@@ -144,7 +145,7 @@ module attributes {sela.schema = 1 : i32} {
 )mlir";
 
 const char *widthSpecific = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
     %value = "sela.constant"() {value = 42 : i64} : () -> i32
     %word = "sela.cast"(%value) {opcode = "sext"} : (i32) -> !sela.word
@@ -155,7 +156,7 @@ module attributes {sela.schema = 1 : i32} {
 )mlir";
 
 const char *validStorage = R"mlir(
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.global"() {id = "state", element = !sela.record<"r0", 0, [i8, !sela.word]>,
       initializer = [7 : i64, 42 : i64], constant = false, declaration = false,
       linkage = "external", dso_local = false, alignment = "pointer_bytes", unnamed = 0 : i32} : () -> ()
@@ -187,6 +188,11 @@ std::string replace(std::string source, const std::string &from,
   }
   source.replace(position, from.size(), to);
   return source;
+}
+
+std::string widthValue(uint64_t wide, uint64_t narrow) {
+  return "{target_cases = [{targets = [\"x86_64\", \"aarch64\"], value = " + std::to_string(wide) +
+      " : i64}, {targets = [\"i686\", \"armv7\"], value = " + std::to_string(narrow) + " : i64}]}";
 }
 
 bool check(llvm::StringRef directory, llvm::StringRef label,
@@ -258,7 +264,8 @@ int main() {
                   true, false, sela::supportedNativeTargets(), false, true);
   passed &= check(directory, "predecessor-schema.selabc",
                   replace(valid, "sela.schema", predecessor + ".schema"), false);
-  for (llvm::StringRef target : {"x86_64", "i686"}) {
+  for (const auto &profile : sela::targets::all()) {
+    llvm::StringRef target = profile.id;
     bool available = llvm::is_contained(sela::supportedNativeTargets(), target);
     passed &= check(directory, ("native-capability-" + target + ".selabc").str(),
                     valid, available, true, false, {target});
@@ -268,16 +275,31 @@ int main() {
   passed &= check(directory, "structural-width-specific.selabc", widthSpecific,
                   true, true, false, {}, true);
   passed &= check(directory, "structural-invalid-word-flags.selabc",
-                  replace(valid, "flags = 0 : i32", "flags = {word64 = 9 : i64, word32 = 0 : i64}"),
+                  replace(valid, "flags = 0 : i32", "flags = " + widthValue(9, 0)),
                   false, true, false, {}, true);
   passed &= check(directory, "structural-missing-word-domain.selabc",
-                  replace(valid, "flags = 0 : i32", "flags = {word32 = 0 : i64}"),
+                  replace(valid, "flags = 0 : i32", "flags = {target_cases = [{targets = [\"i686\"], value = 0 : i64}]}"),
+                  false, true, false, {}, true);
+  passed &= check(directory, "duplicate-target.selabc",
+                  replace(valid, "\"armv7\", \"aarch64\"", "\"armv7\", \"armv7\""),
+                  false, true, false, {}, true);
+  passed &= check(directory, "unobserved-fifth-target.selabc",
+                  replace(valid, "\"aarch64\"]", "\"aarch64\", \"riscv64\"]"),
+                  false, true, false, {}, true);
+  passed &= check(directory, "same-width-local-semantics.selabc",
+                  replace(valid, "flags = 0 : i32", "flags = {target_cases = [{targets = [\"x86_64\", \"i686\"], value = 0 : i64}, {targets = [\"armv7\", \"aarch64\"], value = 2 : i64}]}"),
+                  true, true, false, {}, true);
+  passed &= check(directory, "overlapping-target-cases.selabc",
+                  replace(valid, "flags = 0 : i32", "flags = {target_cases = [{targets = [\"x86_64\", \"i686\"], value = 0 : i64}, {targets = [\"i686\", \"armv7\", \"aarch64\"], value = 2 : i64}]}"),
+                  false, true, false, {}, true);
+  passed &= check(directory, "unknown-foreign-cast-opcode.selabc",
+                  replace(valid, "    %1 =", "    %extension = \"sela.cast\"(%0) {opcode = {target_cases = [{targets = [\"x86_64\", \"i686\", \"armv7\"], value = \"zext\"}, {targets = [\"aarch64\"], value = \"private_cast\"}]}} : (i32) -> i64\n    %1 ="),
                   false, true, false, {}, true);
   passed &= check(directory, "structural-foreign-array-bound.selabc",
-                  replace(validIndexDomain, "word_array<3, 2, i32>", "word_array<4294967296, 2, i32>"),
+                  replace(validIndexDomain, "target_array<" + widthValue(3, 2), "target_array<" + widthValue(4294967296, 2)),
                   false, true, false, {}, true);
   passed &= check(directory, "structural-foreign-initializer-extent.selabc",
-                  replace(validIndexDomain, "word_array<3, 2", "word_array<3, 1"),
+                  replace(validIndexDomain, "target_array<" + widthValue(3, 2), "target_array<" + widthValue(3, 1)),
                   false, true, false, {}, true);
   passed &= check(directory, "typed-global-unspecified-alignment.selabc",
                   replace(validIndexDomain, "alignment = 4", "alignment = 0"), true);
@@ -308,14 +330,17 @@ int main() {
                   replace(valid, "    \"sela.return\"(%2)", "    %swapped = \"sela.bswap\"(%2) : (i32) -> i32\n    \"sela.return\"(%2)"), true);
   passed &= check(directory, "valid-native-index-domain.mlirbc", validIndexDomain, true);
   passed &= check(directory, "invalid-native-index-extent.mlirbc",
-                  replace(validIndexDomain, "count = {word64 = 3", "count = {word64 = 4"), false);
+                  replace(validIndexDomain, "count = " + widthValue(3, 2), "count = " + widthValue(4, 2)), false);
   passed &= check(directory, "invalid-native-index-storage.mlirbc",
-                  replace(validIndexDomain, "word_array<3, 2", "word_array<3, 1"), false);
+                  replace(validIndexDomain, "target_array<" + widthValue(3, 2), "target_array<" + widthValue(3, 1)), false);
   passed &= check(directory, "private-inactive-native-index-tail.mlirbc",
                   replace(validIndexDomain, ", 3 : i64], count", ", {private = \"hidden source\"}], count"), false, true, false, {"i686"});
+  passed &= check(directory, "data-outside-every-target-extent.mlirbc",
+                  replace(replace(validIndexDomain, "count = " + widthValue(3, 2), "count = " + widthValue(2, 2)),
+                          "target_array<" + widthValue(3, 2), "target_array<" + widthValue(2, 2)), false, true, false, {}, true);
   passed &= check(directory, "independent-native-varargs.mlirbc", validVarargs, true);
   passed &= check(directory, "independent-native-varargs-forwarding.mlirbc",
-                  replace(validVarargs, "    %value =", "    %forward = \"sela.va_forward\"(%state) : (!sela.ptr) -> !sela.ptr\n    %value ="), true);
+                  replace(validVarargs, "    %value =", "    %forward = \"sela.va_forward\"(%state) : (!sela.ptr) -> !sela.va_list_argument\n    %value ="), true);
   passed &= check(directory, "invalid-native-varargs-forwarding-result.mlirbc",
                   replace(validVarargs, "    %value =", "    %forward = \"sela.va_forward\"(%state) : (!sela.ptr) -> i32\n    %value ="), false);
   passed &= check(directory, "unknown-native-vararg-semantics.mlirbc",
@@ -326,10 +351,10 @@ int main() {
                   replace(valid, "dso_local = true", "intrinsic = \"invented\", dso_local = true"), false);
   passed &= check(directory, "valid-frame-pointer-policy.mlirbc",
                   replace(valid, "sela.module_flags = []",
-                          "sela.module_flags = [{name = \"frame-pointer\", behavior = 7 : i32, value = 2 : i32, profile = \"both\"}]"), true);
+                          "sela.module_flags = [{name = \"frame-pointer\", behavior = 7 : i32, value = 2 : i32, targets = [\"x86_64\", \"i686\", \"armv7\", \"aarch64\"]}]"), true);
   passed &= check(directory, "invalid-frame-pointer-policy.mlirbc",
                   replace(valid, "sela.module_flags = []",
-                          "sela.module_flags = [{name = \"frame-pointer\", behavior = 7 : i32, value = 3 : i32, profile = \"both\"}]"), false);
+                          "sela.module_flags = [{name = \"frame-pointer\", behavior = 7 : i32, value = 3 : i32, targets = [\"x86_64\", \"i686\", \"armv7\", \"aarch64\"]}]"), false);
   passed &= check(directory, "valid-cfg.mlirbc", validCFG, true);
   passed &= check(directory, "valid-loop.mlirbc", validLoop, true);
   passed &= check(directory, "valid-floating.mlirbc", validFP, true);
@@ -357,9 +382,9 @@ int main() {
   passed &= check(directory, "invalid-floating-integer-flags.mlirbc",
                   replace(validFP, "flags = 0", "flags = 3"), false);
   passed &= check(directory, "word-domain-overflow-flags.mlirbc",
-                  replace(valid, "flags = 0 : i32", "flags = {word64 = 0 : i64, word32 = 2 : i64}"), true);
+                  replace(valid, "flags = 0 : i32", "flags = " + widthValue(0, 2)), true);
   passed &= check(directory, "invalid-inactive-overflow-flags.mlirbc",
-                  replace(valid, "flags = 0 : i32", "flags = {word64 = 9 : i64, word32 = 2 : i64}"), false, true, false, {"i686"});
+                  replace(valid, "flags = 0 : i32", "flags = " + widthValue(9, 2)), false, true, false, {"i686"});
   passed &= check(directory, "invalid-floating-opcode.mlirbc",
                   replace(validFP, "opcode = \"fadd\"", "opcode = \"add\""), false);
   passed &= check(directory, "invalid-branch-argument-count.mlirbc",

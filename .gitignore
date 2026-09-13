@@ -6,3 +6,4 @@
 /docs/.obsidian/workspace.json
 /CMakeUserPresets.json
 *.sela
+__pycache__/

@@ -72,22 +72,20 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   std::vector<std::string> link{sdk.tool("clang").string(), "--config=" + configuration.string()};
   for (size_t i = 0; i < captured->units.size(); ++i) {
     const auto &unit = captured->units[i];
-    if (unit.x64Paths.empty() || unit.i686Paths.empty()) return fail("retained paired unit is empty");
+    if (unit.pathsByTarget.empty()) return fail("retained labelled unit is empty");
     const auto name = "unit-" + std::to_string(i) + ".sela";
     const auto artifact = scratch->path / name;
     std::vector<std::string> command{sdk.tool("clang").string(), "--config=" + configuration.string()};
     auto argument = [&](const std::string &value) {
       command.insert(command.end(), {"-Xclang", "-plugin-arg-sela", "-Xclang", value});
     };
-    if (unit.x64Paths.size() == 1 && unit.i686Paths.size() == 1) {
-      argument("mode=pair"); argument("peer=" + unit.i686Paths.front().string());
-    } else {
-      argument("mode=group");
-      for (const auto &path : unit.x64Paths) argument("left=" + path.string());
-      for (const auto &path : unit.i686Paths) argument("right=" + path.string());
+    argument("mode=profiles");
+    for (const auto &[target, paths] : unit.pathsByTarget) {
+      if (paths.empty()) return fail("retained target capture list is empty");
+      for (const auto &path : paths) argument("capture=" + target + "=" + path.string());
     }
     argument("optimization=" + unit.optimization);
-    command.insert(command.end(), {"-x", "ir", "-c", unit.x64Paths.front().string(), "-o", artifact.string()});
+    command.insert(command.end(), {"-x", "ir", "-c", unit.pathsByTarget.begin()->second.front().string(), "-o", artifact.string()});
     if (auto error = run(command, {}, environment)) return error;
     if (auto error = sameArtifact(retained / name, artifact)) return error;
     auto bytes = read(artifact);
@@ -103,13 +101,13 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   }
   for (const auto &library : captured->libraries) link.push_back("-l" + library);
   for (const auto &option : captured->linkOptions) link.insert(link.end(), {"-Xlinker", option});
-  if (!captured->i686Order.empty()) {
+  for (const auto &[target, indices] : captured->ordersByTarget) {
     std::string order;
-    for (size_t index : captured->i686Order) {
+    for (size_t index : indices) {
       if (!order.empty()) order += ',';
       order += std::to_string(index);
     }
-    link.insert(link.end(), {"-Xlinker", "--sela-unit-order-i686=" + order});
+    link.insert(link.end(), {"-Xlinker", "--sela-unit-order=" + target + ":" + order});
   }
   if (!captured->versionScript.empty()) {
     const auto script = scratch->path / "publication.version.script";

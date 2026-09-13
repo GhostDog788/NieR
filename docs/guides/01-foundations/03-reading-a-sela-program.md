@@ -26,7 +26,7 @@ It is a compiler representation, not a complete `.sela` package or an executable
 A programmatically parsed module also needs its source locations normalized before publication, as chapter 11 explains.
 
 ```mlir
-module attributes {sela.schema = 1 : i32} {
+module attributes {sela.schema = 1 : i32, sela.targets = ["x86_64", "i686", "armv7", "aarch64"]} {
   "sela.func"() ({
     %eight = "sela.constant"() {value = 8 : i64} : () -> i32
     "sela.return"(%eight) : (i32) -> ()

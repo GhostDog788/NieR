@@ -56,7 +56,7 @@ It is valid JSON for illustration, but not a complete accepted manifest because 
   "contract": "sela-prealpha-1",
   "format_version": 1,
   "kind": "executable",
-  "targets": ["x86_64", "i686"],
+  "targets": ["x86_64", "i686", "armv7", "aarch64"],
   "runtime": "glibc-2.39-0ubuntu8.8",
   "libraries": [],
   "link_options": []
@@ -92,7 +92,7 @@ The common representation must not invent identical optimization boundaries mere
 
 The artifact therefore includes **compilation-unit plans** for its declared targets.
 Each plan groups module indices into ordered native units and records the unit's optimization setting.
-In Hello, both plans group module zero by itself and module one by itself, at `O2`.
+In Hello, all four plans group module zero by itself and module one by itself, at `O2`.
 
 Here is **schematic notation, not JSON**, for the more general relationship:
 

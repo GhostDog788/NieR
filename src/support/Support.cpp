@@ -110,12 +110,14 @@ std::string digest(llvm::StringRef bytes) {
   return llvm::toHex(hash, true);
 }
 llvm::Error run(const std::vector<std::string> &args, const fs::path &cwd,
-                const std::map<std::string, std::string> &environment) {
+                const std::map<std::string, std::string> &environment,
+                const std::vector<std::string> &removeEnvironment) {
   if (args.empty()) return fail("empty subprocess command");
   pid_t child = fork();
   if (child < 0) return fail("fork failed: " + std::string(std::strerror(errno)));
   if (child == 0) {
     if (!cwd.empty() && chdir(cwd.c_str()) != 0) { perror("chdir"); _exit(126); }
+    for (const auto &name : removeEnvironment) unsetenv(name.c_str());
     for (auto &entry : environment) setenv(entry.first.c_str(), entry.second.c_str(), 1);
     std::vector<char *> pointers;
     for (auto &arg : args) pointers.push_back(const_cast<char *>(arg.c_str()));

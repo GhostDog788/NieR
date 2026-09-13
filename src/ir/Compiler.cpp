@@ -5,6 +5,7 @@
 #include "OverlapLayout.h"
 #include "ConditionalSpecialization.h"
 #include "sela/IR/Dialect.h"
+#include "sela/IR/Domains.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -62,21 +63,12 @@ bool validArithmeticFlags(unsigned opcode, unsigned flags) {
          (!(flags & 4) || llvm::PossiblyExactOperator::isPossiblyExactOpcode(opcode));
 }
 
-// These are public finite-domain expressions, not requests to run a foreign
-// native compiler. Both sides are checked even in a one-target device library.
-llvm::Expected<uint64_t> publicInteger(Attribute value, bool word64) {
+// Public choices and layout properties are resolved before schema validation.
+llvm::Expected<uint64_t> publicInteger(Attribute value) {
   if (auto integer = mlir::dyn_cast_or_null<mlir::IntegerAttr>(value)) {
     if (integer.getValue().getBitWidth() <= 64) return integer.getValue().getZExtValue();
-  } else if (auto text = mlir::dyn_cast_or_null<mlir::StringAttr>(value)) {
-    if (text.getValue() == "pointer_bytes") return word64 ? 8 : 4;
-  } else if (auto record = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(value)) {
-    auto wide = record.getAs<mlir::IntegerAttr>("word64");
-    auto narrow = record.getAs<mlir::IntegerAttr>("word32");
-    if (record.size() == 2 && wide && narrow && wide.getValue().getBitWidth() <= 64 &&
-        narrow.getValue().getBitWidth() <= 64)
-      return (word64 ? wide : narrow).getValue().getZExtValue();
   }
-  return failure("invalid public word-domain integer expression");
+  return failure("invalid specialized public integer expression");
 }
 
 bool pureLiteral(Attribute value) {
@@ -106,10 +98,6 @@ llvm::Error validateInitializer(Attribute value, unsigned depth = 0) {
     return llvm::Error::success();
   }
   if (auto record = mlir::dyn_cast<mlir::DictionaryAttr>(value)) {
-    if (record.get("word64") || record.get("word32")) {
-      auto integer = publicInteger(record, true);
-      return integer ? llvm::Error::success() : integer.takeError();
-    }
     if (record.size() == 1 && record.getAs<mlir::StringAttr>("symbol")) return llvm::Error::success();
     if (record.size() == 2 && record.getAs<mlir::ArrayAttr>("array") && record.get("count"))
       return validateInitializer(record.get("array"), depth + 1);
@@ -122,7 +110,7 @@ llvm::Error validateInitializer(Attribute value, unsigned depth = 0) {
         auto entry = mlir::dyn_cast<mlir::DictionaryAttr>(index);
         if (!entry || entry.size() != 2 || !entry.getAs<mlir::TypeAttr>("type"))
           return failure("invalid public address index record");
-        auto integer = publicInteger(entry.get("value"), true);
+        auto integer = publicInteger(entry.get("value"));
         if (!integer) return integer.takeError();
       }
       return llvm::Error::success();
@@ -137,15 +125,15 @@ llvm::Error validateInitializerShape(mlir::Type type, Attribute value, unsigned 
   if (auto record = mlir::dyn_cast<mlir::DictionaryAttr>(value)) {
     if (auto explicitElements = record.getAs<mlir::ArrayAttr>("array")) {
       auto array = mlir::dyn_cast<ir::ArrayType>(type);
-      auto wide = publicInteger(record.get("count"), true);
-      auto narrow = publicInteger(record.get("count"), false);
+      auto wide = publicInteger(record.get("count"));
+      auto narrow = publicInteger(record.get("count"));
       if (!wide || !narrow) {
         if (!wide) llvm::consumeError(wide.takeError());
         if (!narrow) llvm::consumeError(narrow.takeError());
         return failure("invalid public array initializer count");
       }
-      if (!array || array.getNumElements(true) != *wide || array.getNumElements(false) != *narrow)
-        return failure("array initializer and storage extents disagree in a public word domain");
+      if (!array || array.getNumElements() != *wide || array.getNumElements() != *narrow)
+        return failure("array initializer and storage extents disagree in a qualified target");
       for (auto element : explicitElements)
         if (auto error = validateInitializerShape(array.getElementType(), element, depth + 1)) return error;
       return llvm::Error::success();
@@ -153,8 +141,8 @@ llvm::Error validateInitializerShape(mlir::Type type, Attribute value, unsigned 
   }
   if (!elements) return llvm::Error::success();
   if (auto array = mlir::dyn_cast<ir::ArrayType>(type)) {
-    if (elements.size() != array.getNumElements(true) || elements.size() != array.getNumElements(false))
-      return failure("literal array initializer requires matching extents in both public word domains");
+    if (elements.size() != array.getNumElements() || elements.size() != array.getNumElements())
+      return failure("literal array initializer requires matching extents in both qualified targets");
     for (auto element : elements)
       if (auto error = validateInitializerShape(array.getElementType(), element, depth + 1)) return error;
     return llvm::Error::success();
@@ -197,8 +185,8 @@ llvm::Error validateAttributeList(Attribute value) {
         return failure("unsupported public ABI attribute kind");
       if (auto raw = record.get("integer")) {
         if (!llvm::Attribute::isIntAttrKind(kind)) return failure("public ABI integer attribute has the wrong kind");
-        for (bool word64 : {true, false}) {
-          auto value = publicInteger(raw, word64);
+        {
+          auto value = publicInteger(raw);
           if (!value) return value.takeError();
           uint64_t number = *value;
           if (!((kind == llvm::Attribute::UWTable && number >= 1 && number <= 2) ||
@@ -221,7 +209,7 @@ llvm::Error validatePublicTypes(mlir::ModuleOp module) {
   std::function<llvm::Error(mlir::Type, unsigned)> visit = [&](mlir::Type type, unsigned depth) -> llvm::Error {
     if (depth > 64) return failure("public type nesting exceeds the qualified bound");
     if (!checked.insert(type).second) return llvm::Error::success();
-    if (mlir::isa<ir::PointerType, ir::WordType, ir::VaListType>(type) || type.isF32() || type.isF64())
+    if (mlir::isa<ir::PointerType, ir::WordType, ir::VaListType, ir::VaListArgumentType>(type) || type.isF32() || type.isF64())
       return llvm::Error::success();
     if (auto integer = mlir::dyn_cast<mlir::IntegerType>(type)) {
       unsigned width = integer.getWidth();
@@ -235,8 +223,8 @@ llvm::Error validatePublicTypes(mlir::ModuleOp module) {
       return llvm::Error::success();
     }
     if (auto array = mlir::dyn_cast<ir::ArrayType>(type)) {
-      if (array.getNumElements(true) > (1ULL << 30) || array.getNumElements(false) > (1ULL << 30))
-        return failure("oversized public word-domain array extent");
+      if (array.getNumElements() > (1ULL << 30) || array.getNumElements() > (1ULL << 30))
+        return failure("oversized qualified target array extent");
       return visit(array.getElementType(), depth + 1);
     }
     llvm::StringRef identity;
@@ -248,16 +236,14 @@ llvm::Error validatePublicTypes(mlir::ModuleOp module) {
       auto domains = overlap.getDomains();
       if (identity.empty() || fields.empty() || fields.size() > 64 || fields.size() != domains.size())
         return failure("invalid public overlap alternative inventory");
-      unsigned inventory = 0;
       for (unsigned i = 0; i < fields.size(); ++i) {
-        if (domains[i] < 1 || domains[i] > 3) return failure("invalid public overlap domain");
-        inventory |= domains[i];
+        auto domain = mlir::dyn_cast<mlir::ArrayAttr>(domains[i]);
+        if (!domain || domain.empty()) return failure("invalid public overlap target set");
         auto field = fields[i];
         bool integer = field.isInteger(8) || field.isInteger(16) || field.isInteger(32) || field.isInteger(64);
         if (!integer && !field.isF32() && !field.isF64() && !mlir::isa<ir::WordType, ir::PointerType>(field))
           return failure("unsupported public overlapping-storage alternative");
       }
-      if (inventory != 3) return failure("overlap has no storage in one public word domain");
     } else return failure("artifact contains an unsupported public type");
     if (!identity.empty()) {
       if (identity.size() < 2 || identity.size() > 64 || !identity.starts_with("r") ||
@@ -300,23 +286,22 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
       auto name = record ? record.getAs<mlir::StringAttr>("name") : mlir::StringAttr();
       auto behavior = record ? record.getAs<mlir::IntegerAttr>("behavior") : mlir::IntegerAttr();
       auto value = record ? record.getAs<mlir::IntegerAttr>("value") : mlir::IntegerAttr();
-      auto profile = record ? record.getAs<mlir::StringAttr>("profile") : mlir::StringAttr();
-      if (!record || record.size() != 4 || !name || !behavior || !value || !profile ||
+      auto domain = record ? record.getAs<mlir::ArrayAttr>("targets") : mlir::ArrayAttr();
+      if (!record || record.size() != 4 || !name || !behavior || !value || !domain || domain.empty() ||
           behavior.getValue().getBitWidth() > 64 || value.getValue().getBitWidth() > 64 ||
           behavior.getInt() < 1 || behavior.getInt() > 8 || !names.insert(name.getValue().str()).second)
         return failure("invalid or duplicate public module flag record");
-      bool ordinary = (name.getValue() == "wchar_size" && value.getInt() == 4) ||
+      bool ordinary = ((name.getValue() == "wchar_size" || name.getValue() == "min_enum_size") && value.getInt() == 4) ||
           (name.getValue() == "frame-pointer" && value.getInt() >= 0 && value.getInt() <= 2) ||
           ((name.getValue() == "PIC Level" || name.getValue() == "PIE Level" ||
-            name.getValue() == "uwtable") && value.getInt() == 2);
+            name.getValue() == "uwtable") && value.getInt() >= 1 && value.getInt() <= 2);
       bool native32 = name.getValue() == "NumRegisterParameters" && value.getInt() == 0;
-      if ((!ordinary && !native32) || (ordinary && profile.getValue() != "both") ||
-          (native32 && profile.getValue() != "i686"))
+      if (!ordinary && !native32)
         return failure("unsupported public module compilation flag");
     }
   }
   const std::map<std::string, std::set<std::string>> allowed = {
-      {"builtin.module", {"sela.schema", "sela.module_flags"}},
+      {"builtin.module", {"sela.schema", "sela.module_flags", "sela.targets"}},
       {"sela.func", {"id", "type", "declaration", "variadic", "internal", "weak", "available_externally", "dso_local", "visibility", "intrinsic", "attributes", "block_domains", "native_abi"}},
       {"sela.global", {"id", "bytes", "alignment", "unnamed", "element", "initializer", "constant", "declaration", "linkage", "dso_local", "visibility"}},
       {"sela.constant", {"value"}}, {"sela.address", {"global"}},
@@ -372,14 +357,14 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
         if (auto invalid = validateAttributeList(attribute.getValue())) {
           error = llvm::toString(std::move(invalid)); return;
         }
-      if (field == "alignment") for (bool word64 : {true, false}) {
-        auto value = publicInteger(attribute.getValue(), word64);
+      if (field == "alignment") {
+        auto value = publicInteger(attribute.getValue());
         if (!value) error = llvm::toString(value.takeError());
         else if (!*value && found->first == "sela.global" && !operation->getAttr("bytes")) {
           // Typed globals may leave alignment unspecified. Memory operations
           // and byte-string definitions require an explicit positive value.
         } else if (!*value || *value > (1ULL << 29) || !llvm::isPowerOf2_64(*value))
-          error = "invalid memory alignment in a public word domain";
+          error = "invalid memory alignment in a qualified target";
       }
       if (field == "value" || field == "initializer") {
         bool declaration = field == "initializer" && mlir::isa<mlir::UnitAttr>(attribute.getValue()) &&
@@ -402,14 +387,10 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
           if (integer.getValue().getBitWidth() > 64)
             error = "oversized integer attribute in common IR";
         if (auto record = mlir::dyn_cast<mlir::DictionaryAttr>(nested)) {
-          if (record.get("word64") || record.get("word32")) {
-            auto value = publicInteger(record, true);
-            if (!value) error = llvm::toString(value.takeError());
-          }
           if (record.get("array") || record.get("count")) {
             auto elements = record.getAs<mlir::ArrayAttr>("array");
-            auto wide = publicInteger(record.get("count"), true);
-            auto narrow = publicInteger(record.get("count"), false);
+            auto wide = publicInteger(record.get("count"));
+            auto narrow = publicInteger(record.get("count"));
             if (!wide || !narrow) {
               if (!wide) error = llvm::toString(wide.takeError());
               if (!narrow) error = llvm::toString(narrow.takeError());
@@ -427,12 +408,25 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
       unsigned code = 0;
       if (opcode) for (unsigned i = llvm::Instruction::BinaryOpsBegin; i < llvm::Instruction::BinaryOpsEnd; ++i)
         if (opcode.getValue() == llvm::Instruction::getOpcodeName(i)) code = i;
-      for (bool word64 : {true, false}) {
-        auto flags = publicInteger(operation->getAttr("flags"), word64);
+      {
+        auto flags = publicInteger(operation->getAttr("flags"));
         if (!flags) error = llvm::toString(flags.takeError());
         else if (!code || *flags > 7 || !validArithmeticFlags(code, unsigned(*flags)))
-          error = "invalid arithmetic flags in a public word domain";
+          error = "invalid arithmetic flags in a qualified target";
       }
+    }
+    if (operation->getName().getStringRef() == "sela.cast") {
+      auto opcode = operation->getAttrOfType<mlir::StringAttr>("opcode");
+      static const std::set<std::string> supported = {"trunc", "zext", "sext", "fptoui", "fptosi", "uitofp", "sitofp",
+          "fptrunc", "fpext", "ptrtoint", "inttoptr", "bitcast", "native_trunc", "native_zext", "native_sext"};
+      if (!opcode || !supported.count(opcode.getValue().str())) error = "unknown public cast opcode";
+    }
+    if (operation->getName().getStringRef() == "sela.compare") {
+      auto predicate = publicInteger(operation->getAttr("predicate"));
+      if (!predicate) error = llvm::toString(predicate.takeError());
+      else if (!((*predicate >= llvm::CmpInst::FIRST_FCMP_PREDICATE && *predicate <= llvm::CmpInst::LAST_FCMP_PREDICATE) ||
+                 (*predicate >= llvm::CmpInst::FIRST_ICMP_PREDICATE && *predicate <= llvm::CmpInst::LAST_ICMP_PREDICATE)))
+        error = "unknown public comparison predicate";
     }
     if (operation->getAttr("loop") || operation->getAttr("loop_id")) {
       if (operation->getAttr("loop_id") && !operation->getAttr("loop")) {
@@ -458,12 +452,6 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
   });
   if (!error.empty()) return failure(error);
   if (auto error = validatePublicTypes(module)) return error;
-  // Specializing the public graph is target-independent structure work. Check
-  // both masks without constructing LLVM types, ABI signatures or native code.
-  for (bool word64 : {true, false}) {
-    auto graph = detail::specializeConditionalCFG(module, word64);
-    if (!graph) return graph.takeError();
-  }
   return llvm::Error::success();
 }
 
@@ -526,7 +514,16 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> readArtifact(
 llvm::Error verifyModuleStructure(mlir::ModuleOp module) {
   if (mlir::failed(mlir::verify(module)))
     return failure("Sela structural verification failed");
-  return validateSchema(module);
+  if (auto error = ir::verifyTargetDomains(module)) return error;
+  auto domain = ir::declaredTargets(module);
+  if (!domain) return domain.takeError();
+  // Every declared alternative is checked without linking its native backend.
+  for (auto id : *domain) {
+    auto specialized = ir::specializeDomains(module, *targets::find(id));
+    if (!specialized) return specialized.takeError();
+    if (auto error = validateSchema(**specialized)) return error;
+  }
+  return llvm::Error::success();
 }
 
 llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>>
@@ -550,14 +547,14 @@ llvm::Error verifyModule(mlir::ModuleOp module, llvm::ArrayRef<StringRef> target
   if (targets.empty()) return failure("Sela validation requires a semantic target domain");
   std::set<std::string> seen;
   for (auto target : targets) {
-    if ((target != "x86_64" && target != "i686") || !seen.insert(target.str()).second)
+    if (!sela::targets::find(target) || !seen.insert(target.str()).second)
       return failure("unsupported or duplicate Sela semantic target");
     if (!detail::findNativeTarget(target))
       return failure("requested native target is unavailable in this Sela library: " + target);
   }
   for (auto target : targets) {
     llvm::LLVMContext context;
-    auto lowered = detail::lowerModule(module, context, target == "x86_64");
+    auto lowered = detail::lowerModule(module, context, target);
     if (!lowered) return lowered.takeError();
   }
   return llvm::Error::success();
@@ -588,15 +585,15 @@ readModule(StringRef bytecodeInput, mlir::MLIRContext &context,
 
 llvm::Error lowerArtifact(StringRef bytecodeInput, StringRef profile,
                           StringRef llvmIROutput) {
-  if (profile != "x86_64" && profile != "i686")
-    return failure("unsupported target profile; expected x86_64 or i686");
+  if (!targets::find(profile))
+    return failure("unsupported target profile");
   mlir::MLIRContext context;
   if (!detail::findNativeTarget(profile))
     return failure("requested native target is unavailable in this Sela library: " + profile);
   auto source = readModuleStructure(bytecodeInput, context);
   if (!source) return source.takeError();
   llvm::LLVMContext llvmContext;
-  auto lowered = detail::lowerModule(**source, llvmContext, profile == "x86_64");
+  auto lowered = detail::lowerModule(**source, llvmContext, profile);
   if (!lowered) return lowered.takeError();
   std::error_code ec;
   llvm::raw_fd_ostream output(llvmIROutput, ec, llvm::sys::fs::OF_Text);

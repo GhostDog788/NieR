@@ -21,8 +21,8 @@ performance parity, or RE parity. Section 17 records the verified shapes and
 remaining limits rather than inferring broad support from test counts.
 Recorded checkpoints at commits `63592ab` and `be63890` predate the Sela rename.
 Their sizes and qualification evidence remain historical; fresh renamed-build
-results are recorded separately in the [distribution reference](reference/compiler-distribution.md#fresh-sela-rename-checkpoint).
-Fresh Sela builds pass all 40 publisher tests, both 11-test consumer suites,
+results are recorded separately in the [distribution reference](reference/compiler-distribution.md#historical-sela-rename-checkpoint).
+At the earlier rename checkpoint, Sela builds passed all 40 publisher tests, both 11-test consumer suites,
 and the new two-device matrix. All eight zlib artifacts passed the fresh
 dual-device command. cJSON's 42 fresh publications, native references, and
 x86-64 checks passed; a separate real-i686 continuation passed the same
@@ -30,13 +30,24 @@ artifacts after a failed first VM boot. The original failed cJSON report is
 preserved, so this is staged coverage of all required outputs, not a claimed
 single-command pass or renamed historical evidence.
 
+**Current implementation:** generic, finite target domains and four equal
+Linux/glibc products are implemented: `x86_64`, `i686`, `armv7`, and `aarch64`.
+The final publisher passes all 44 tests, each native consumer passes its 11
+component tests, and all four matching-kernel devices pass both the common
+core matrix and all 50 configured cJSON/zlib artifacts with their original
+tests. Section 17.3 defines the implemented increment and its boundaries;
+the [four-target qualification record](reference/compiler-distribution.md#four-target-corpus-checkpoint-on-2026-09-13)
+separates fresh publication, device receipts, and initial failed attempts
+from passing unchanged-input continuations. The older checkpoints below
+remain historical evidence, not automatic qualification of later builds.
+
 **Pre-alpha policy:** there are no backward-compatibility obligations anywhere.
 Formats, commands, APIs, and configuration may change between commits. Remove
 obsolete interfaces rather than preserving aliases, readers, or migrations.
 Current-format validation and SDK integrity checks are correctness requirements,
 not compatibility services.
 
-The next deliverable is a working C MVP, not the complete product:
+The delivery sequence distinguishes the working C MVP from the complete product:
 
 1. Establish stock-Clang publication and independent native compilation with
    multi-file Hello World and native-width probes.
@@ -116,7 +127,7 @@ irrelevant target components.
 
 For C, developers invoke actual stock Clang with a Sela configuration. A
 replacement frontend action delegates source compilation to stock Clang,
-captures both native LLVM profiles, and calls the shared merger. It does not
+captures every declared native LLVM profile, and calls the shared merger. It does not
 implement AST-to-Sela lowering. The stock driver invokes internal `sela-ld`
 to combine Sela objects into the final artifact. Clang plugins and native
 compiler inputs are confined to publisher-side targets.
@@ -159,14 +170,17 @@ over such modules.
 
 ### 3.1 Targets and workspaces
 
-Capture x86-64 Linux and i686 Linux profiles privately from the beginning.
-The first destination milestone targeted **x86-64 only**; the later
-dual-device checkpoint in section 17.1 adds a separate native i686 compiler.
+The current publication domain contains x86-64, i686, little-endian ARMv7-A
+hard-float, and little-endian ARMv8-A LP64. All four use the same pinned
+Linux/glibc platform. A new CPU does not introduce Android, a different libc,
+or a different application model. Exact triples, layouts, ABI adapters,
+baseline CPU features, loaders, and sysroot identities live in `sdk/targets.json`.
 
-Private native i686 builds and execution probes are allowed to establish
-reference behavior and check capture/specialization. Those private probes
-alone do not establish i686 installation or execution support; that requires
-the independent compiler and real-device acceptance in section 17.1.
+Each target receives its own independently executable compiler bundle with
+the same admitted Sela semantics and C qualification obligations. Private
+cross-compilation and user-mode emulation are useful early checks, not a
+substitute for compiling and executing inside a matching-kernel destination.
+The original x86-only and dual-device milestones remain in section 17.1.
 
 Use the same physical machine initially, with separated publisher and
 destination workspaces. The destination receives only the publication
@@ -380,8 +394,14 @@ existing target/selected outputs, and existing configuration arguments.
 Do not require application source edits, target-by-target rewrites, a renamed
 Clang executable, or a separate developer-facing publication command.
 
-The SDK internally coordinates two normal native project builds. Actual stock
-Clang emits native objects so configure probes and generators execute normally.
+The SDK internally coordinates one normal native project build per declared
+target. Actual host-native stock Clang emits target-native objects. Foreign
+configure probes and generators execute through explicitly provisioned
+QEMU/binfmt support; CMake receives target system/sysroot metadata and its
+cross-compiling emulator. The toolchain never silently installs system-wide
+emulation handlers or substitutes fabricated probe results. Ordinary Make
+projects must honor the documented compiler/cross-configuration inputs;
+host `uname` is not target discovery.
 A Clang observer and LLVM snapshot plugin collect provisional records; only a
 successful native build/link with validated capture, dependency and output
 identities makes those records eligible for publication. Internal native linker
@@ -392,11 +412,12 @@ the original native object hash after successful code generation. Private
 native lanes use `-fno-temp-file` so that output is available at this point.
 These checks establish build correspondence, not hostile-workspace security.
 
-The SDK then invokes stock Clang on selected paired LLVM inputs to emit Sela
+The SDK then invokes stock Clang on selected target-labelled LLVM inputs to emit Sela
 units, and invokes stock Clang again for the final Sela publication link.
 Build-generated headers remain profile-specific: a pointer-width generator
-must produce 8 for x86-64 and 4 for i686. No third source build or destination
-execution of private generators is needed.
+must produce 8 on both 64-bit targets and 4 on both 32-bit targets. No
+additional source build beyond the declared native observations or
+destination execution of private generators is needed.
 
 Preserve supported differing translation-unit inventories, native archive
 extraction/link order, responses, per-TU flags, visibility, SONAMEs, version
@@ -483,8 +504,8 @@ callbacks, function pointers, and variadics need explicit tests.
 
 Distinguish pointer width from other native properties. Equal-width targets
 can differ in plain-char behavior, aggregate ABI, alignment, and floating-
-point representation. The x86-64/i686 prototype does not establish ARM
-correctness.
+point representation. A word-width comparison alone cannot establish ARM
+correctness; same-width cross-ABI and signed-char controls are required.
 
 Do not erase aliasing, signed/unsigned operation behavior, initialization,
 lifetime, or memory-access constraints needed for native semantics. Conversely,
@@ -1418,9 +1439,9 @@ Do not report broad-C completion from passing a subset of the C01-C12 registry.
 Performance/RE, other languages/targets, production lifecycle, and security
 remain separate future gates.
 
-### 17.1 Dual-device compiler acceptance
+### 17.1 Historical dual-device compiler acceptance
 
-The current consumer implementation supplies separate real x86-64 and i686 compiler
+The earlier dual-device implementation supplied separate real x86-64 and i686 compiler
 distributions, each containing native `selac`, `opt`, `llc`, `ld.lld`, and
 `llvm-ar` for its own device. The compiler's native target must agree with its
 host architecture; selecting the other width must reject before output staging.
@@ -1449,7 +1470,8 @@ runtime remain non-hermetic bootstrap dependencies. The
 source-SDK identity, cache-root restrictions, native loader prerequisites,
 and compiler-versus-application relocation boundaries.
 
-`tests/dual-consumer.sh` is the initial functional acceptance runner. It
+The former `tests/dual-consumer.sh` was the initial functional acceptance runner;
+section 17.3 replaces it with the generic `tests/multi-consumer.sh`. It
 publishes each portable fixture once, preserves its hashes, and gives those
 same bytes to both independent compiler bundles. Cases include Hello, native
 shared-library output and callers, ordered duplicate-member static archives
@@ -1478,7 +1500,7 @@ accelerator, limits, kernel/initramfs hashes, and serial evidence. Neither the
 hosted regression cases nor emulated elapsed time establish performance parity
 or complete 32-bit resource coverage.
 
-The separate full-corpus gate is `corpus/qualify.sh` with `--i686-bundle DIR`,
+The historical full-corpus interface was `corpus/qualify.sh` with `--i686-bundle DIR`,
 using an x86-64 bundle as its ordinary destination compiler argument. It still
 publishes each selected output once, runs the original native-profile and
 x86-64 destination tests, then stages the same artifacts and original generated
@@ -1588,6 +1610,93 @@ compressed download sizes without changing the bundle.
 The [distribution reference](reference/compiler-distribution.md) records the
 selected packaging strategy and its final evidence. Runtime pruning, compiler
 tool consolidation, LLVM source patches, LTO and unwind removal are deferred.
+
+### 17.3 Four-target, generic-infrastructure increment
+
+The four products differ by CPU and native ABI, not by platform or feature
+tier. Every product uses Linux plus the pinned glibc baseline:
+
+| Target ID | Native ABI/baseline | LLVM backend family |
+|---|---|---|
+| `x86_64` | System V AMD64, x86-64 baseline | X86 |
+| `i686` | System V i386, i686 baseline | X86 |
+| `armv7` | AAPCS32 VFP, ARMv7-A, hard-float VFPv3-D16, little-endian | ARM |
+| `aarch64` | AAPCS64, ARMv8-A LP64, little-endian | AArch64 |
+
+`sdk/targets.json` is the shared target registry. Its checked-in generated C++
+table and shell/Python/CMake readers keep publication, SDK selection,
+packaging, native lowering, and qualification aligned. The build host, the
+platform executing a compiler binary, and the target it emits are separate
+configuration facts. Build-host TableGen runs natively; stock Clang and
+CMake cross-build the target libraries and tools. Each device links only its
+Sela ABI adapter and native lowerer. The two x86 builds may retain upstream
+LLVM's shared X86 internals; no LLVM source surgery is required.
+
+The public schema declares a finite `sela.targets` set. Conditional block
+membership, overlap alternatives, module-flag presence, local type choices,
+array extents, and differing semantic attributes use explicit target sets
+and target cases, not fixed `x64`/`x32` fields or two-bit masks. Native word
+and pointer-size relationships remain symbolic. A same-width difference is
+not forced into a word-size expression. Reject unknown targets, duplicate
+or overlapping cases, missing active values, and malformed inactive
+semantics before native output staging. Adding a target to the registry
+does not retroactively qualify old artifacts for that target.
+
+Publication privately normalizes each native observation into a common
+semantic vocabulary, then factors one N-target graph. Corresponding code is
+shared; supported local differences become explicit relationships or guarded
+regions. Every declared target must reproduce its original normalized
+native program through a strict inverse check. No per-target whole-program
+payload, wholesale-function fallback, dropped comparison, or publisher call
+to a distributed `selac` is permitted. The publisher's validation library can
+contain all ABI adapters without making any destination compiler universal.
+
+ARM ABI adapters explicitly handle ordinary and explicit-layout records,
+homogeneous floating-point aggregates, indirect parameters/results, and
+native variadic cursor storage and forwarding. Linux AArch64 scalar
+`va_arg` lowering is explicit: LLVM 18's generic AArch64 VAARG lowering is
+not a Linux implementation. Private Clang templates are proved before
+normalization; the consumer knows native ABI semantics, not C syntax or
+frontend debug records.
+
+Qualification proceeds from the same Hello artifact through the complete
+existing C matrix and the unmodified cJSON/zlib configurations. New targets
+must not receive a reduced corpus. Preparation publishes each artifact once
+and records its hash; independent device jobs consume those identical bytes.
+`tests/multi-consumer.sh --prepare-only` and the corpus preparation mode do
+not need device compiler executables. `tests/consumer-vm.sh TARGET BUNDLE
+FIXTURES` runs the actual native bundle in a source-free matching-kernel
+guest, including real 32-bit kernels for i686 and ARMv7. VM fixtures and
+their test-only tools are not shipped inside compiler packages.
+
+PR CI runs the four-target core functional/package matrix. Main-branch and
+manual qualification add all 42 cJSON and eight zlib publications and their
+original tests. Independent target/project jobs run in parallel, use finite
+timeouts, and preserve hashes, logs, configuration, and explicit guest PASS
+or failure evidence. Native comparisons check behavior and ABI. Timing is
+lightweight diagnostic reporting only in this increment: it is neither a
+full benchmark nor the numerical A1 performance gate. A1 remains required
+by 01 and unverified for all four products until separately measured.
+
+The initial development environment remains the qualified x86-64 host.
+The infrastructure must not bake x86 assumptions into target selection, but
+claiming a qualified ARM development SDK requires a later native-host run.
+Other CPU families require a descriptor, SDK/build inputs, an existing or
+new localized ABI adapter, and the same qualification evidence. RISC-V,
+MIPS, or PowerPC are not enabled merely by naming an LLVM backend. Musl,
+additional languages, full performance/RE acceptance, and SES remain
+separate requirements, not hidden ARM prerequisites.
+
+The local four-target functional checkpoint passed on 2026-09-13 with final
+bundles in `artifacts/four-target-final/selac-TARGET`. Both complete project
+preparations used the same frozen publisher-input receipt, and every device
+consumed the identical checked `.sela` artifacts. The final packages retain
+only their own Sela native adapter, LLVM backend family, and target runtime;
+the original x86 packages were not overwritten. Source-SDK provenance,
+exact package sizes, component/core/corpus results, and retained failure
+evidence are recorded in the [distribution reference](reference/compiler-distribution.md).
+CI wiring and bounded diagnostic retention are implemented and locally
+checked; this is not a claim that a remote GitHub Actions run completed.
 
 ## 18. Requirement traceability
 

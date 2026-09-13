@@ -10,7 +10,7 @@
       "environment": {
         "SELA_SDK_ROOT": "${sourceDir}/.sdk",
         "PATH": "$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18/bin:$env{SELA_SDK_ROOT}/host/usr/bin:$penv{PATH}",
-        "LD_LIBRARY_PATH": "$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18/lib:$env{SELA_SDK_ROOT}/host/usr/lib/x86_64-linux-gnu",
+        "LD_LIBRARY_PATH": "$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18/lib:$env{SELA_SDK_ROOT}/host/runtime",
         "CMAKE_PREFIX_PATH": "$env{SELA_SDK_ROOT}/host/usr:$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18"
       },
       "cacheVariables": {
@@ -30,7 +30,7 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "environment": {
-        "LD_LIBRARY_PATH": "${sourceDir}/.sdk/host/usr/lib/llvm-18/lib:${sourceDir}/.sdk/host/usr/lib/x86_64-linux-gnu"
+        "LD_LIBRARY_PATH": "${sourceDir}/.sdk/host/usr/lib/llvm-18/lib:${sourceDir}/.sdk/host/runtime"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -64,12 +64,36 @@
         "LLVM_DIR": "${sourceDir}/.sdk/consumer/build-i686/lib/cmake/llvm",
         "MLIR_DIR": "${sourceDir}/.sdk/consumer/build-i686/lib/cmake/mlir"
       }
+    },
+    {
+      "name": "consumer-armv7",
+      "displayName": "Sela ARMv7-A hard-float device compiler (cross-built)",
+      "inherits": "consumer-base",
+      "cacheVariables": {
+        "SELA_DEVICE_TARGET": "armv7",
+        "SELA_SDK_ROOT": "${sourceDir}/.sdk/consumer/armv7",
+        "LLVM_DIR": "${sourceDir}/.sdk/consumer/build-armv7/lib/cmake/llvm",
+        "MLIR_DIR": "${sourceDir}/.sdk/consumer/build-armv7/lib/cmake/mlir"
+      }
+    },
+    {
+      "name": "consumer-aarch64",
+      "displayName": "Sela AArch64 ARMv8-A device compiler (cross-built)",
+      "inherits": "consumer-base",
+      "cacheVariables": {
+        "SELA_DEVICE_TARGET": "aarch64",
+        "SELA_SDK_ROOT": "${sourceDir}/.sdk/consumer/aarch64",
+        "LLVM_DIR": "${sourceDir}/.sdk/consumer/build-aarch64/lib/cmake/llvm",
+        "MLIR_DIR": "${sourceDir}/.sdk/consumer/build-aarch64/lib/cmake/mlir"
+      }
     }
   ],
   "buildPresets": [
     { "name": "prealpha", "configurePreset": "prealpha", "jobs": 2 },
     { "name": "consumer-x86_64", "configurePreset": "consumer-x86_64", "jobs": 2 },
-    { "name": "consumer-i686", "configurePreset": "consumer-i686", "jobs": 2 }
+    { "name": "consumer-i686", "configurePreset": "consumer-i686", "jobs": 2 },
+    { "name": "consumer-armv7", "configurePreset": "consumer-armv7", "jobs": 2 },
+    { "name": "consumer-aarch64", "configurePreset": "consumer-aarch64", "jobs": 2 }
   ],
   "testPresets": [
     {
@@ -87,6 +111,18 @@
     {
       "name": "consumer-i686",
       "configurePreset": "consumer-i686",
+      "output": { "outputOnFailure": true },
+      "execution": { "jobs": 2, "timeout": 180 }
+    },
+    {
+      "name": "consumer-armv7",
+      "configurePreset": "consumer-armv7",
+      "output": { "outputOnFailure": true },
+      "execution": { "jobs": 2, "timeout": 180 }
+    },
+    {
+      "name": "consumer-aarch64",
+      "configurePreset": "consumer-aarch64",
       "output": { "outputOnFailure": true },
       "execution": { "jobs": 2, "timeout": 180 }
     }
