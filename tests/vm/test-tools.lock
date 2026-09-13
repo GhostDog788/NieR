@@ -2,6 +2,8 @@
 # Exact records from local noble/noble-updates/noble-security i386 APT indexes.
 # Not compiler-bundle dependencies. Only CTest, GNU make, readelf and their
 # actual DT_NEEDED closure are copied into the corpus guest's /opt/test-tools.
+# The closure is independent of the compiler's host libraries. Runtime records
+# shared with sdk/consumer/packages.lock retain the identical i686 pins.
 cmake i386 3.28.3-1build7 75a75ff5256f12c4ce65d241986f23d8121942a577b630df84dc5962fde7890c https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/c/cmake/cmake_3.28.3-1build7_i386.deb
 cmake-data all 3.28.3-1build7 20a3b644211ce82f35c24f1f5052199adeb0ac159978a8740fd6c0959611557f https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/c/cmake/cmake-data_3.28.3-1build7_all.deb
 make i386 4.3-4.1build2 d9832ec1da4c828617fc27082aa6067ca2d5a4ff5c772c9de959da9b1ccfd13c https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/m/make-dfsg/make_4.3-4.1build2_i386.deb
@@ -35,3 +37,15 @@ libbrotli1 i386 1.1.0-2build2 4771011aa83c0a09e3841b4f8642a4243ea6bd9a1f38f208c4
 libctf-nobfd0 i386 2.42-4ubuntu2.10 ea882cae7502ec41612441305b23641441c9c8ff7569ed324e9efbfab6c99ead https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/binutils/libctf-nobfd0_2.42-4ubuntu2.10_i386.deb
 libsframe1 i386 2.42-4ubuntu2.10 fa01ec962aac6ff44b0b3a3084bbf1b5672aaea85b3fda8ce6d98cc75a061aef https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/binutils/libsframe1_2.42-4ubuntu2.10_i386.deb
 libffi8 i386 3.4.6-1build1 8f16d0a794a9cadb910171b65119ec767fce0850ec8cd0212f7f4f31d528d44f https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libf/libffi/libffi8_3.4.6-1build1_i386.deb
+libarchive13t64 i386 3.7.2-2ubuntu0.8 207ac453da57f4ce3f2a2319ea73bbef9a642493dfebb7953c03e2866dc19875 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/liba/libarchive/libarchive13t64_3.7.2-2ubuntu0.8_i386.deb
+libacl1 i386 2.3.2-1build1.1 cea433cef1794564f07cdc07de4bf56f7fcdb9ebb3ceb2592dd89002181e0795 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/a/acl/libacl1_2.3.2-1build1.1_i386.deb
+libbz2-1.0 i386 1.0.8-5.1ubuntu0.1 d112e23c03c49a3dcb5859fafd855cf968b0115c1c146c2fa9209ba7e7c27dd3 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/bzip2/libbz2-1.0_1.0.8-5.1ubuntu0.1_i386.deb
+liblz4-1 i386 1.9.4-1build1.1 e096bf00e5f2551d2d88df3f8ae0e5743170035ce9e96065a2b6cfa584a88b93 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/l/lz4/liblz4-1_1.9.4-1build1.1_i386.deb
+liblzma5 i386 5.6.1+really5.4.5-1ubuntu0.3 c9bb67bd5a43a42d1730518ee40ff80b413e48676b62352208119e3bfec39de2 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/x/xz-utils/liblzma5_5.6.1+really5.4.5-1ubuntu0.3_i386.deb
+libnettle8t64 i386 3.9.1-2.2build1.1 6f5a7b0f274097788aabc6e298583872c5eb482e967cc56281d75d4305b23086 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/n/nettle/libnettle8t64_3.9.1-2.2build1.1_i386.deb
+libxml2 i386 2.9.14+dfsg-1.3ubuntu3.8 bffd74683859a2237603b2275c14d6eda9340395b5af2dae4ef1938ee94009cd https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libx/libxml2/libxml2_2.9.14+dfsg-1.3ubuntu3.8_i386.deb
+libicu74 i386 74.2-1ubuntu3.1 034d5efa522c96674969971c5bfe36e00fbc3b08dd33e93a7603141f91bef516 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/i/icu/libicu74_74.2-1ubuntu3.1_i386.deb
+zlib1g i386 1:1.3.dfsg-3.1ubuntu2.2 9f55e910e56efb27ce25ae5b6711bef6a6166f3f9c32b433695e5e1cd200a70c https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/z/zlib/zlib1g_1.3.dfsg-3.1ubuntu2.2_i386.deb
+libzstd1 i386 1.5.5+dfsg2-2build1.1 9fad638b06c300c4d3645864446116635e74a15042e87693f15802b914a1b45c https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libz/libzstd/libzstd1_1.5.5+dfsg2-2build1.1_i386.deb
+libstdc++6 i386 14.2.0-4ubuntu2~24.04.1 899d77d8b4876f545bd362f60cb4aa0263a8033777e9ecca4742c890c4c54a68 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/g/gcc-14/libstdc++6_14.2.0-4ubuntu2~24.04.1_i386.deb
+libgcc-s1 i386 14.2.0-4ubuntu2~24.04.1 40879f5dae85f90837ce882527bb85e388fa0e57f7ec4fba2060f1d24ce3dbb7 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/g/gcc-14/libgcc-s1_14.2.0-4ubuntu2~24.04.1_i386.deb

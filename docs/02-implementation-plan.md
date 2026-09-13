@@ -1426,8 +1426,9 @@ The independent publisher links both native implementations for private
 two-profile reconstruction proofs. No on-device compiler is called to publish.
 
 Each consumer SDK is built from pinned, unmodified LLVM/MLIR sources for its
-own ABI, registering the X86 backend family and statically linking required
-components rather than shipping monolithic `libLLVM`. Stock X86 backend
+own ABI, registering the X86 backend family. LLVM linkage is a packaging
+choice, independent of per-device NieR specialization. The footprint work
+below compares shared LLVM with the original static-component layout. Stock X86 backend
 internals still cover both x86 widths, and stock LLD retains its upstream
 multi-format and relocation logic; this is not a fork that removes those
 internals. Build-host TableGen is private, and its supported host headers and
@@ -1506,12 +1507,75 @@ loader, SONAME/version, archive-order, checksum, and explicit i686 serial
 receipt checks passed. This is fresh source-to-both-devices evidence, separate
 from the earlier retained regression and host component tests.
 
-Measured assembled bundle sizes are 244 MiB for x86-64 and 265 MiB for i686,
+The 2026-09-12 assembled bundle sizes were 244 MiB for x86-64 and 265 MiB for i686,
 compared with the earlier 190 MiB monolithic x86-64 baseline. Static components
 are duplicated across separate tool executables. This checkpoint establishes
 native implementation isolation, not a footprint reduction or minimum size.
 The manually dispatched device-qualification workflow encodes the full gate;
 local results are not a claim that a remote GitHub Actions run has passed.
+
+### 17.2 Balanced compiler footprint reduction
+
+Optimize complete installed file bytes before the size of `nierc` alone.
+Keep the existing native runtime, supported output kinds, subprocess pipeline,
+and native target isolation unchanged. This work does not add SEN enforcement.
+
+The first checkpoint statically links the pinned libarchive reader into the
+device compiler only, removing its otherwise unused XML/ICU and archive-only
+dependency chain. Publisher and test fixture writers retain full shared
+libarchive. Release assembly strips ordinary symbols from private copies of
+`nierc` and LLVM tools; unstripped source products remain available for
+debugging and backend symbol audits. Dynamic symbols, unwind information,
+native runtime archives and startup objects are retained.
+
+On 2026-09-13 that checkpoint measured 179.43 MiB for x86-64 and 201.58 MiB
+for i686 in regular-file payloads, versus 242.70 and 263.15 MiB respectively
+before the changes. Both ten-test consumer suites and all 40 publisher tests
+passed. These are component/installation results, not a fresh real-kernel
+full-corpus qualification of the changed packages.
+
+The selected default uses stock X86-only shared LLVM, with
+`LLVM_BUILD_LLVM_DYLIB=ON`, `LLVM_LINK_LLVM_DYLIB=ON`, and
+`LLVM_DYLIB_COMPONENTS=all`, while MLIR remains statically linked.
+It may retain unused non-backend internals; it is not a minimal component list.
+Both complete packages must improve over the first checkpoint and pass final
+native qualification. SDK identity/completion checks and consumer tests remain
+enabled regardless of LLVM linkage.
+
+The assembled shared packages measured 91.89 MiB for x86-64 and 98.28 MiB
+for i686 on 2026-09-13. Their stripped `nierc` executables measured 1.73 MiB
+and 2.15 MiB respectively. Both eleven-test consumer suites and all 40
+publisher tests passed. The fresh publish-once matrix passed on both devices,
+including the real i686 kernel: 28 executable outputs, three shared libraries,
+one static archive and twelve rejection/preservation cases per device.
+Full fresh cJSON and zlib qualification against these final packages also
+passed, in two independently complete project runs covering 42 and 8 artifacts
+respectively. Both devices consumed the same published bytes. cJSON passed
+all 19 original tests in both static/shared configurations on each destination;
+zlib passed its original `test test64` recipes. Both corpus guests required
+explicit real-kernel i686 PASS receipts.
+
+The first zlib attempt exposed a test-harness dependency on libraries removed
+from the compiler package. The VM runners now stage their own pinned
+non-glibc dependency closure, and the fresh zlib rerun passed. Those test-only
+libraries are not restored to either compiler bundle. The distribution
+reference records the successful runs and the cJSON guest's updated test-tool
+receipt separately from its initial report; publication inputs and compiler
+packages stayed unchanged.
+
+Target SDK builds can run concurrently with explicit per-target job budgets.
+Exclusive profile-cache and native-generator locks protect shared build state,
+and large target links remain serialized. Qualification can also run the
+complete cJSON and zlib project gates independently; both must pass against
+the same immutable compiler packages to cover all 50 corpus artifacts.
+
+SDK receipts describe original tools and shared-library inputs; package
+checksums describe delivered stripped bytes. `scripts/bundle-size.py` reports
+component totals, ELF sections, baseline deltas, and optional consistently
+compressed download sizes without changing the bundle.
+The [distribution reference](reference/compiler-distribution.md) records the
+selected packaging strategy and its final evidence. Runtime pruning, compiler
+tool consolidation, LLVM source patches, LTO and unwind removal are deferred.
 
 ## 18. Requirement traceability
 

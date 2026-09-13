@@ -7,6 +7,14 @@ and separate x86-64/i686 glibc **2.39-0ubuntu8.8** development/runtime sysroots.
 The matching GCC runtime base package is also pinned so the extracted `libstdc++6` and `libgcc-s1` copyright notices resolve.
 Distributable device compilers use separate target-specific source SDKs, not this publisher SDK; see the [compiler distribution reference](compiler-distribution.md).
 
+The footprint work keeps this publisher SDK's archive linkage and frontend behavior unchanged.
+Only the independent device `nierc` selects objects from pinned static libarchive; publisher tools and fixture writers retain shared libarchive.
+The consumer bootstrap defaults to stock X86-only shared LLVM and also supports `NIER_CONSUMER_LLVM_LINKAGE=static-components` for comparison.
+Both shared packages have measured sizes of 91.89 MiB for x86-64 and 98.28 MiB for i686 in regular-file payloads, with all 11 consumer CTests per device and the fresh two-device matrix passing.
+The final packages also passed the full 50-artifact dual-device corpus through complete fresh cJSON and zlib project runs on 2026-09-13, establishing shared LLVM as the adopted default layout.
+The distribution reference records the exact checkpoints, results, and test-only harness provenance correction; the publisher SDK and compiler packages were not changed for that correction.
+Its two architecture SDKs can be built concurrently with the opt-in [parallel source-build procedure](building-nier.md#parallel-sdk-source-builds); compilation job limits apply per target, not to the combined machine workload.
+
 ## Bootstrap and check
 
 From the repository root, on an x86-64 Ubuntu 24.04 development host:
@@ -35,6 +43,16 @@ The default download source is Ubuntu's dated snapshot at `https://snapshot.ubun
 The mirror can be changed with `SDK_UBUNTU_MIRROR`, but hashes remain mandatory.
 Cached packages allow subsequent bootstraps without downloading them again.
 Receipts provide restartability, not runtime tamper protection for a developer-writable SDK.
+
+Consumer release packaging preserves the original SDK/build binaries and their completion hashes.
+It strips only staged delivery copies of the compiler, LLVM tools, and shared LLVM library when present; the final bundle's `payload.sha256` records those delivered bytes.
+Do not compare a stripped delivery binary directly with an original-tool completion hash and treat their intentional difference as SDK corruption.
+The managed C runtime, static link inputs, CRTs, and compiler-rt are unchanged by this packaging step.
+Measured bundles retain the README snapshot copied at assembly and remain unchanged afterward.
+The live distribution reference records subsequent qualification without changing those measured payloads.
+
+Sharing LLVM does not change the ahead-of-time compilation model or add LLVM to generated applications' runtime dependencies.
+Removing unused stock-library capabilities and enforcing SENieR execution policy are separate work; shared linkage is not a claim that those goals have been completed.
 
 ## Paths and target compilation
 

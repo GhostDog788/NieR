@@ -4,8 +4,11 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from receipt import atomic_write, claim_profile, invalidate, validate_build_roots
+from receipt import (atomic_write, claim_profile, elf_dynamic, invalidate,
+                     runtime_libraries, validate_build_roots, validate_linkage,
+                     validate_tool_linkage)
 
 
 class TemporarySDKTestCase(unittest.TestCase):
@@ -179,6 +182,129 @@ class BuildCacheTests(TemporarySDKTestCase):
         cache.write_text(cache.read_text() + "NIER_DEVICE_TARGET:STRING=i686\n")
         with self.assertRaisesRegex(ValueError, "Duplicate source build cache key"):
             validate_build_roots(work, destination, "i686", publisher)
+
+
+class LinkageReceiptTests(TemporarySDKTestCase):
+    def configuration(self, linkage):
+        dynamic = "ON" if linkage == "shared" else "OFF"
+        values = {"LLVM_BUILD_LLVM_DYLIB": dynamic, "LLVM_LINK_LLVM_DYLIB": dynamic,
+                  "BUILD_SHARED_LIBS": "OFF", "LLVM_TARGETS_TO_BUILD": "X86",
+                  "LLVM_DYLIB_COMPONENTS": "all"}
+        build = self.sdk / "build"
+        BuildCacheTests.write_cache(build / "CMakeCache.txt", values)
+        return build, values
+
+    def test_both_linkage_configurations_are_verified_without_writes(self):
+        for linkage in ("shared", "static-components"):
+            with self.subTest(linkage=linkage):
+                build, expected = self.configuration(linkage)
+                original = self.snapshot(self.sdk)
+                self.assertEqual(validate_linkage(build, linkage), expected)
+                self.assertEqual(self.snapshot(self.sdk), original)
+
+    def test_shared_request_cannot_claim_a_static_build(self):
+        build, _ = self.configuration("static-components")
+        with self.assertRaisesRegex(ValueError, "LLVM_BUILD_LLVM_DYLIB"):
+            validate_linkage(build, "shared")
+
+    def test_foreign_backends_or_component_policy_are_not_silently_accepted(self):
+        for key, value in (("LLVM_TARGETS_TO_BUILD", "X86;AArch64"),
+                           ("LLVM_DYLIB_COMPONENTS", "Core;Support"),
+                           ("BUILD_SHARED_LIBS", "ON")):
+            with self.subTest(key=key):
+                build, values = self.configuration("shared")
+                values[key] = value
+                BuildCacheTests.write_cache(build / "CMakeCache.txt", values)
+                with self.assertRaisesRegex(ValueError, key):
+                    validate_linkage(build, "shared")
+
+    def test_missing_linkage_cache_values_are_not_guessed(self):
+        build, values = self.configuration("shared")
+        del values["LLVM_LINK_LLVM_DYLIB"]
+        BuildCacheTests.write_cache(build / "CMakeCache.txt", values)
+        with self.assertRaisesRegex(ValueError, "LLVM_LINK_LLVM_DYLIB"):
+            validate_linkage(build, "shared")
+
+    def test_invalid_linkage_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "LLVM linkage"):
+            validate_linkage(self.sdk, "whatever")
+
+    def library(self):
+        directory = self.sdk / "host/usr/lib/llvm-18/lib"
+        directory.mkdir(parents=True)
+        library = directory / "libLLVM.so.18.1"
+        library.write_bytes(b"retained shared LLVM fixture")
+        (directory / "libLLVM.so").symlink_to(library.name)
+        return library
+
+    def test_shared_runtime_receipt_binds_soname_native_abi_and_bytes(self):
+        library = self.library()
+        original = self.snapshot(self.sdk)
+        with patch("receipt.elf_dynamic", return_value=([], library.name)) as inspect:
+            recorded = runtime_libraries(self.sdk, "i686", "shared")
+        inspect.assert_called_once_with(library, "i686")
+        self.assertEqual(recorded, {library.name: {
+            "file": "host/usr/lib/llvm-18/lib/" + library.name,
+            "sha256": hashlib.sha256(library.read_bytes()).hexdigest()}})
+        self.assertEqual(self.snapshot(self.sdk), original)
+
+    def test_static_completion_does_not_claim_stale_shared_sdk_files(self):
+        self.library()
+        with patch("receipt.elf_dynamic") as inspect:
+            self.assertEqual(runtime_libraries(self.sdk, "x86_64", "static-components"), {})
+        inspect.assert_not_called()
+
+    def test_shared_runtime_may_not_escape_sdk(self):
+        library = self.library()
+        link = library.parent / "libLLVM.so"
+        link.unlink()
+        outside = self.sdk / "host-library"
+        outside.write_bytes(b"unrelated")
+        link.symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, "inside the consumer SDK"):
+            runtime_libraries(self.sdk, "x86_64", "shared")
+
+    def test_shared_runtime_requires_usable_soname(self):
+        self.library()
+        for soname in (None, "../libLLVM.so.18.1", "libOther.so.18.1"):
+            with self.subTest(soname=soname):
+                with patch("receipt.elf_dynamic", return_value=([], soname)):
+                    with self.assertRaisesRegex(ValueError, "LLVM SONAME"):
+                        runtime_libraries(self.sdk, "x86_64", "shared")
+
+    def test_shared_runtime_requires_matching_soname_alias(self):
+        library = self.library()
+        (library.parent / "libLLVM.so.99").write_bytes(b"different LLVM library")
+        with patch("receipt.elf_dynamic", return_value=([], "libLLVM.so.99")):
+            with self.assertRaisesRegex(ValueError, "SONAME alias"):
+                runtime_libraries(self.sdk, "x86_64", "shared")
+
+    def test_shared_tools_must_use_the_recorded_llvm_soname(self):
+        libraries = {"libLLVM.so.18.1": {}}
+        with patch("receipt.elf_dynamic", return_value=(["libLLVM.so.18.1", "libz.so.1"], None)) as inspect:
+            validate_tool_linkage(self.sdk, "x86_64", "shared", libraries)
+        self.assertEqual(inspect.call_count, 4)
+        for needed in ([], ["libLLVM.so.17.1"], ["libLLVM.so.18.1", "libLLVM.so.17.1"]):
+            with self.subTest(needed=needed):
+                with patch("receipt.elf_dynamic", return_value=(needed, None)):
+                    with self.assertRaisesRegex(ValueError, "LLVM dependencies"):
+                        validate_tool_linkage(self.sdk, "x86_64", "shared", libraries)
+
+    def test_static_tools_may_not_claim_a_shared_dependency(self):
+        with patch("receipt.elf_dynamic", return_value=(["libLLVM.so.18.1"], None)):
+            with self.assertRaisesRegex(ValueError, "LLVM dependencies"):
+                validate_tool_linkage(self.sdk, "i686", "static-components", {})
+
+    def test_elf_inspection_rejects_wrong_abi_before_running_readelf(self):
+        library = self.sdk / "wrong-abi"
+        header = bytearray(20)
+        header[:6] = b"\x7fELF\x02\x01"
+        header[18:20] = (62).to_bytes(2, "little")
+        library.write_bytes(header)
+        with patch("receipt.subprocess.run") as inspect:
+            with self.assertRaisesRegex(ValueError, "Wrong native ELF ABI"):
+                elf_dynamic(library, "i686")
+        inspect.assert_not_called()
 
 
 if __name__ == "__main__":

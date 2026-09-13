@@ -5,10 +5,17 @@ Each bundle contains its native `bin/nierc`, `opt`, `llc`, `ld.lld`, and `llvm-a
 The x86-64 bundle contains the x86-64 sysroot; the i686 bundle contains the i686 sysroot. Neither contains the opposite target's sysroot or NieR native ABI implementation.
 The standalone compiler is language-blind. Clang, frontend plugins, publication tools, headers, CMake, source files, and private captures are not included.
 
-Both source-built device bundles have passed the fresh publish-once matrix: each compiled 28 executable outputs, three shared libraries, and one archive, with twelve rejection/preservation cases.
+The original static-component device bundles passed the fresh publish-once matrix: each compiled 28 executable outputs, three shared libraries, and one archive, with twelve rejection/preservation cases.
 The i686 run used a real 32-bit Linux kernel, not the development host's compatibility mode.
 The complete fresh dual-destination corpus also passed on 2026-09-12: 50 artifacts were published once and compiled on both devices, with all original selected cJSON and zlib tests passing.
 An earlier retained-artifact i686 regression compiled all 50 prior artifacts and passed the original cJSON and zlib suites, but did not rerun source publication or native-reference builds.
+
+The footprint update has a separate qualification status.
+The earlier compact static-component checkpoint passed 10 component tests for each device and all 40 publisher tests.
+The source recipe now defaults to shared LLVM; both measured packages have passed all 11 consumer CTests for their architecture, all 40 publisher tests, and the fresh same-fixture two-device matrix.
+The new i686 matrix ran on a real 32-bit Linux kernel and rejected the ELF64 probe before passing its native compilation checks.
+On 2026-09-13 the final shared packages also passed the full 50-artifact dual-device corpus through complete fresh cJSON and zlib project runs.
+The earlier full qualification does not automatically cover newly linked or stripped compilers.
 
 ## Build and assemble the separate products
 
@@ -32,15 +39,34 @@ The consumer bootstrap compiles the pinned upstream sources, rather than extract
 Build-host TableGen executables are generated privately and are not device payloads.
 Their compiler and LLVM sources are pinned, but their C/C++ headers and runtime currently come from the supported build host.
 This build-only dependency means the SDK bootstrap is not fully hermetic; a pinned source receipt is not a claim of reproducibility across arbitrary host environments.
-The build registers only LLVM's X86 backend family and links required LLVM/MLIR components statically; a monolithic `libLLVM` dependency is rejected during packaging.
+The build registers only LLVM's X86 backend family.
+`NIER_CONSUMER_LLVM_LINKAGE=shared` is the default layout: stock LLVM builds one native shared library used by the tools and `nierc`, while the required MLIR components remain statically linked.
+`NIER_CONSUMER_LLVM_LINKAGE=static-components` retains the component-linked comparison path.
+The completed SDK receipt determines the matching NieR link configuration; `NIER_USE_CONSUMER_SDK=ON` identifies a device SDK independently of that linkage choice.
+For example, prefix a bootstrap command with `NIER_CONSUMER_LLVM_LINKAGE=static-components` to request that comparison build.
 The X86 backend family itself includes both x86 widths, but a particular `nierc` links exactly one native specialization and admits only its own device target for native compilation or lowering.
 Stock LLD retains its upstream multi-format and relocation handling; this step does not patch LLVM or LLD to remove those internal capabilities.
+
+Sharing LLVM is an ordinary native-library packaging choice, not a JIT execution stage.
+The pipeline still writes native objects and links a normal executable before application execution; the resulting application does not need LLVM or `nierc`.
+The stock shared-library configuration includes LLVM's available components, so this is not a claim that all unused JIT-related code has been removed from the library.
+SENieR execution-policy enforcement remains a separate, unimplemented axis.
 
 This is a substantial source build, not the quick publisher package extraction.
 It requires the publisher SDK and ordinary host build/download tools, including Python 3, and currently requires checkout/SDK paths without whitespace.
 Source build caches are tied to their original consumer SDK and build-host SDK directories.
 Changing either directory rejects before reusing cached compiler paths; reuse the original directories or start with a fresh build cache/checkout.
-`NIER_CONSUMER_COMPILE_JOBS=1|2` controls source compilation parallelism; the source bootstrap serializes heavyweight target builds and bounds link parallelism.
+Changing shared/static linkage can change generated LLVM headers and trigger compilation, not just relinking.
+The bootstrap prints its actual planned compile, link, and generation work before the target build.
+Do not run competing linkage variants against the same profile's source-build cache or SDK directory.
+Retain an already assembled checkpoint before changing its SDK recipe, and rebuild the matching NieR compiler after the new SDK completes.
+`NIER_CONSUMER_COMPILE_JOBS` accepts 1–8 and defaults to 2 compile jobs per target, not across the complete build machine.
+`NIER_CONSUMER_PARALLEL_TARGETS=0|1` defaults to 0, which serializes the heavyweight target builds.
+Set it to 1 in both bootstrap processes to build x86-64 and i686 concurrently in their separate SDK/build directories.
+For example, 3 jobs for each architecture permit up to 6 concurrent target compilation jobs; choose the combined limit from available CPU and memory headroom.
+Parallel target builds share the compile lock, but each profile retains an exclusive build lock, native-generator builds remain serialized, and a shared link lock serializes memory-heavy target C/C++ links.
+One architecture does not have to finish before the other starts.
+See [parallel SDK source builds](building-nier.md#parallel-sdk-source-builds) for an example which waits for and checks both processes.
 The i686 build's host-side component tests use the development machine's 32-bit compatibility support. They do not replace the real 32-bit-kernel acceptance below.
 
 Assemble both already built products into new directories:
@@ -54,9 +80,22 @@ bash scripts/package-consumer.sh build/consumer-i686 \
 ```
 
 Each output directory must not already exist; its parent must exist.
-The packager requires a completed matching consumer SDK receipt and component-linked device build. The publisher `.sdk` and `build/prealpha` are not substitutes for these inputs.
-Assembly uses Python 3, Bash/coreutils, `rg`, and `readelf`; these assembly utilities are not runtime requirements of the installed compiler.
+The packager requires a completed matching consumer SDK receipt and device build with matching shared/static linkage. The publisher `.sdk` and `build/prealpha` are not substitutes for these inputs.
+Assembly uses Python 3, Bash/coreutils, `rg`, `readelf`, and the pinned build-host `llvm-strip`; these assembly utilities are not runtime requirements of the installed compiler.
 The relocation tests additionally use `strace`, `nm`, and `ar` on the development host.
+
+### Device-only archive dependency and release stripping
+
+Only the device artifact reader links selected objects from the pinned `libarchive.a`.
+The existing tar reader, format limits, and rejection rules are retained; no new archive parser or public artifact format is introduced.
+Publisher tools and test-fixture writers continue using shared libarchive, including the support needed to produce rejected compressed-input fixtures.
+Selecting the device reader's archive objects removes its shared libarchive/XML/ICU dependency chain without changing the managed application runtime.
+
+The packager first verifies the original SDK tool/library receipts and stages copies.
+It then strips ordinary symbol tables from the staged `nierc`, four LLVM tools, and shared LLVM library when present.
+The build products and SDK originals remain unstripped for debugging and backend-identity inspection.
+Required dynamic symbols and unwind data are retained.
+Application runtime files, static link archives, CRT objects, and compiler-rt are copied without this stripping pass; locale, NSS, and charset modules are not removed to obtain a smaller number.
 
 ## Run on the matching device
 
@@ -69,7 +108,7 @@ Move the entire directory anywhere before compiling:
 ./application
 ```
 
-No environment setup, compiler wrapper, patched LLVM binary, `patchelf`, or native application ELF rewrite is required.
+No environment setup, compiler wrapper, LLVM source patch, `patchelf`, or native application ELF rewrite is required.
 `nierc` locates its sibling `sdk` directory. An explicit `--sdk` or `NIER_SDK_ROOT` overrides that discovery.
 Only its LLVM subprocesses receive the bundle's runtime library search path; the native application runs normally without that environment.
 `--print-target` reports `x86_64` or `i686`. An explicit foreign `--target` rejects for both ordinary compilation and diagnostic `lower` before output staging.
@@ -86,7 +125,10 @@ Native application output uses the bundle's managed glibc/runtime paths as they 
 This prototype does not relocate already compiled output when its runtime directory moves.
 Keep that directory in place; production runtime installation and lifecycle management remain future work.
 
-The bundle's `sdk/consumer-sdk.json`, `sdk/source.lock`, `sdk/packages.lock`, and `sdk/sdk-lock.sha256` identify the source-built target SDK; `payload.sha256` records copied file contents.
+The bundle's `sdk/consumer-sdk.json`, `sdk/source.lock`, `sdk/packages.lock`, and `sdk/sdk-lock.sha256` identify the source-built target SDK.
+The completion receipt records original unstripped tool hashes, LLVM linkage/configuration, and the native shared LLVM library's SONAME and hash when present.
+Those source-product hashes are checked before staging; they are not hashes of the stripped delivery copies.
+`payload.sha256` records the final delivered regular-file contents, including stripped binaries and copied receipts.
 In the repository, the source/dependency locks live under `sdk/consumer/`, separately from the publisher's `sdk/packages.lock`.
 These receipts are not signatures or tamper-resistant security enforcement.
 The root `LICENSE` carries NieR's Apache-2.0 terms and is included in the payload checksums.
@@ -96,25 +138,83 @@ Release license/source-offer review remains a distribution-release task.
 This is not a minimum-footprint SDK: the native C runtime set is intentionally preserved and required optimizer/code-generator components remain substantial even with only the X86 backend family registered.
 Removing publication components does not impose an additional language subset on NieR input. The compiler's existing semantic and native-target qualification limits still apply; this prototype does not claim every C ABI construct is already supported.
 
-The local checkpoint's assembled directories have the following measured sizes, rounded in MiB:
+## Footprint measurements and current checkpoint
 
-| Distribution | Size |
-|---|---:|
-| Earlier monolithic x86-64 baseline | 190 MiB |
-| Native-component x86-64 bundle | 244 MiB |
-| Native-component i686 bundle | 265 MiB |
+Compare total bundle size as well as the individual `nierc` file.
+Moving a dependency into a binary can enlarge that binary while shrinking its complete installed dependency closure; shared LLVM addresses a different duplication cost across the separate tools.
+Neither linkage choice alone proves that a package is smaller.
 
-Static components are repeated across separate compiler tools, so the new bundles are larger than the earlier baseline.
-This checkpoint establishes native implementation isolation and frontend-free distribution, not a footprint reduction or a smallest possible compiler.
-These are measurements of the current assembled directories, not compressed download sizes or guarantees for future builds.
+The recorded local checkpoints have these regular-file payload sizes, rounded to two decimal places in MiB:
+
+| Distribution checkpoint | x86-64 | i686 |
+|---|---:|---:|
+| Earlier monolithic LLVM baseline | 188.96 MiB | — |
+| Original unstripped static-component packages | 242.70 MiB | 263.15 MiB |
+| Compact static-component packages | 179.43 MiB | 201.58 MiB |
+| Shared-LLVM checkpoint | 91.89 MiB | 98.28 MiB |
+
+The compact checkpoint is retained locally as `artifacts/nierc-x86_64-compact-static` and `artifacts/nierc-i686-compact-static`.
+Its respective exact totals are 188,145,251 and 211,373,966 regular-file bytes; its stripped `nierc` files are 4,897,048 and 5,468,444 bytes.
+These figures describe those retained packages, not an estimate of shared-library savings.
+The earlier compact static checkpoint passed 10 component tests per device and all 40 publisher tests.
+
+The measured shared-LLVM packages are retained as `artifacts/nierc-x86_64-compact-shared` and `artifacts/nierc-i686-compact-shared`.
+Their exact measurements are:
+
+| Measurement | x86-64 bytes | i686 bytes |
+|---|---:|---:|
+| Total regular-file payload | 96,352,022 | 103,058,855 |
+| Stripped `nierc` | 1,816,856 | 2,257,912 |
+| Shared LLVM library | 59,985,784 | 70,300,420 |
+| Normalized tar/gzip-1 stream | 38,388,230 | 41,890,028 |
+
+The `nierc` files are 1.73 MiB and 2.15 MiB; the shared LLVM libraries are 57.21 MiB and 67.04 MiB.
+Those component rows are already part of the total payload, not additional bytes to add to it.
+The compressed row is the reporter's normalized stream measurement, not installed size or an actual shipping archive.
+
+Both shared packages passed their complete 11-test consumer suites; all 40 publisher tests also passed.
+The fresh matrix passed 28 executable outputs, three shared libraries, one archive, and twelve rejection/preservation cases on each device using the same fixtures.
+The i686 stage used Linux `6.1.0-50-686-pae`, KVM, and 3 GiB RAM, with the required ELF64 `ENOEXEC` rejection.
+Both architectures pass the total-package size-reduction gate and the full fresh dual-device corpus qualification, so shared LLVM is the adopted default layout.
+The native runtime and compiler-rt payloads remain byte-identical to the original packages: 309 regular files on x86-64 and 305 on i686, with symlink targets also preserved.
+
+These retained packages remain unchanged after assembly and measurement.
+Each contains the README snapshot captured when it was assembled, which may still describe a qualification step as pending.
+This live repository reference records later qualification of those same package bytes; it does not require editing or repackaging the measured checkpoint just to update its README.
+
+These regular-file totals exclude symlink/directory entries and filesystem block rounding, so they differ from the earlier `du -sh` figures of 190/244/265 MiB.
+They are not compressed download sizes, runtime memory use, or guarantees for future builds.
+The [device-compiler retrospective](device-compiler-retrospective.md) preserves the original regression analysis and timing evidence.
+
+### Read-only bundle size report
+
+Packaging prints a component report automatically.
+To inspect an existing package or compare two checkpoints, run:
+
+```bash
+python3 -B scripts/bundle-size.py artifacts/nierc-x86_64-compact-shared \
+  --compare artifacts/nierc-x86_64-compact-static
+python3 -B scripts/bundle-size.py artifacts/nierc-i686-compact-shared --json
+python3 -B scripts/bundle-size.py artifacts/nierc-x86_64-compact-shared --compressed
+```
+
+The reporter groups `nierc`, each LLVM tool, shared LLVM, other compiler libraries, the managed runtime, compiler-rt, and metadata.
+It reports exact regular-file bytes separately from allocated filesystem bytes and ELF code, ordinary symbol, and unwind sections.
+Hardlinked data is counted once and symlinks are not followed.
+The archive-exclusive dependency subset is already included in the component totals; it is not an extra saving to add a second time.
+`--compressed` measures a normalized tar/gzip-1 stream without writing an archive and is optional to keep ordinary reporting fast.
+Compare compressed values produced by the same reporter; different tar/compression recipes are not interchangeable measurements.
 
 ## Dual-device acceptance
 
 The distribution now supplies an independent, genuinely 32-bit i686 compiler bundle alongside the x86-64 bundle.
 This is separate from compiling an ELF32 application with a 64-bit compiler or running one under a 64-bit kernel's compatibility support.
 The consumer SDK inputs live under `.sdk/consumer/x86_64` and `.sdk/consumer/i686`; the corresponding assembled bundles remain distinct device products.
-Both refreshed bundles passed the complete fresh dual script, including per-target stock-native references and the i686 kernel's ELF64 `ENOEXEC` rejection.
+The original 2026-09-12 static-component bundles passed the complete fresh dual script, including per-target stock-native references and the i686 kernel's ELF64 `ENOEXEC` rejection.
 The i686 VM used KVM and 3 GiB RAM. The complete fresh dual-destination corpus also passed with these compiler/runtime/SDK inputs.
+Both new shared-LLVM packages have passed the fresh fixture matrix using the same published artifacts, including the source-free real-kernel i686 stage.
+Its retained fixture directory is `/tmp/nier-dual-consumer-POvpuj`, with i686 VM evidence under `/tmp/nier-consumer-vm-VwouhQ`.
+The shared packages also passed the full fresh dual-device corpus in the separate complete cJSON and zlib runs recorded below; this is new evidence for the final shared packages, not inherited static-component qualification.
 The manually dispatched GitHub Actions workflow `Device compiler qualification`, defined in `.github/workflows/device-compilers.yml`, runs SDK source builds, publisher/device component tests, packaging, this matrix, and the complete dual-destination corpus.
 It is separate from the normal publisher CI smoke workflow; a configured workflow is not a recorded passing run.
 
@@ -177,6 +277,8 @@ The guest receives the generated test recipes and runtime data, not source files
 Its pinned ELF32 CTest, GNU make, and readelf tools, CTest support data, and runtime dependency closure live under `/opt/test-tools`; they are not included in the distributed compiler.
 `tests/vm/test-tools.lock` records those test-only inputs. Explicit loader arguments scope test-tool libraries to the runners, so application processes do not inherit an accidental test-library override.
 The runner also clears publisher SDK and loader environment overrides before invoking either thin compiler.
+The test-tool dependency closure is staged independently from its own pinned packages, without falling back to compiler-bundle host libraries.
+Slimming the product must not silently remove a test runner's dependencies or require putting those dependencies back into the distributed compiler.
 
 The full-corpus guest has a default 3600-second bound, configurable through the same `NIER_VM_TIMEOUT` setting.
 Publication, repeated native builds, and emulated compilation can be substantial work; an unchanged upstream test inventory is required regardless of accelerator.
@@ -188,3 +290,20 @@ All 50 publications and their native references were rebuilt; both devices compi
 cJSON passed all 19 original CTests in each static/shared configuration on each destination, and zlib passed its original static/shared/64-bit-offset recipes.
 Native-caller, loader, SONAME/version, archive-order, and checksum checks also passed, with an explicit real-kernel i686 serial receipt.
 This is a qualified functional checkpoint for the pinned configurations, not unrestricted C/ABI support, performance parity, reverse-engineering equivalence, security enforcement, or a remote Actions result.
+
+### Shared-LLVM qualification on 2026-09-13
+
+Both final shared packages passed the complete selected 50-artifact corpus through two fresh, full-project runs: `--project cjson` covered 42 publications and `--project zlib` covered eight.
+Both devices consumed the same checked artifacts and passed the original cJSON 19-test static/shared inventories and zlib `test`/`test64` recipes, including explicit source-free real-kernel i686 receipts.
+These two complete project reports cover the full inventory; they are not one combined `PASS (all)` report.
+
+The successful cJSON report is `/tmp/nier-corpus-DcJWgF/qualification.txt`, from 08:31:56 to 08:46:53 UTC, with i686 evidence under `/tmp/nier-consumer-vm-0TTsLk`.
+The successful zlib report is `/tmp/nier-corpus-UpkPYK/qualification.txt`, from 08:36:31 to 08:38:29 UTC, with i686 evidence under `/tmp/nier-consumer-vm-IEP6wB`.
+The final compiler packages and payload checksums remained unchanged; these temporary evidence paths are local, not permanent storage guarantees.
+
+The failed first zlib attempt remains at `/tmp/nier-corpus-oJRdz7`: guest CTest lacked `libarchive.so.13` during test-tool staging, not during compiler or application execution.
+Completing the separate pinned test-tool dependency closure and removing compiler-library fallback fixed the harness; the complete zlib rerun passed without changing either compiler package, publisher binary, application source, or publication recipe.
+
+cJSON's initial report recorded test-tools lock SHA-256 `2e2d102bbe612fe453693427cb18244ecc123ede33f5cce52bde60146b0b179f` before that test-only correction.
+Both actual final guests staged `/opt/test-tools/packages.lock` with SHA-256 `675adcafd22ff645ac427dd353ee0f99e51a775635c56b394cfae2ebeb326a0f`; the corrected staging helper's hash is `d9728772d3a7ba4b87f80b5cddd136330079918f7038eb4440917ef106c284aa`.
+The cJSON publications continued unchanged and its full guest tests passed with the corrected isolated tools; the initial report is not claimed to describe that later test-tool closure unchanged.

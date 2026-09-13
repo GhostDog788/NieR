@@ -59,8 +59,13 @@ cmake --build --preset consumer-i686
 ctest --preset consumer-i686
 ```
 
-These are substantial upstream source builds. They retain unmodified LLVM/MLIR 18.1.3, register the X86 backend family, and link selected components instead of a monolithic multi-backend LLVM shared library.
-`NIER_CONSUMER_COMPILE_JOBS=1|2` controls bootstrap compilation parallelism; the bootstrap bounds heavyweight source builds and links.
+These are substantial upstream source builds. They retain unmodified LLVM/MLIR 18.1.3 and register only the X86 backend family.
+The default shared-LLVM layout lets compiler tools share one native library while keeping MLIR static; `NIER_CONSUMER_LLVM_LINKAGE=static-components` selects the comparison layout.
+Consumer SDK identity checks and native NieR specialization are independent of that linkage choice.
+See the distribution reference for the measured and qualified checkpoint; a newly configured candidate does not inherit an older qualification result.
+`NIER_CONSUMER_COMPILE_JOBS` accepts 1–8 and defaults to 2 compile jobs per target.
+`NIER_CONSUMER_PARALLEL_TARGETS=0|1` defaults to 0; set it to 1 for both processes to allow the two architectures to build concurrently as shown below.
+The order of the examples above is not a requirement that x86-64 finish or pass qualification before i686 can start.
 The resulting SDKs are `.sdk/consumer/x86_64` and `.sdk/consumer/i686`; corresponding compiler builds are `build/consumer-x86_64` and `build/consumer-i686`.
 
 Each product excludes the Clang frontend plugin, capture/replay tools, and LLVM-to-NieR producer.
@@ -70,13 +75,51 @@ Use each build's own CTest inventory, not the publisher-only CI smoke selection.
 The i686 host-side tests exercise compatibility mode and are not genuine 32-bit-kernel acceptance.
 They also require the build host's 32-bit glibc loader at `/lib/ld-linux.so.2`, supplied on Ubuntu by `libc6-i386` or a matching multiarch libc installation.
 Extracting an SDK sysroot does not install that system loader; the device-qualification CI workflow installs the host prerequisite explicitly.
-Both source-built bundles have passed their component tests and the fresh publish-once two-device matrix, including the real i686 kernel.
-The complete fresh dual-destination corpus also passed at the recorded 2026-09-12 checkpoint.
+The original static-component bundles passed their component tests and the fresh publish-once two-device matrix, including the real i686 kernel.
+Their complete fresh dual-destination corpus also passed at the recorded 2026-09-12 checkpoint.
+The new shared-LLVM packages measure 91.89 MiB for x86-64 and 98.28 MiB for i686 in regular-file payloads, smaller than both compact static-component packages.
+Each passed all 11 consumer CTests, and the fresh same-artifact matrix passed on both devices, including the real i686 kernel; all 40 publisher tests also passed.
+The final shared packages also passed the full 50-artifact dual-device corpus through complete fresh cJSON and zlib project runs on 2026-09-13; shared LLVM is the adopted default layout.
 A component-test pass alone is not a substitute for that separate gate, and these bounded qualification results are not a production-release claim.
 
 See the [compiler distribution reference](compiler-distribution.md) for packaging, runtime prerequisites, the real i686 VM, and the manually dispatched `Device compiler qualification` GitHub workflow.
 After assembly, a bundle's `bin/nierc --print-target` identifies its native target and `bin/nierc --check-sdk` checks its selected installation without compiling an artifact.
 Clear `NIER_SDK_ROOT` when checking sibling-SDK discovery; an old compiler and a newly built SDK must not be mixed merely because both target the same architecture.
+Measured bundles retain their assembly-time README snapshots and are not changed merely to refresh qualification text.
+The live distribution reference records later results for those same payloads.
+It also records a test-only VM dependency correction and the cJSON report's initial-versus-final test-tools lock transition; the compiler packages were not changed to repair the test harness.
+
+### Parallel SDK source builds
+
+Instead of the two sequential consumer bootstrap commands above, use this opt-in example after preparing the publisher SDK.
+It allows 3 compile jobs per architecture, up to 6 target compilation jobs combined, and records separate logs:
+
+```bash
+parallel_sdk_logs=$(mktemp -d "${TMPDIR:-/tmp}/nier-sdk-build-XXXXXX")
+NIER_CONSUMER_PARALLEL_TARGETS=1 NIER_CONSUMER_COMPILE_JOBS=3 \
+  bash scripts/bootstrap-consumer-sdk.sh x86_64 \
+  >"$parallel_sdk_logs/x86_64.log" 2>&1 &
+sdk_x86_64_pid=$!
+NIER_CONSUMER_PARALLEL_TARGETS=1 NIER_CONSUMER_COMPILE_JOBS=3 \
+  bash scripts/bootstrap-consumer-sdk.sh i686 \
+  >"$parallel_sdk_logs/i686.log" 2>&1 &
+sdk_i686_pid=$!
+sdk_build_status=0
+wait "$sdk_x86_64_pid" || sdk_build_status=1
+wait "$sdk_i686_pid" || sdk_build_status=1
+printf 'SDK build logs: %s\n' "$parallel_sdk_logs"
+test "$sdk_build_status" -eq 0
+```
+
+Both processes are awaited even if one fails.
+If either fails, inspect its log and resolve the error before configuring the corresponding NieR preset; do not repeatedly retry a compiler crash without diagnosis.
+After both complete successfully, run the matching configure/build/test preset commands above.
+
+Job limits are per architecture, so higher values multiply CPU and memory demand when both builds are active.
+Use available memory as well as CPU utilization to choose them; this example is not a claim that 6 or 16 combined jobs fit every host.
+Separate profile build locks prevent simultaneous writers to one profile's cache, and native-generator builds remain serialized.
+The target C/C++ linker launchers share a global lock so the memory-heavy links do not run concurrently with each other, though compilation may continue beside a link.
+Do not run different linkage variants against the same profile's SDK/build directories in parallel.
 
 ## Configure VS Code
 

@@ -4,6 +4,10 @@ set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 profile=${1:?Usage: bootstrap-consumer-sdk.sh x86_64|i686 [output-directory]}
 [[ $# -le 2 && $profile =~ ^(x86_64|i686)$ ]] || { echo 'Expected x86_64 or i686' >&2; exit 2; }
+llvm_linkage=${NIER_CONSUMER_LLVM_LINKAGE:-shared}
+[[ $llvm_linkage == shared || $llvm_linkage == static-components ]] || {
+  echo 'NIER_CONSUMER_LLVM_LINKAGE must be shared or static-components' >&2; exit 2;
+}
 [[ $(uname -m) == x86_64 ]] || { echo 'Bootstrap currently requires an x86-64 Linux build host.' >&2; exit 2; }
 for utility in curl sha256sum dpkg-deb flock realpath tar readelf python3; do
   command -v "$utility" >/dev/null || { echo "Missing utility: $utility" >&2; exit 1; }
@@ -26,7 +30,9 @@ python3 "$definition/receipt.py" claim "$destination" "$profile"
 python3 "$definition/receipt.py" invalidate "$destination"
 mkdir -p "$work/downloads" "$work/source" "$destination/receipts" "$destination/host"
 compile_jobs=${NIER_CONSUMER_COMPILE_JOBS:-2}
-[[ $compile_jobs =~ ^[12]$ ]] || { echo 'NIER_CONSUMER_COMPILE_JOBS must be 1 or 2' >&2; exit 2; }
+[[ $compile_jobs =~ ^[1-8]$ ]] || { echo 'NIER_CONSUMER_COMPILE_JOBS must be between 1 and 8' >&2; exit 2; }
+parallel_targets=${NIER_CONSUMER_PARALLEL_TARGETS:-0}
+[[ $parallel_targets =~ ^[01]$ ]] || { echo 'NIER_CONSUMER_PARALLEL_TARGETS must be 0 or 1' >&2; exit 2; }
 source_lock="$definition/source.lock"
 packages_lock="$definition/packages.lock"
 host_llvm="$publisher/host/usr/lib/llvm-18"
@@ -120,10 +126,13 @@ pointer_bytes=8
 loader="$sysroot/usr/lib/$multiarch/ld-linux-x86-64.so.2"
 [[ $profile == i686 ]] && loader="$sysroot/usr/lib/$multiarch/ld-linux.so.2"
 env -u LD_LIBRARY_PATH -u LD_PRELOAD "$loader" --library-path "$sysroot/usr/lib/$multiarch" "$destination/abi-probe"
-# Permit dependency preparation for the other profile in parallel, but keep the
-# combined heavyweight source build at two compile jobs and one link job.
+# The default serializes target builds. Explicit parallel callers share this
+# lock, while the per-profile lock still protects each build cache. Job counts
+# are per target; callers must budget their combined CPU/memory consumption.
 exec 6>"$work/compile.lock"
-flock 6
+if [[ $parallel_targets == 1 ]]; then flock --shared 6; else flock 6; fi
+exec 5>"$work/build-$profile.lock"
+flock 5
 # Another bootstrap may have initialized this shared cache while dependencies
 # were prepared. Recheck under the build lock before any CMake reuse.
 python3 "$definition/receipt.py" check-build "$destination" "$work" "$profile" "$publisher"
@@ -131,28 +140,37 @@ native_build="$work/build-native-generators"
 build="$work/build-$profile"
 common=(-G Ninja -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_BUILD_TYPE=Release
   '-DLLVM_ENABLE_PROJECTS=mlir;lld' -DLLVM_TARGETS_TO_BUILD=X86
-  -DBUILD_SHARED_LIBS=OFF -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_LINK_LLVM_DYLIB=OFF
+  -DBUILD_SHARED_LIBS=OFF
   -DLLVM_ENABLE_RTTI=ON -DLLVM_ENABLE_EH=OFF -DLLVM_ENABLE_LTO=OFF
   -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF
   -DLLVM_INCLUDE_BENCHMARKS=OFF -DMLIR_ENABLE_BINDINGS_PYTHON=OFF
   -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBEDIT=OFF -DLLVM_ENABLE_LIBXML2=OFF
   -DLLVM_ENABLE_FFI=OFF -DLLVM_ENABLE_ZLIB=FORCE_ON -DLLVM_ENABLE_ZSTD=FORCE_ON
-  -DLLVM_PARALLEL_COMPILE_JOBS=2 -DLLVM_PARALLEL_LINK_JOBS=1
+  -DLLVM_PARALLEL_COMPILE_JOBS="$compile_jobs" -DLLVM_PARALLEL_LINK_JOBS=1
   -DLLVM_APPEND_VC_REV=OFF -DLLVM_ENABLE_WARNINGS=OFF)
 # TableGen is a build-host tool, built from the exact same upstream source. It
-# is not installed in either device SDK and does not run on the device.
+# is not installed in either device SDK and does not run on the device. Keep
+# its static configuration unchanged when switching target SDK linkage.
 (
   exec 8>"$work/native-generators.lock"
   flock 8
   "$cmake" -S "$source_tree/llvm" -B "$native_build" "${common[@]}" \
+    -DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_LINK_LLVM_DYLIB=OFF \
     -DCMAKE_C_COMPILER="$host_llvm/bin/clang" -DCMAKE_CXX_COMPILER="$host_llvm/bin/clang++" \
     -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=$host_llvm/bin/ld.lld" \
     -DCMAKE_PREFIX_PATH="$publisher/host/usr" -DLLVM_HOST_TRIPLE=x86_64-unknown-linux-gnu
   "$cmake" --build "$native_build" --parallel "$compile_jobs" --target llvm-min-tblgen llvm-tblgen mlir-tblgen
 )
+target_linkage=(-DLLVM_BUILD_LLVM_DYLIB=OFF -DLLVM_LINK_LLVM_DYLIB=OFF)
+if [[ $llvm_linkage == shared ]]; then
+  target_linkage=(-DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON)
+fi
 "$cmake" -S "$source_tree/llvm" -B "$build" "${common[@]}" \
+  "${target_linkage[@]}" -DLLVM_DYLIB_COMPONENTS=all \
   -DCMAKE_TOOLCHAIN_FILE="$definition/toolchain.cmake" \
   -DNIER_SDK_ROOT="$destination" -DNIER_DEVICE_TARGET="$profile" -DNIER_BUILD_SDK_ROOT="$publisher" \
+  "-DCMAKE_C_LINKER_LAUNCHER=flock;$work/link.lock" \
+  "-DCMAKE_CXX_LINKER_LAUNCHER=flock;$work/link.lock" \
   -DCMAKE_INSTALL_PREFIX="$prefix" \
   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON "-DCMAKE_INSTALL_RPATH=\$ORIGIN/../lib;\$ORIGIN/../../$multiarch" \
   -DLLVM_HOST_TRIPLE="$profile-unknown-linux-gnu" -DLLVM_DEFAULT_TARGET_TRIPLE="$profile-unknown-linux-gnu" \
@@ -161,21 +179,43 @@ common=(-G Ninja -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_BUILD_TYPE=Release
   -DLLVM_HEADERS_TABLEGEN="$native_build/bin/llvm-min-tblgen" \
   -DMLIR_TABLEGEN="$native_build/bin/mlir-tblgen" \
   -DZLIB_ROOT="$sysroot/usr" -Dzstd_DIR="$sysroot/usr/lib/$multiarch/cmake/zstd"
-# Prove the actual 32-bit MLIR context/parser link before the larger LLVM tools.
-"$cmake" --build "$build" --parallel "$compile_jobs" --target MLIRIR MLIRParser MLIRBytecodeReader MLIRBytecodeWriter LLVMLinker LLVMIRReader
+components=(MLIRIR MLIRParser MLIRBytecodeReader MLIRBytecodeWriter LLVMLinker LLVMIRReader)
+targets=(opt llc llvm-ar lld)
+[[ $llvm_linkage != shared ]] || targets+=(LLVM)
+# Report the actual incremental work before compiling. A shared-LLVM switch
+# changes a generated public header and can invalidate otherwise reusable PIC
+# objects; this must not be presented as a relink-only operation.
+preview=$(NINJA_STATUS='[%f/%t] ' "$ninja" -C "$build" -n "${components[@]}" "${targets[@]}")
+awk -v profile="$profile" -v linkage="$llvm_linkage" '
+  /^\[[0-9]+\/[0-9]+\] / {
+    total++
+    if (/Building (C|CXX|ASM) object/) compile++
+    else if (/Linking /) link++
+    else other++
+  }
+  END { printf "Planned target work (%s, %s): %d compile, %d link, %d generation/other steps; %d total.\n", profile, linkage, compile, link, other, total }
+' <<< "$preview"
+# Prove the actual 32-bit MLIR context/parser link before building the tool
+# executables. In shared mode these MLIR dependencies can first build libLLVM.
+"$cmake" --build "$build" --parallel "$compile_jobs" --target "${components[@]}"
 if [[ $profile == i686 ]]; then
   probe="$build/mlir32-probe"
+  probe_llvm=(-lLLVMSupport -lLLVMDemangle)
+  [[ $llvm_linkage != shared ]] || probe_llvm=(-lLLVM)
   "$host_llvm/bin/clang++" --target=i686-unknown-linux-gnu --sysroot="$sysroot" \
     "--gcc-install-dir=$sysroot/usr/lib/gcc/$triple/13" -std=c++17 -fuse-ld="$host_llvm/bin/ld.lld" \
     -I"$source_tree/llvm/include" -I"$build/include" -I"$source_tree/mlir/include" -I"$build/tools/mlir/include" \
     "$definition/mlir32-probe.cpp" -o "$probe" -L"$build/lib" \
     -Wl,--start-group -lMLIRParser -lMLIRAsmParser -lMLIRBytecodeReader -lMLIRBytecodeOpInterface \
-    -lMLIRIR -lMLIRSupport -lLLVMSupport -lLLVMDemangle -Wl,--end-group -lz -lzstd -lpthread -ldl -lm
+    -lMLIRIR -lMLIRSupport "${probe_llvm[@]}" -Wl,--end-group -lz -lzstd -lpthread -ldl -lm
   readelf -h "$probe" | grep -q 'Class:.*ELF32'
-  env -u LD_LIBRARY_PATH -u LD_PRELOAD "$loader" --library-path "$sysroot/usr/lib/$multiarch" "$probe"
+  env -u LD_LIBRARY_PATH -u LD_PRELOAD "$loader" --library-path "$build/lib:$sysroot/usr/lib/$multiarch" "$probe"
 fi
-python3 "$definition/receipt.py" prepare "$destination" "$build" "$profile" "$publisher"
-"$cmake" --build "$build" --parallel "$compile_jobs" --target opt llc llvm-ar lld
+python3 "$definition/receipt.py" prepare "$destination" "$build" "$profile" "$publisher" "$llvm_linkage"
+"$cmake" --build "$build" --parallel "$compile_jobs" --target "${targets[@]}"
+if [[ $llvm_linkage == shared ]]; then
+  "$cmake" --install "$build" --prefix "$prefix" --component LLVM
+fi
 for tool in opt llc llvm-ar lld; do
   cp -- "$build/bin/$tool" "$prefix/bin/$tool"
 done
@@ -186,5 +226,5 @@ for tool in opt llc llvm-ar ld.lld; do
   readelf -h "$prefix/bin/$tool" | grep -q "Class:.*$expected_class"
   env -u LD_LIBRARY_PATH -u LD_PRELOAD "$loader" --library-path "$prefix/lib:$destination/host/usr/lib/$multiarch" "$prefix/bin/$tool" --version
 done
-python3 "$definition/receipt.py" complete "$destination" "$build" "$profile" "$publisher"
+python3 "$definition/receipt.py" complete "$destination" "$build" "$profile" "$publisher" "$llvm_linkage"
 printf '\nConsumer SDK ready: %s\nUse -C %s/development.cmake and sdk/consumer/toolchain.cmake.\n' "$destination" "$destination"

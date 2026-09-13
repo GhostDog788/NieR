@@ -18,28 +18,51 @@ test -d "$output_parent"
 test -f "$sdk_root/consumer-sdk.json" || {
     printf 'Build a target-specific SDK with scripts/bootstrap-consumer-sdk.sh first.\n' >&2; exit 1;
 }
-profile=$(python3 - "$sdk_root" "$repository" <<'PY'
-import hashlib, json, pathlib, sys
+sdk_description=$(python3 - "$sdk_root" "$repository" <<'PY'
+import hashlib, json, pathlib, re, subprocess, sys
 root = pathlib.Path(sys.argv[1])
 receipt = json.loads((root / 'consumer-sdk.json').read_text())
-identity_fields = {key: value for key, value in receipt.items() if key not in ('sdk_identity', 'tools')}
+identity_fields = {key: value for key, value in receipt.items() if key not in ('sdk_identity', 'tools', 'runtime_libraries')}
 identity = hashlib.sha256(json.dumps(identity_fields, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 if identity != (root / 'sdk-lock.sha256').read_text().strip() or receipt.get('sdk_identity') != identity:
     raise SystemExit('Consumer SDK receipt mismatch')
-if receipt.get('targets') != ['X86'] or receipt.get('linkage') != 'static-components':
-    raise SystemExit('Expected the X86-only component SDK')
+linkage = receipt.get('linkage')
+if receipt.get('targets') != ['X86'] or linkage not in ('static-components', 'shared'):
+    raise SystemExit('Expected a pinned X86-only consumer SDK')
 for name in ('source.lock', 'packages.lock'):
     copied_input = pathlib.Path(sys.argv[2]) / 'sdk/consumer' / name
     if hashlib.sha256(copied_input.read_bytes()).hexdigest() != receipt['inputs'][name]:
         raise SystemExit('Consumer SDK input lock changed; rebuild the SDK: ' + name)
+if set(receipt['tools']) != {'opt', 'llc', 'llvm-ar', 'lld'}:
+    raise SystemExit('Consumer SDK tool inventory mismatch')
 for name, expected in receipt['tools'].items():
     if hashlib.sha256((root / 'host/usr/lib/llvm-18/bin' / name).read_bytes()).hexdigest() != expected:
         raise SystemExit('Consumer SDK tool changed: ' + name)
 if hashlib.sha256((root / 'host/usr/lib/llvm-18/bin/ld.lld').read_bytes()).hexdigest() != receipt['tools']['lld']:
     raise SystemExit('Consumer SDK ld.lld alias does not match the verified lld')
-print(receipt['profile'])
+libraries = receipt.get('runtime_libraries')
+if not isinstance(libraries, dict) or len(libraries) != (1 if linkage == 'shared' else 0):
+    raise SystemExit('Consumer SDK LLVM runtime inventory mismatch')
+soname = '-'
+for soname, record in libraries.items():
+    if not re.fullmatch(r'libLLVM[A-Za-z0-9_.+-]*', soname):
+        raise SystemExit('Invalid LLVM runtime SONAME')
+    filename = pathlib.PurePosixPath(record['file'])
+    if filename.parent != pathlib.PurePosixPath('host/usr/lib/llvm-18/lib') or not re.fullmatch(r'libLLVM[A-Za-z0-9_.+-]*', filename.name):
+        raise SystemExit('Invalid LLVM runtime filename')
+    directory = root / 'host/usr/lib/llvm-18/lib'
+    library = (root / filename).resolve(strict=True)
+    if library.parent != directory.resolve() or (directory / soname).resolve(strict=True) != library:
+        raise SystemExit('LLVM runtime alias escaped or does not match its receipt')
+    if hashlib.sha256(library.read_bytes()).hexdigest() != record['sha256']:
+        raise SystemExit('Consumer SDK LLVM runtime changed: ' + str(filename))
+    dynamic = subprocess.check_output(['readelf', '-d', str(library)], text=True)
+    if not re.search(r'\(SONAME\).*\[' + re.escape(soname) + r'\]', dynamic):
+        raise SystemExit('LLVM runtime SONAME does not match its receipt')
+print(receipt['profile'], linkage, soname)
 PY
 )
+read -r profile linkage llvm_soname <<< "$sdk_description"
 case "$profile" in
     x86_64) multiarch=x86_64-linux-gnu; foreign_multiarch=i386-linux-gnu; runtime_arch=x86_64; elf_class=ELF64; elf_machine='Advanced Micro Devices X86-64' ;;
     i686) multiarch=i386-linux-gnu; foreign_multiarch=x86_64-linux-gnu; runtime_arch=i386; elf_class=ELF32; elf_machine='Intel 80386' ;;
@@ -50,13 +73,21 @@ if [[ $built_target != "$profile" ]]; then
     printf 'Compiler target %s does not match SDK target %s\n' "$built_target" "$profile" >&2; exit 1
 fi
 component_linking=$(sed -n 's/^NIER_LLVM_COMPONENT_LINKING:BOOL=//p' "$build_dir/CMakeCache.txt")
-case "${component_linking^^}" in
+consumer_sdk=$(sed -n 's/^NIER_USE_CONSUMER_SDK:BOOL=//p' "$build_dir/CMakeCache.txt")
+case "${consumer_sdk^^}" in
     ON|TRUE|YES|Y|1) ;;
-    *) printf 'Compiler must be configured with NIER_LLVM_COMPONENT_LINKING enabled\n' >&2; exit 1 ;;
+    *) printf 'Compiler must be configured with NIER_USE_CONSUMER_SDK enabled\n' >&2; exit 1 ;;
+esac
+case "$linkage:${component_linking^^}" in
+    static-components:ON|shared:OFF) ;;
+    *) printf 'Compiler LLVM linkage does not match its consumer SDK\n' >&2; exit 1 ;;
 esac
 cmake_program=$(sed -n 's/^CMAKE_COMMAND:INTERNAL=//p' "$build_dir/CMakeCache.txt")
 test -x "$cmake_program"
 cmake_prefix=$(dirname -- "$(dirname -- "$cmake_program")")
+build_sdk=$(sed -n 's/^NIER_BUILD_SDK_ROOT:PATH=//p' "$build_dir/CMakeCache.txt")
+strip_tool="$build_sdk/host/usr/lib/llvm-18/bin/llvm-strip"
+test -x "$strip_tool" || { printf 'Missing pinned build-host llvm-strip: %s\n' "$strip_tool" >&2; exit 1; }
 stage=$(mktemp -d "$output_parent/.nier-consumer-stage-XXXXXX")
 trap 'status=$?; if (( status )); then printf "Incomplete private bundle retained at: %s\n" "$stage" >&2; fi' EXIT
 env LD_LIBRARY_PATH="$cmake_prefix/lib/llvm-18/lib:$cmake_prefix/lib/x86_64-linux-gnu" \
@@ -70,18 +101,20 @@ bundle_bin="$stage/sdk/$llvm_relative/bin"
 bundle_lib="$stage/sdk/$llvm_relative/lib"
 mkdir -p "$bundle_bin" "$bundle_lib" "$stage/licenses"
 queue=("$stage/bin/nierc")
+strip_files=("$stage/bin/nierc")
 for tool in opt llc ld.lld llvm-ar; do
     original="$sdk_root/$llvm_relative/bin/$tool"
     cp -Lp -- "$original" "$bundle_bin/$tool"
     cmp -- "$original" "$bundle_bin/$tool"
     queue+=("$bundle_bin/$tool")
+    strip_files+=("$bundle_bin/$tool")
 done
 
 # The host loader/glibc family is the explicit Ubuntu 24.04 baseline. Every
 # other ELF dependency must come from the pinned extracted SDK, never ldd's
 # opportunistic host resolution. Resolve library symlinks while copying so the
 # flattened runtime directory has no links escaping the bundle.
-declare -A copied=() notices=()
+declare -A copied=() notices=([libarchive13t64]=1)
 for (( index=0; index<${#queue[@]}; ++index )); do
     header=$(readelf -h -- "${queue[index]}")
     if ! rg -q "Class:.*$elf_class" <<< "$header"; then
@@ -96,7 +129,10 @@ for (( index=0; index<${#queue[@]}; ++index )); do
         [[ -n $library ]] || continue
         case "$library" in
             libc.so.6|libm.so.6|libpthread.so.0|libdl.so.2|librt.so.1|libresolv.so.2|libutil.so.1|ld-linux-x86-64.so.2|ld-linux.so.2) continue ;;
-            libLLVM*) printf 'Monolithic LLVM leaked into the device bundle\n' >&2; exit 1 ;;
+            libLLVM*)
+                if [[ $linkage != shared || $library != "$llvm_soname" ]]; then
+                    printf 'Unexpected LLVM runtime dependency: %s\n' "$library" >&2; exit 1
+                fi ;;
         esac
         [[ $library =~ ^[a-zA-Z0-9_.+-]+$ ]]
         [[ ${copied[$library]:-} ]] && continue
@@ -112,6 +148,7 @@ for (( index=0; index<${#queue[@]}; ++index )); do
         copied[$library]=1
         queue+=("$bundle_lib/$library")
         case "$library" in
+            libLLVM*) strip_files+=("$bundle_lib/$library"); continue ;;
             libarchive*) package=libarchive13t64 ;;
             libstdc++*) package=libstdc++6 ;;
             libgcc_s*) package=libgcc-s1 ;;
@@ -134,6 +171,17 @@ for (( index=0; index<${#queue[@]}; ++index )); do
         esac
         notices[$package]=1
     done <<< "$needed"
+done
+if [[ $linkage == shared && ! ${copied[$llvm_soname]:-} ]]; then
+    printf 'Shared LLVM SDK was not used by the compiler package\n' >&2; exit 1
+fi
+
+# Keep SDK/build products unmodified. Their receipt hashes establish input
+# provenance; payload.sha256 below describes the stripped distribution bytes.
+# Do not remove unwind data, dynamic symbols, or runtime/archive link inputs.
+for file in "${strip_files[@]}"; do
+    env LD_LIBRARY_PATH="$build_sdk/host/usr/lib/llvm-18/lib:$build_sdk/host/usr/lib/x86_64-linux-gnu" \
+        "$strip_tool" --strip-all "$file"
 done
 
 # Native runtime staging excludes GCC/C++ development libraries used only to
@@ -189,3 +237,4 @@ du -sb -- "$stage/bin" "$stage/sdk/host" "$stage/sdk/sysroots" "$stage/licenses"
 mv -T -- "$stage" "$output_dir"
 printf 'Target-specific %s compiler bundle: %s\n' "$profile" "$output_dir"
 du -sh -- "$output_dir"
+python3 "$repository/scripts/bundle-size.py" "$output_dir"

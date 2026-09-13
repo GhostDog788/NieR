@@ -49,8 +49,9 @@ for (( index=0; index<${#queue[@]}; ++index )); do
         esac
         [[ ${copied[$library]:-} ]] && continue
         original=
-        for directory in "$packages/usr/lib/i386-linux-gnu" "$packages/lib/i386-linux-gnu" \
-            "$bundle/sdk/host/usr/lib/llvm-18/lib" "$bundle/sdk/host/usr/lib/i386-linux-gnu"; do
+        # The test harness owns its complete non-glibc closure. Compiler
+        # specialization must not silently remove CTest's optional libraries.
+        for directory in "$packages/usr/lib/i386-linux-gnu" "$packages/lib/i386-linux-gnu"; do
             if [[ -f $directory/$library ]]; then original="$directory/$library"; break; fi
         done
         if [[ -z $original ]]; then printf 'Missing pinned VM test-runner dependency: %s\n' "$library" >&2; exit 1; fi

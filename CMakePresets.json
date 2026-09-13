@@ -40,7 +40,7 @@
         "NIER_BUILD_SDK_ROOT": "${sourceDir}/.sdk",
         "NIER_BUILD_PUBLISHER": false,
         "NIER_BUILD_TESTS": true,
-        "NIER_LLVM_COMPONENT_LINKING": true
+        "NIER_USE_CONSUMER_SDK": true
       }
     },
     {
