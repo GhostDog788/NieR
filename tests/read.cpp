@@ -1,10 +1,10 @@
-#include "nier/Support.h"
+#include "sela/Support.h"
 #include "llvm/Support/raw_ostream.h"
 #include <stdexcept>
 #include <sys/stat.h>
 #include <unistd.h>
 
-using namespace nier::driver;
+using namespace sela::driver;
 
 namespace {
 void require(bool condition, const std::string &message) {
@@ -37,7 +37,7 @@ int main() {
     auto scratch = Scratch::create();
     if (!scratch) throw std::runtime_error(llvm::toString(scratch.takeError()));
     auto directory = scratch->path;
-    const std::string binary("Nier\0code", 9);
+    const std::string binary("Sela\0code", 9);
     save(directory / "bytes", binary);
     save(directory / "empty", "");
     accepts(directory / "bytes", binary.size(), binary);

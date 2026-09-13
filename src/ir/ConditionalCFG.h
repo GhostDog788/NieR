@@ -12,7 +12,7 @@ class Function;
 class SwitchInst;
 }
 
-namespace nier::detail {
+namespace sela::detail {
 
 // Domains match the public native-word contract: 1=word64, 2=word32, 3=both.
 // A missing original is permitted only for a proved one-sided switch arm.
@@ -60,4 +60,4 @@ struct ConditionalCFG {
 llvm::Expected<ConditionalCFG> pairConditionalCFG(const llvm::Function &left,
                                                  const llvm::Function &right);
 
-} // namespace nier::detail
+} // namespace sela::detail

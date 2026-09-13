@@ -1,8 +1,8 @@
-# Contributing to NieR
+# Contributing to Sela
 
-NieR is an Apache-2.0 open-source project in active pre-alpha development.
+Sela is an Apache-2.0 open-source project in active pre-alpha development.
 Contributions to the implementation, tests, documentation, and examples are welcome.
-The current working C toolchain is a qualified subset of the broader language-independent NieR vision.
+The current working C toolchain is a qualified subset of the broader language-independent Sela vision.
 Start with the [current requirements](docs/01-architecture-design.md) and [implementation status](docs/02-implementation-plan.md) before proposing a new product capability.
 
 ## Find a useful starting point
@@ -19,7 +19,7 @@ Discuss code and evidence respectfully; disagreement about a design should not b
 ## Build and test
 
 The documented development baseline is x86-64 Ubuntu 24.04.
-Read the [build instructions](docs/reference/building-nier.md) and [SDK prerequisites](docs/reference/development-sdk.md) first.
+Read the [build instructions](docs/reference/building-sela.md) and [SDK prerequisites](docs/reference/development-sdk.md) first.
 From the repository root in Bash:
 
 ```bash
@@ -37,15 +37,15 @@ Record the tests appropriate to your change; report anything you did not run rat
 
 ## Preserve the project boundaries
 
-- Keep the public NieR format independent of source-language frontends. The device compiler must not need private C source or capture evidence.
+- Keep the public Sela format independent of source-language frontends. The device compiler must not need private C source or capture evidence.
 - Add positive tests for newly admitted behavior and negative tests for nearby cases that must still reject.
 - For native semantics, preserve the appropriate target comparisons, ABI behavior, native translation-unit boundaries, and end-to-end checks.
 - Do not make a failing corpus pass by changing upstream source, disabling required tests, or shipping opaque per-target native payloads.
-- Keep NieR toolchain correctness separate from SENieR (SEN), the planned signing and executable-memory enforcement platform. Source exclusion is not proof of reverse-engineering resistance.
+- Keep Sela toolchain correctness separate from SESela (SES), the planned signing and executable-memory enforcement platform. Source exclusion is not proof of reverse-engineering resistance.
 
 There are no backward-compatibility obligations during pre-alpha.
 An intentional contract change should update its producer, verifier, consumer, fixtures, and documentation together; it should not introduce a legacy alias or silently accept mismatched artifacts.
-See [Maintaining and evolving NieR](docs/guides/04-maintainers/24-maintaining-and-evolving-nier.md) for the full reasoning and evidence requirements.
+See [Maintaining and evolving Sela](docs/guides/04-maintainers/24-maintaining-and-evolving-sela.md) for the full reasoning and evidence requirements.
 
 ## Prepare a pull request
 
@@ -69,4 +69,4 @@ For suspected vulnerabilities, follow [SECURITY.md](SECURITY.md) instead of open
 Project-owned contributions are under [Apache License 2.0](LICENSE); third-party components retain their own licenses and notices.
 Submit only material you have the right to contribute under those terms, and preserve existing third-party attribution.
 There is no separate contributor license agreement or copyright-assignment requirement.
-“Source-private” describes the application publication format, not a closed-source license for the NieR toolchain.
+“Source-private” describes the application publication format, not a closed-source license for the Sela toolchain.

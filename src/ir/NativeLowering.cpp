@@ -1,11 +1,11 @@
-#include "nier/IR/Compiler.h"
+#include "sela/IR/Compiler.h"
 #include "Internal.h"
 #include "NativeTargets.h"
 #include "NativeTargetConfig.h"
 #include "NativeABIBridge.h"
 #include "OverlapLayout.h"
 #include "ConditionalSpecialization.h"
-#include "nier/IR/Dialect.h"
+#include "sela/IR/Dialect.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -38,7 +38,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace nier::detail::NIER_NATIVE_NAMESPACE {
+namespace sela::detail::SELA_NATIVE_NAMESPACE {
 namespace {
 using mlir::Attribute;
 using mlir::Operation;
@@ -61,8 +61,8 @@ bool validArithmeticFlags(unsigned opcode, unsigned flags) {
 }
 
 void configureModule(llvm::Module &module) {
-  module.setModuleIdentifier("nier");
-  module.setSourceFileName("nier");
+  module.setModuleIdentifier("sela");
+  module.setSourceFileName("sela");
   module.setTargetTriple(TargetTriple);
   module.setDataLayout(TargetLayout);
 }
@@ -89,7 +89,7 @@ public:
   detail::NativeABIInverseHints *inverseHints;
 
   Lowerer(llvm::LLVMContext &context, detail::NativeABIInverseHints *inverseHints = nullptr)
-      : context(context), module(std::make_unique<llvm::Module>("nier", context)), builder(context), inverseHints(inverseHints) {
+      : context(context), module(std::make_unique<llvm::Module>("sela", context)), builder(context), inverseHints(inverseHints) {
     configureModule(*module);
   }
 
@@ -105,7 +105,7 @@ public:
       return llvm::IntegerType::get(context, x64 ? 64 : 32);
     if (mlir::isa<ir::VaListType>(input)) {
 
-#if NIER_NATIVE_WORD_BITS == 32
+#if SELA_NATIVE_WORD_BITS == 32
       return llvm::PointerType::get(context, 0);
 #else
       if (auto found = aggregateTypes.find(input); found != aggregateTypes.end()) return found->second;
@@ -135,7 +135,7 @@ public:
       }
       auto inserted = recordIdentities.emplace(identity.str(), input);
       if (!inserted.second && inserted.first->second != input) {
-        fail("conflicting definitions of a NieR storage identity"); return nullptr;
+        fail("conflicting definitions of a Sela storage identity"); return nullptr;
       }
       auto alternatives = overlap.getAlternatives();
       auto domains = overlap.getDomains();
@@ -170,7 +170,7 @@ public:
       if (!identity.empty()) {
         auto inserted = recordIdentities.emplace(identity.str(), input);
         if (!inserted.second && inserted.first->second != input) {
-          fail("conflicting definitions of a NieR record identity"); return nullptr;
+          fail("conflicting definitions of a Sela record identity"); return nullptr;
         }
       }
       llvm::SmallVector<llvm::Type *> fields;
@@ -593,13 +593,13 @@ public:
   void instruction(Operation &operation) {
     StringRef name = operation.getName().getStringRef();
     llvm::Value *result = nullptr;
-    if (name == "nier.constant") {
+    if (name == "sela.constant") {
       if (!shape(operation, 0, 1)) return;
       auto *t = type(operation.getResult(0).getType());
       if (!t) return;
       result = initializer(t, operation.getAttr("value"));
       if (!result) return;
-    } else if (name == "nier.address") {
+    } else if (name == "sela.address") {
       if (!shape(operation, 0, 1)) return;
       auto id = operation.getAttrOfType<mlir::StringAttr>("global");
       auto found = id ? symbols.find(id.getValue().str()) : symbols.end();
@@ -607,7 +607,7 @@ public:
         fail("address refers to an unknown global or function"); return;
       }
       result = found->second;
-    } else if (name == "nier.alloca") {
+    } else if (name == "sela.alloca") {
       if (!shape(operation, 0, 1)) return;
       auto element = operation.getAttrOfType<mlir::TypeAttr>("element");
       auto *t = element ? type(element.getValue()) : nullptr;
@@ -616,7 +616,7 @@ public:
       auto *allocation = builder.CreateAlloca(t, 0, nullptr);
       allocation->setAlignment(*align);
       result = allocation;
-    } else if (name == "nier.gep") {
+    } else if (name == "sela.gep") {
       auto element = operation.getAttrOfType<mlir::TypeAttr>("element");
       auto inbounds = operation.getAttrOfType<mlir::BoolAttr>("inbounds");
       if (operation.getNumOperands() < 2 || operation.getNumResults() != 1 ||
@@ -638,14 +638,14 @@ public:
         fail("invalid native address element or index path"); return;
       }
       result = builder.CreateGEP(sourceType, pointer, indices, "", inbounds.getValue());
-    } else if (name == "nier.bswap") {
+    } else if (name == "sela.bswap") {
       if (!shape(operation, 1, 1)) return;
       auto *value = operand(operation.getOperand(0));
       if (!value || (!value->getType()->isIntegerTy(16) && !value->getType()->isIntegerTy(32) && !value->getType()->isIntegerTy(64))) {
         fail("byte reversal requires a qualified 16/32/64-bit integer"); return;
       }
       result = builder.CreateIntrinsic(llvm::Intrinsic::bswap, {value->getType()}, {value});
-    } else if (name == "nier.va_forward") {
+    } else if (name == "sela.va_forward") {
       if (!shape(operation, 1, 1)) return;
       auto *state = operand(operation.getOperand(0));
       if (!state || !state->getType()->isPointerTy() ||
@@ -656,7 +656,7 @@ public:
       // passes its current stack cursor value. This is not a wrapper ABI.
       if constexpr (x64) result = state;
       else result = builder.CreateAlignedLoad(llvm::PointerType::get(context, 0), state, llvm::Align(4));
-    } else if (name == "nier.va_arg") {
+    } else if (name == "sela.va_arg") {
       if (!shape(operation, 1, 1)) return;
       auto *state = operand(operation.getOperand(0));
       auto *element = type(operation.getResult(0).getType());
@@ -666,7 +666,7 @@ public:
         fail("native va_arg currently requires a promoted scalar or pointer result"); return;
       }
       result = builder.CreateVAArg(state, element);
-    } else if (name == "nier.load") {
+    } else if (name == "sela.load") {
       if (!shape(operation, 1, 1)) return;
       auto *pointer = operand(operation.getOperand(0));
       auto *t = type(operation.getResult(0).getType());
@@ -677,7 +677,7 @@ public:
         fail("invalid scalar load"); return;
       }
       result = builder.CreateAlignedLoad(t, pointer, *align, isVolatile && isVolatile.getValue());
-    } else if (name == "nier.store") {
+    } else if (name == "sela.store") {
       if (!shape(operation, 2, 0)) return;
       auto *value = operand(operation.getOperand(0));
       auto *pointer = operand(operation.getOperand(1));
@@ -688,7 +688,7 @@ public:
         fail("invalid scalar store"); return;
       }
       builder.CreateAlignedStore(value, pointer, *align, isVolatile && isVolatile.getValue());
-    } else if (name == "nier.call_indirect") {
+    } else if (name == "sela.call_indirect") {
       auto signature = operation.getAttrOfType<mlir::TypeAttr>("type");
       auto functionType = signature ? mlir::dyn_cast<mlir::FunctionType>(signature.getValue()) : mlir::FunctionType();
       auto variadic = operation.getAttrOfType<mlir::BoolAttr>("variadic");
@@ -733,7 +733,7 @@ public:
         aggregateCalls[call] = std::move(abi);
       }
       result = call;
-    } else if (name == "nier.call") {
+    } else if (name == "sela.call") {
       if (operation.getNumRegions() || operation.getNumResults() > 1) {
         fail("invalid call shape"); return;
       }
@@ -774,7 +774,7 @@ public:
       }
       if (abi != aggregateFunctions.end()) aggregateCalls[call] = abi->second;
       result = call;
-    } else if (name == "nier.br") {
+    } else if (name == "sela.br") {
       if (operation.getNumResults() || operation.getNumRegions() ||
           operation.getNumSuccessors() != 1) {
         fail("invalid unconditional branch shape"); return;
@@ -782,7 +782,7 @@ public:
       auto *target = edge(operation, 0, operation.getOperands());
       if (!target) return;
       builder.CreateBr(target);
-    } else if (name == "nier.cond_br") {
+    } else if (name == "sela.cond_br") {
       auto count = operation.getAttrOfType<mlir::IntegerAttr>("true_count");
       if (operation.getNumResults() || operation.getNumRegions() ||
           operation.getNumSuccessors() != 2 || !count || count.getInt() < 0 ||
@@ -799,7 +799,7 @@ public:
       auto *no = edge(operation, 1, arguments.drop_front(count.getInt()));
       if (!yes || !no) return;
       builder.CreateCondBr(condition, yes, no);
-    } else if (name == "nier.switch") {
+    } else if (name == "sela.switch") {
       auto cases = operation.getAttrOfType<mlir::ArrayAttr>("cases");
       auto counts = operation.getAttrOfType<mlir::DenseI32ArrayAttr>("argument_counts");
       if (!cases || !counts || operation.getNumOperands() < 1 ||
@@ -836,10 +836,10 @@ public:
         }
         result->addCase(value, targets[i + 1]);
       }
-    } else if (name == "nier.unreachable") {
+    } else if (name == "sela.unreachable") {
       if (!shape(operation, 0, 0)) return;
       builder.CreateUnreachable();
-    } else if (name == "nier.return") {
+    } else if (name == "sela.return") {
       if (operation.getNumOperands() > 1 || operation.getNumResults() || operation.getNumRegions()) {
         fail("invalid return shape"); return;
       }
@@ -850,7 +850,7 @@ public:
       } else {
         builder.CreateRetVoid();
       }
-    } else if (name == "nier.binary") {
+    } else if (name == "sela.binary") {
       if (!shape(operation, 2, 1)) return;
       auto opcode = operation.getAttrOfType<mlir::StringAttr>("opcode");
       auto flagExpression = operation.getAttr("flags");
@@ -877,7 +877,7 @@ public:
       if (flags & 2) binary->setHasNoSignedWrap();
       if (flags & 4) binary->setIsExact();
       result = binary;
-    } else if (name == "nier.select") {
+    } else if (name == "sela.select") {
       if (!shape(operation, 3, 1)) return;
       auto *condition = operand(operation.getOperand(0));
       auto *yes = operand(operation.getOperand(1));
@@ -887,14 +887,14 @@ public:
         fail("invalid scalar select"); return;
       }
       result = builder.CreateSelect(condition, yes, no);
-    } else if (name == "nier.fneg") {
+    } else if (name == "sela.fneg") {
       if (!shape(operation, 1, 1)) return;
       auto *value = operand(operation.getOperand(0));
       if (!value || !value->getType()->isFloatingPointTy()) {
         fail("floating negate requires float or double"); return;
       }
       result = builder.CreateFNeg(value);
-    } else if (name == "nier.cast") {
+    } else if (name == "sela.cast") {
       if (!shape(operation, 1, 1)) return;
       auto opcode = operation.getAttrOfType<mlir::StringAttr>("opcode");
       unsigned code = 0;
@@ -914,7 +914,7 @@ public:
         fail("invalid scalar cast"); return;
       }
       result = identity ? input : builder.CreateCast(llvm::Instruction::CastOps(code), input, output);
-    } else if (name == "nier.compare") {
+    } else if (name == "sela.compare") {
       if (!shape(operation, 2, 1)) return;
       auto predicate = operation.getAttrOfType<mlir::IntegerAttr>("predicate");
       auto *left = operand(operation.getOperand(0));
@@ -981,11 +981,11 @@ public:
     auto selectedCFG = detail::specializeConditionalCFG(source, x64);
     if (!selectedCFG) { fail(llvm::toString(selectedCFG.takeError())); return; }
     source = **selectedCFG;
-    auto schema = source->getAttrOfType<mlir::IntegerAttr>("nier.schema");
+    auto schema = source->getAttrOfType<mlir::IntegerAttr>("sela.schema");
     if (!schema || schema.getInt() != 1) {
       fail("unsupported common IR schema or profile domain"); return;
     }
-    auto flags = source->getAttrOfType<mlir::ArrayAttr>("nier.module_flags");
+    auto flags = source->getAttrOfType<mlir::ArrayAttr>("sela.module_flags");
     if (!flags) flags = mlir::ArrayAttr::get(source.getContext(), {});
     for (Attribute entry : flags) {
       auto record = mlir::dyn_cast<mlir::DictionaryAttr>(entry);
@@ -1018,9 +1018,9 @@ public:
     }
     for (auto &operation : source.getBody()->getOperations()) {
       StringRef name = operation.getName().getStringRef();
-      if (name == "nier.func") {
+      if (name == "sela.func") {
         function(operation);
-      } else if (name == "nier.global") {
+      } else if (name == "sela.global") {
         if (!shape(operation, 0, 0)) return;
         auto id = operation.getAttrOfType<mlir::StringAttr>("id");
         auto bytes = operation.getAttrOfType<mlir::StringAttr>("bytes");
@@ -1072,7 +1072,7 @@ public:
       if (!error.empty()) return;
     }
     for (auto &operation : source.getBody()->getOperations()) {
-      if (operation.getName().getStringRef() != "nier.global" || operation.getAttr("bytes")) continue;
+      if (operation.getName().getStringRef() != "sela.global" || operation.getAttr("bytes")) continue;
       auto id = operation.getAttrOfType<mlir::StringAttr>("id");
       auto declaration = operation.getAttrOfType<mlir::BoolAttr>("declaration");
       auto value = operation.getAttr("initializer");
@@ -1086,7 +1086,7 @@ public:
       global->setInitializer(native);
     }
     for (auto &operation : source.getBody()->getOperations()) {
-      if (operation.getName().getStringRef() != "nier.func") continue;
+      if (operation.getName().getStringRef() != "sela.func") continue;
       if (operation.getNumRegions() != 1) { fail("invalid function region count"); return; }
       auto declaration = operation.getAttrOfType<mlir::BoolAttr>("declaration");
       auto &region = operation.getRegion(0);
@@ -1169,4 +1169,4 @@ const NativeTargetBackend &backend() {
       &classifyNativeABI, &classifyNativeLayoutABI};
   return value;
 }
-} // namespace nier::detail::NIER_NATIVE_NAMESPACE
+} // namespace sela::detail::SELA_NATIVE_NAMESPACE

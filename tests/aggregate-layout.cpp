@@ -1,4 +1,4 @@
-#include "nier/IR/Compiler.h"
+#include "sela/IR/Compiler.h"
 #include "../src/ir/AggregateABI.h"
 
 #include "llvm/IR/Function.h"
@@ -10,7 +10,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 
-using namespace nier::detail;
+using namespace sela::detail;
 namespace {
 bool check(bool condition, llvm::StringRef message) {
   if (!condition) llvm::errs() << "semantic ABI test: " << message << '\n';
@@ -243,15 +243,15 @@ bool capture(llvm::StringRef path, bool x64, bool bridge) {
 
 int main(int argc, char **argv) {
   bool passed = true;
-  for (auto target : nier::supportedNativeTargets()) passed &= unit(target == "x86_64");
+  for (auto target : sela::supportedNativeTargets()) passed &= unit(target == "x86_64");
   for (llvm::StringRef target : {"x86_64", "i686"}) {
-    if (llvm::is_contained(nier::supportedNativeTargets(), target)) continue;
+    if (llvm::is_contained(sela::supportedNativeTargets(), target)) continue;
     llvm::LLVMContext context;
     auto *logical = llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
     passed &= rejected(classifyNativeLayoutABI(logical, target == "x86_64", {}), "unavailable layout classifier rejects");
   }
   if (argc == 5) {
-    if (nier::supportedNativeTargets().size() != 2) {
+    if (sela::supportedNativeTargets().size() != 2) {
       llvm::errs() << "dual native capture qualification requires both native backends\n";
       return 1;
     }

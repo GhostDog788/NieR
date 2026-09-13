@@ -2,18 +2,18 @@
 
 // Each native implementation is compiled independently. Public word-domain
 // data remain shared; these constants select executable native compiler code.
-#if NIER_NATIVE_WORD_BITS == 64
-#define NIER_NATIVE_NAMESPACE native64
-#elif NIER_NATIVE_WORD_BITS == 32
-#define NIER_NATIVE_NAMESPACE native32
+#if SELA_NATIVE_WORD_BITS == 64
+#define SELA_NATIVE_NAMESPACE native64
+#elif SELA_NATIVE_WORD_BITS == 32
+#define SELA_NATIVE_NAMESPACE native32
 #else
-#error "Compile native NieR sources with NIER_NATIVE_WORD_BITS=32 or 64"
+#error "Compile native Sela sources with SELA_NATIVE_WORD_BITS=32 or 64"
 #endif
 
 #include "llvm/ADT/StringRef.h"
-namespace nier::detail::NIER_NATIVE_NAMESPACE {
-inline constexpr bool x64 = NIER_NATIVE_WORD_BITS == 64;
-#if NIER_NATIVE_WORD_BITS == 64
+namespace sela::detail::SELA_NATIVE_NAMESPACE {
+inline constexpr bool x64 = SELA_NATIVE_WORD_BITS == 64;
+#if SELA_NATIVE_WORD_BITS == 64
 inline constexpr llvm::StringRef TargetID = "x86_64";
 inline constexpr llvm::StringRef TargetTriple = "x86_64-unknown-linux-gnu";
 inline constexpr llvm::StringRef TargetLayout =
@@ -24,4 +24,4 @@ inline constexpr llvm::StringRef TargetTriple = "i686-unknown-linux-gnu";
 inline constexpr llvm::StringRef TargetLayout =
     "e-m:e-p:32:32-p270:32:32-p271:32:32-p272:64:64-i128:128-f64:32:64-f80:32-n8:16:32-S128";
 #endif
-} // namespace nier::detail::NIER_NATIVE_NAMESPACE
+} // namespace sela::detail::SELA_NATIVE_NAMESPACE

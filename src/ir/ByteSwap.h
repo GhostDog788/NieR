@@ -3,7 +3,7 @@
 #include "llvm/Support/Error.h"
 
 namespace llvm { class Module; }
-namespace nier::detail {
+namespace sela::detail {
 
 // Producer-only canonicalization of a proved full-width scalar byte reversal.
 // Accepts a closed bounded mask/shift/or DAG fed by one argument, directly or
@@ -14,4 +14,4 @@ namespace nier::detail {
 // or general mem2reg is performed. Input LLVM IR must already be well formed.
 llvm::Expected<unsigned> normalizeNativeByteSwaps(llvm::Module &module);
 
-} // namespace nier::detail
+} // namespace sela::detail

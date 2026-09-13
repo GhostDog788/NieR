@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 build_tool=$1
-export NIER_SDK_ROOT=$2
+export SELA_SDK_ROOT=$2
 test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-test_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-build-rejections-XXXXXX")
+test_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-build-rejections-XXXXXX")
 for selected in missing-capture mutated-object transplanted-marker repeated-journal unsupported-link unsupported-interpreter; do
-  if make -f "$test_root/sdk/share/nier/Nier.mk" NIER_BUILD_TOOL="$build_tool" \
-      NIER_SOURCE_DIR="$test_root/tests/fixtures/build-rejections" \
-      NIER_TARGETS="$selected" NIER_NATIVE_OUTPUT="$selected" \
-      NIER_ARTIFACT="$test_work/$selected.nier" > "$test_work/$selected.log" 2>&1; then
+  if make -f "$test_root/sdk/share/sela/Sela.mk" SELA_BUILD_TOOL="$build_tool" \
+      SELA_SOURCE_DIR="$test_root/tests/fixtures/build-rejections" \
+      SELA_TARGETS="$selected" SELA_NATIVE_OUTPUT="$selected" \
+      SELA_ARTIFACT="$test_work/$selected.sela" > "$test_work/$selected.log" 2>&1; then
     echo "An unqualified selected link unexpectedly published: $selected" >&2
     exit 1
   fi
@@ -22,7 +22,7 @@ for selected in missing-capture mutated-object transplanted-marker repeated-jour
   if test "$selected" = unsupported-interpreter; then
     grep -q 'unqualified native dynamic interpreter /unqualified/loader.so' "$test_work/$selected.log"
   fi
-  test ! -e "$test_work/$selected.nier"
+  test ! -e "$test_work/$selected.sela"
 done
 test ! -e "$test_root/tests/fixtures/build-rejections/main.o"
 test ! -e "$test_root/tests/fixtures/build-rejections/libhelper.a"

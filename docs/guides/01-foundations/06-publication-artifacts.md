@@ -1,38 +1,38 @@
-# 06. From NieR Code to a Publication Artifact
+# 06. From Sela Code to a Publication Artifact
 
 [Series](../README.md) · [Previous](05-architecture-neutral-meaning.md) · [Next](../02-toolchain-users/07-development-environment.md)
 
 ## What you will understand
 
-You will distinguish a NieR program, an in-memory module, serialized bytecode, and the standalone file exchanged between programs.
+You will distinguish a Sela program, an in-memory module, serialized bytecode, and the standalone file exchanged between programs.
 You will understand why the artifact contains a manifest and how modules differ from native translation units.
 Read chapters 01–05 first.
 No commands need to be run yet.
 
 ## One meaning, different representations
 
-The previous chapters used readable NieR text.
+The previous chapters used readable Sela text.
 During compilation, the same operation/type relationships live in MLIR data structures.
 To exchange them between processes or machines, a producer serializes them into **bytecode**.
 Serialization means encoding the compiler representation as bytes; it does not mean arranging a virtual machine to execute those bytes at runtime.
 
-The project uses MLIR's bytecode infrastructure for its `.nierbc` modules.
-MLIR supports textual, in-memory, and serialized forms; NieR supplies the specific dialect semantics used here.
-The [MLIR bytecode reference](https://mlir.llvm.org/docs/BytecodeFormat/) describes that infrastructure, not the complete NieR publication contract.
+The project uses MLIR's bytecode infrastructure for its `.selabc` modules.
+MLIR supports textual, in-memory, and serialized forms; Sela supplies the specific dialect semantics used here.
+The [MLIR bytecode reference](https://mlir.llvm.org/docs/BytecodeFormat/) describes that infrastructure, not the complete Sela publication contract.
 
-The standalone publication is another layer: a `.nier` file packages modules with their manifest and any specifically admitted ancillary members.
-Do not confuse a module's bytecode file with the complete artifact that `nierc` accepts as its application input.
+The standalone publication is another layer: a `.sela` file packages modules with their manifest and any specifically admitted ancillary members.
+Do not confuse a module's bytecode file with the complete artifact that `selac` accepts as its application input.
 
 ## Open the conceptual envelope
 
 The current multi-file Hello World artifact has this actual member structure:
 
 ```text
-hello.nier                  ordinary tar archive
+hello.sela                  ordinary tar archive
 ├── manifest.json           publication contract and module inventory
 └── modules/
-    ├── 0.nierbc            first NieR module
-    └── 1.nierbc            second NieR module
+    ├── 0.selabc            first Sela module
+    └── 1.selabc            second Sela module
 ```
 
 “Single artifact” means this one independently transferable archive.
@@ -53,7 +53,7 @@ It is valid JSON for illustration, but not a complete accepted manifest because 
 
 ```json
 {
-  "contract": "nier-prealpha-1",
+  "contract": "sela-prealpha-1",
   "format_version": 1,
   "kind": "executable",
   "targets": ["x86_64", "i686"],
@@ -82,7 +82,7 @@ Chapter 22 explains why duplicate keys, unknown fields, exact inventories, and c
 A C **translation unit** is the result of preprocessing one source input with its included headers and configuration.
 An ordinary build can optimize each unit separately and then link the resulting objects.
 
-A NieR **module** is a container of common operations, types, functions, and globals.
+A Sela **module** is a container of common operations, types, functions, and globals.
 In the simple Hello example there are two source units and two modules, so a one-to-one mental model initially works.
 It is not a universal format rule.
 
@@ -115,28 +115,28 @@ Preserving separate unit boundaries can be necessary to match the reference buil
 ## Output kinds and the confusing `.o` suffix
 
 The current artifact kinds include executable, shared, static, and relocatable object publications.
-A static output preserves member ordering so `nierc` can produce a normal native archive.
+A static output preserves member ordering so `selac` can produce a normal native archive.
 A shared output carries the admitted shared-library contract.
-The consumer must not interpret every `.nier` file as an executable request.
+The consumer must not interpret every `.sela` file as an executable request.
 
-In direct stock-Clang NieR mode, a separate-compilation output named `main.o` can itself contain a relocatable **NieR artifact**, not a native ELF object.
+In direct stock-Clang Sela mode, a separate-compilation output named `main.o` can itself contain a relocatable **Sela artifact**, not a native ELF object.
 The filename follows the compiler driver's usual workflow; the contents tell you which stage it belongs to.
-Publication linking combines those NieR units into the final artifact.
-`nierc` rejects an object-kind artifact as a final native application input that still needs publication linking.
+Publication linking combines those Sela units into the final artifact.
+`selac` rejects an object-kind artifact as a final native application input that still needs publication linking.
 
-Later, `nierc` privately creates real native `.o` files from specialized LLVM IR.
+Later, `selac` privately creates real native `.o` files from specialized LLVM IR.
 Those are different objects, at a different stage.
-If a diagnostic says “object,” ask whether it means a private reference native object, a relocatable NieR publication, or a native object generated by the consumer.
+If a diagnostic says “object,” ask whether it means a private reference native object, a relocatable Sela publication, or a native object generated by the consumer.
 
 ## What can and cannot be left behind
 
 Once publication has succeeded, target compilation should not need the developer's source tree, profile captures, or headers.
 The artifact carries the common program and admitted contracts.
-Once native compilation has succeeded, application execution should not need the artifact or the NieR compiler.
+Once native compilation has succeeded, application execution should not need the artifact or the Sela compiler.
 Native dependencies must still remain where the selected loader configuration expects them.
 
 These are different independence checks.
-Removing source and running `nierc` tests the publication boundary.
+Removing source and running `selac` tests the publication boundary.
 Hiding the artifact and running the native executable tests the execution boundary.
 Moving the runtime directory after linking is a separate relocation question; the current prototype does not promise that already linked native outputs follow it automatically.
 
@@ -148,12 +148,12 @@ Privacy work distinguishes unnecessary evidence from necessary semantics rather 
 ## Optional paper exercise
 
 For each item, choose publication input, public artifact content, consumer tool, or native execution dependency:
-`hello.c`, a `nier.call` operation, `opt`, the supplied libc, a private debug type graph, and the manifest's module digest.
+`hello.c`, a `sela.call` operation, `opt`, the supplied libc, a private debug type graph, and the manifest's module digest.
 Some items are present in one development SDK directory but belong to different categories.
 
 ## Recap
 
-A `.nier` file is a standalone package of serialized common code and explicit contracts.
+A `.sela` file is a standalone package of serialized common code and explicit contracts.
 Its manifest, module inventory, target plans, and native dependency information are meaningful compiler inputs.
 A module is not necessarily a source translation unit, a digest is not a signature, and bytecode is not a runtime interpreter.
 You now have the conceptual tools needed for the first real build and inspection exercises.
@@ -162,7 +162,7 @@ You now have the conceptual tools needed for the first real build and inspection
 
 1. Why can one artifact contain several modules without violating the single-artifact goal?
 2. Why keep a per-target compilation-unit plan if the code fragments are common?
-3. Does deleting `hello.nier` after native compilation make the executable self-contained with respect to libc?
+3. Does deleting `hello.sela` after native compilation make the executable self-contained with respect to libc?
 
 > [!faq]- Answers
 >
@@ -171,13 +171,13 @@ You now have the conceptual tools needed for the first real build and inspection
 > 3. No. The application no longer needs the artifact, but it can still require the native loader and libraries selected during linking.
 >
 > For the paper exercise: `hello.c` and the private debug graph are publication inputs/evidence;
-> the NieR operation and digest are public content;
+> the Sela operation and digest are public content;
 > `opt` is a consumer compilation tool;
 > supplied libc is a native execution dependency.
 
 ## Source and evidence trail
 
-- Artifact API (`include/nier/Artifact/Artifact.h`) names modules and native unit plans separately.
+- Artifact API (`include/sela/Artifact/Artifact.h`) names modules and native unit plans separately.
 - Artifact implementation (`src/artifact/Artifact.cpp`): read `createArtifact`, `validatePackage`, and `readCompilationPlan` when you reach the implementation track.
 - Hello test (`tests/hello.sh`) checks separate publication, member inventory, exposure controls, and execution with the artifact hidden.
 - Device boundary test (`tests/device-boundary.sh`) examines producer/consumer/execution separation beyond merely looking at the archive listing.

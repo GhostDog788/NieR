@@ -1,4 +1,4 @@
-#include "nier/Producer/LLVM.h"
+#include "sela/Producer/LLVM.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/LLVMContext.h"
@@ -102,19 +102,19 @@ bool directNegative(const std::string &artifact, llvm::StringRef label,
                     llvm::StringRef expected,
                     const std::function<void(std::vector<mlir::Operation *> &, mlir::Builder &)> &change) {
   mlir::MLIRContext context;
-  auto module = nier::readModule(artifact, context, nier::supportedNativeTargets());
+  auto module = sela::readModule(artifact, context, sela::supportedNativeTargets());
   if (!module) { llvm::logAllUnhandledErrors(module.takeError(), llvm::errs()); return false; }
   auto branches = loopBranches(**module);
   if (branches.size() != 2) return false;
   mlir::Builder builder(&context);
   change(branches, builder);
-  return rejected(nier::verifyModule(**module, nier::supportedNativeTargets()), expected, label);
+  return rejected(sela::verifyModule(**module, sela::supportedNativeTargets()), expected, label);
 }
 }
 
 int main(int argc, char **argv) {
   if (argc == 4) {
-    if (auto error = nier::mergeProfiles(argv[1], argv[2], argv[3])) {
+    if (auto error = sela::mergeProfiles(argv[1], argv[2], argv[3])) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "real loop capture: ");
       return 1;
     }
@@ -123,31 +123,31 @@ int main(int argc, char **argv) {
   }
   if (argc != 1) return 2;
   llvm::SmallString<256> temporary;
-  if (auto error = llvm::sys::fs::createUniqueDirectory("nier-loop-identity", temporary)) {
+  if (auto error = llvm::sys::fs::createUniqueDirectory("sela-loop-identity", temporary)) {
     llvm::errs() << error.message() << '\n'; return 1;
   }
   const std::string directory = temporary.str().str();
   const auto left = directory + "/left.ll", right = directory + "/right.ll";
-  const auto artifact = directory + "/module.nierbc";
+  const auto artifact = directory + "/module.selabc";
   bool passed = true;
   for (bool shared : {false, true}) {
     if (!write(left, native(true, shared)) || !write(right, native(false, shared))) { passed = false; break; }
-    if (auto error = nier::mergeProfiles(left, right, artifact)) {
+    if (auto error = sela::mergeProfiles(left, right, artifact)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "loop producer: ");
       passed = false; break;
     }
     mlir::MLIRContext context;
-    auto module = nier::readModule(artifact, context, nier::supportedNativeTargets());
+    auto module = sela::readModule(artifact, context, sela::supportedNativeTargets());
     if (!module) { llvm::logAllUnhandledErrors(module.takeError(), llvm::errs()); passed = false; break; }
     auto branches = loopBranches(**module);
     if (branches.size() != 2 ||
         ((branches[0]->getAttr("loop_id") == branches[1]->getAttr("loop_id")) != shared)) {
-      llvm::errs() << "Shared NieR loop identities were duplicated/coalesced\n";
+      llvm::errs() << "Shared Sela loop identities were duplicated/coalesced\n";
       passed = false; break;
     }
     for (auto target : {"x86_64", "i686"}) {
       const auto output = directory + "/" + target + ".ll";
-      if (auto error = nier::lowerArtifact(artifact, target, output)) {
+      if (auto error = sela::lowerArtifact(artifact, target, output)) {
         llvm::logAllUnhandledErrors(std::move(error), llvm::errs()); passed = false;
       } else if (!checkNativeIdentity(output, shared)) {
         llvm::errs() << "Native loop identity/options were not reconstructed\n"; passed = false;
@@ -173,8 +173,8 @@ int main(int argc, char **argv) {
       });
   for (bool sharedLeft : {false, true}) {
     passed &= write(left, native(true, sharedLeft)) && write(right, native(false, !sharedLeft));
-    const auto rejectedArtifact = directory + (sharedLeft ? "/split.nierbc" : "/coalesced.nierbc");
-    passed &= rejected(nier::mergeProfiles(left, right, rejectedArtifact),
+    const auto rejectedArtifact = directory + (sharedLeft ? "/split.selabc" : "/coalesced.selabc");
+    passed &= rejected(sela::mergeProfiles(left, right, rejectedArtifact),
         "native loop identity correspondence differs between profiles", "cross-profile loop identity");
     passed &= !std::filesystem::exists(rejectedArtifact);
   }

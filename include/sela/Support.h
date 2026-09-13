@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace nier::driver {
+namespace sela::driver {
 namespace fs = std::filesystem;
 llvm::Error fail(const std::string &message);
 llvm::Expected<std::string> read(const fs::path &path, size_t limit = 64 * 1024 * 1024);
@@ -41,5 +41,5 @@ struct Sdk {
       bool shared = false, const std::vector<std::string> &linkOptions = {},
       const std::vector<fs::path> &libraryDirectories = {}) const;
 };
-constexpr const char *Contract = "nier-prealpha-1";
+constexpr const char *Contract = "sela-prealpha-1";
 }

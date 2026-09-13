@@ -1,2 +1,2 @@
 #include "Build.h"
-int main(int argc, char **argv) { return nier::driver::nativeLinkMain(argc, argv); }
+int main(int argc, char **argv) { return sela::driver::nativeLinkMain(argc, argv); }

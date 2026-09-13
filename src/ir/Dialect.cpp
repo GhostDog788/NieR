@@ -1,10 +1,10 @@
-#include "nier/IR/Dialect.h"
+#include "sela/IR/Dialect.h"
 #include "mlir/IR/DialectImplementation.h"
 
-namespace nier::ir {
+namespace sela::ir {
 
-NIERDialect::NIERDialect(mlir::MLIRContext *context)
-    : Dialect(getDialectNamespace(), context, mlir::TypeID::get<NIERDialect>()) {
+SelaDialect::SelaDialect(mlir::MLIRContext *context)
+    : Dialect(getDialectNamespace(), context, mlir::TypeID::get<SelaDialect>()) {
   addTypes<WordType, PointerType, ArrayType, RecordType, VaListType, OverlapType>();
   addOperations<FunctionOp, GlobalOp, ConstantOp, AddressOp, AllocaOp, LoadOp,
                 StoreOp, CallOp, IndirectCallOp, BinaryOp, CastOp, CompareOp, ReturnOp,
@@ -12,7 +12,7 @@ NIERDialect::NIERDialect(mlir::MLIRContext *context)
                 SelectOp, NegateOp, ByteSwapOp, VaArgOp, VaForwardOp>();
 }
 
-mlir::Type NIERDialect::parseType(mlir::DialectAsmParser &parser) const {
+mlir::Type SelaDialect::parseType(mlir::DialectAsmParser &parser) const {
   llvm::StringRef keyword;
   if (parser.parseKeyword(&keyword))
     return {};
@@ -79,11 +79,11 @@ mlir::Type NIERDialect::parseType(mlir::DialectAsmParser &parser) const {
     if (parser.parseGreater()) return {};
     return RecordType::get(getContext(), identity, packed, fields);
   }
-  parser.emitError(parser.getCurrentLocation(), "unknown nier type: ") << keyword;
+  parser.emitError(parser.getCurrentLocation(), "unknown sela type: ") << keyword;
   return {};
 }
 
-void NIERDialect::printType(mlir::Type type,
+void SelaDialect::printType(mlir::Type type,
                             mlir::DialectAsmPrinter &printer) const {
   if (mlir::isa<WordType>(type))
     printer << "word";
@@ -107,7 +107,7 @@ void NIERDialect::printType(mlir::Type type,
     printer << "]>";
   }
   else
-    llvm_unreachable("unregistered nier type");
+    llvm_unreachable("unregistered sela type");
 }
 
-} // namespace nier::ir
+} // namespace sela::ir

@@ -1,10 +1,10 @@
-#include "nier/Artifact/Artifact.h"
-#include "nier/IR/Compiler.h"
-#include "nier/IR/CompilationUnits.h"
+#include "sela/Artifact/Artifact.h"
+#include "sela/IR/Compiler.h"
+#include "sela/IR/CompilationUnits.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 
-using namespace nier::driver;
+using namespace sela::driver;
 namespace {
 llvm::Error rejectInputAlias(const fs::path &input, const fs::path &output) {
   // Resolve parent-directory symlinks as well as a symlink at the leaf. Hard
@@ -20,26 +20,26 @@ llvm::Error rejectInputAlias(const fs::path &input, const fs::path &output) {
   return llvm::Error::success();
 }
 struct Options {
-  std::string command = "compile", target = NIER_DEVICE_TARGET;
+  std::string command = "compile", target = SELA_DEVICE_TARGET;
   fs::path input, output;
   std::vector<fs::path> libraryDirectories;
   Sdk sdk;
   bool keepWork = false;
 };
 void usage() {
-  llvm::outs() << "NieR compiler — pre-alpha; no backward-compatibility promise\n"
-      "Native target: " NIER_DEVICE_TARGET " (this compiler does not cross-compile)\n"
-      "  nierc INPUT.nier -o OUTPUT [--sdk DIR] [--library-dir DIR] [--keep-work]\n"
-      "  nierc inspect INPUT.nier\n"
-      "  nierc lower INPUT.nier --output-dir DIR [--target " NIER_DEVICE_TARGET "]\n"
-      "  nierc --print-target\n"
-      "  nierc --check-sdk\n"
-      "C publication uses stock clang --config=nier.cfg, not this program.\n";
+  llvm::outs() << "Sela compiler — pre-alpha; no backward-compatibility promise\n"
+      "Native target: " SELA_DEVICE_TARGET " (this compiler does not cross-compile)\n"
+      "  selac INPUT.sela -o OUTPUT [--sdk DIR] [--library-dir DIR] [--keep-work]\n"
+      "  selac inspect INPUT.sela\n"
+      "  selac lower INPUT.sela --output-dir DIR [--target " SELA_DEVICE_TARGET "]\n"
+      "  selac --print-target\n"
+      "  selac --check-sdk\n"
+      "C publication uses stock clang --config=sela.cfg, not this program.\n";
 }
 Sdk discoverSdk() {
   Sdk result;
-  const char *sdk = std::getenv("NIER_SDK_ROOT");
-  result.root = fs::absolute(sdk ? sdk : NIER_DEFAULT_SDK);
+  const char *sdk = std::getenv("SELA_SDK_ROOT");
+  result.root = fs::absolute(sdk ? sdk : SELA_DEFAULT_SDK);
   if (!sdk) {
     std::error_code ec;
     auto executable = fs::read_symlink("/proc/self/exe", ec);
@@ -51,7 +51,7 @@ Sdk discoverSdk() {
   return result;
 }
 llvm::Expected<Options> parse(int argc, char **argv) {
-  if (argc < 2) return fail("expected an artifact; use nierc --help");
+  if (argc < 2) return fail("expected an artifact; use selac --help");
   Options result;
   result.sdk = discoverSdk();
   int start = 1;
@@ -78,8 +78,8 @@ llvm::Expected<Options> parse(int argc, char **argv) {
   return result;
 }
 llvm::Error execute(const Options &options) {
-  if (options.target != NIER_DEVICE_TARGET)
-    return fail("native target unavailable: " + options.target + "; this compiler supports only " NIER_DEVICE_TARGET);
+  if (options.target != SELA_DEVICE_TARGET)
+    return fail("native target unavailable: " + options.target + "; this compiler supports only " SELA_DEVICE_TARGET);
   auto files = readPackage(options.input);
   if (!files) return files.takeError();
   auto manifest = validatePackage(*files);
@@ -92,7 +92,7 @@ llvm::Error execute(const Options &options) {
     bool admitted = false;
     for (auto &target : *object.getArray("targets")) admitted |= target.getAsString() == options.target;
     if (!admitted) return fail("artifact does not support requested target: " + options.target);
-    if (!lower && object.getString("kind") == "object") return fail("relocatable NieR unit requires publication linking through stock Clang");
+    if (!lower && object.getString("kind") == "object") return fail("relocatable Sela unit requires publication linking through stock Clang");
     if (!lower) if (auto error = options.sdk.validate()) return error;
   }
   auto scratch = Scratch::create();
@@ -101,7 +101,7 @@ llvm::Error execute(const Options &options) {
   if (options.keepWork) llvm::errs() << "Private compiler workspace: " << scratch->path.string() << '\n';
   if (inspect) {
     llvm::outs() << "Contract: " << Contract << "\nKind: " << *object.getString("kind")
-                 << "\nCompiler native target: " NIER_DEVICE_TARGET "\nDeclared targets:";
+                 << "\nCompiler native target: " SELA_DEVICE_TARGET "\nDeclared targets:";
     for (auto target : targetDomain) llvm::outs() << ' ' << target;
     llvm::outs() << '\n';
   }
@@ -112,13 +112,13 @@ llvm::Error execute(const Options &options) {
     auto &record = *entry.getAsObject();
     std::string member = record.getString("path")->str();
     std::string stem = std::to_string(index++);
-    fs::path bytecode = scratch->path / (stem + ".nierbc");
+    fs::path bytecode = scratch->path / (stem + ".selabc");
     if (auto error = write(bytecode, files->at(member))) return error;
     bytecodes.push_back(bytecode);
     // Admit every public module before any selected-target native lowering.
     // Native lowering remains limited to this device backend.
-    nier::ArtifactSummary summary;
-    if (auto error = nier::inspectArtifactStructure(bytecode.string(), summary)) return error;
+    sela::ArtifactSummary summary;
+    if (auto error = sela::inspectArtifactStructure(bytecode.string(), summary)) return error;
     if (inspect) {
       llvm::outs() << member << ": " << summary.functions << " functions, " << summary.operations << " operations\n";
     }
@@ -127,7 +127,7 @@ llvm::Error execute(const Options &options) {
   if (!plans) return plans.takeError();
   if (inspect) {
     for (const auto &[target, units] : *plans) {
-      if (target != NIER_DEVICE_TARGET) {
+      if (target != SELA_DEVICE_TARGET) {
         llvm::outs() << target << ": " << units.size()
                      << " native compilation units; not validated (native backend unavailable)\n";
         continue;
@@ -136,7 +136,7 @@ llvm::Error execute(const Options &options) {
         std::vector<std::string> paths;
         for (auto fragment : unit.modules) paths.push_back(bytecodes[fragment].string());
         llvm::SmallVector<llvm::StringRef> references(paths.begin(), paths.end());
-        if (auto error = nier::lowerCompilationUnit(references, target,
+        if (auto error = sela::lowerCompilationUnit(references, target,
             (scratch->path / "inspection.ll").string())) return error;
       }
       llvm::outs() << target << ": " << units.size() << " native compilation units; native validation passed\n";
@@ -150,7 +150,7 @@ llvm::Error execute(const Options &options) {
     std::vector<std::string> paths;
     for (auto fragment : unit.modules) paths.push_back(bytecodes[fragment].string());
     llvm::SmallVector<llvm::StringRef> references(paths.begin(), paths.end());
-    if (auto error = nier::lowerCompilationUnit(references, options.target, nativeIR.string())) return error;
+    if (auto error = sela::lowerCompilationUnit(references, options.target, nativeIR.string())) return error;
     if (lower) continue;
     const auto &level = unit.optimization;
     fs::path optimized = scratch->path / (stem + ".opt.bc");
@@ -211,20 +211,20 @@ int main(int argc, char **argv) {
   try {
     if (argc == 2 && std::string(argv[1]) == "--help") { usage(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--print-target") {
-      llvm::outs() << NIER_DEVICE_TARGET << '\n'; return 0;
+      llvm::outs() << SELA_DEVICE_TARGET << '\n'; return 0;
     }
     if (argc == 2 && std::string(argv[1]) == "--check-sdk") {
       if (auto error = discoverSdk().validate()) {
-        llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "nierc: "); return 1;
+        llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "selac: "); return 1;
       }
-      llvm::outs() << "Matching native SDK: " NIER_DEVICE_TARGET "\n"; return 0;
+      llvm::outs() << "Matching native SDK: " SELA_DEVICE_TARGET "\n"; return 0;
     }
     auto options = parse(argc, argv);
-    if (!options) { llvm::logAllUnhandledErrors(options.takeError(), llvm::errs(), "nierc: "); return 1; }
-    if (auto error = execute(*options)) { llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "nierc: "); return 1; }
+    if (!options) { llvm::logAllUnhandledErrors(options.takeError(), llvm::errs(), "selac: "); return 1; }
+    if (auto error = execute(*options)) { llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "selac: "); return 1; }
     return 0;
   } catch (const std::exception &error) {
-    llvm::errs() << "nierc: " << error.what() << '\n';
+    llvm::errs() << "selac: " << error.what() << '\n';
     return 1;
   }
 }

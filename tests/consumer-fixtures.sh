@@ -18,10 +18,10 @@ esac
 test ! -e "$output"
 mkdir -p "$output"
 output=$(realpath "$output")
-compiler="$bundle/bin/nierc"
+compiler="$bundle/bin/selac"
 tools="$bundle/sdk/host/usr/lib/llvm-18/bin"
 archive_tool() {
-    # Match nierc's child-only tool environment. LLVM tool RUNPATH need not
+    # Match selac's child-only tool environment. LLVM tool RUNPATH need not
     # provide transitive dependency lookup for direct test-harness invocation.
     env -u LD_PRELOAD LD_LIBRARY_PATH="$bundle/sdk/host/usr/lib/llvm-18/lib" \
         "$tools/llvm-ar" "$@"
@@ -42,12 +42,12 @@ for tool in opt llc ld.lld llvm-ar; do check_elf "$tools/$tool"; done
     cd "$fixtures"
     sha256sum -c fixtures.sha256
 )
-"$compiler" inspect "$fixtures/hello.nier"
-"$compiler" "$fixtures/hello.nier" -o "$output/hello"
-"$compiler" "$fixtures/shared.nier" -o "$output/libdevice.so"
-"$compiler" "$fixtures/static.nier" -o "$output/libdevice.a"
-"$compiler" "$fixtures/shared-main.nier" --library-dir "$output" -o "$output/shared"
-"$compiler" "$fixtures/static-main.nier" --library-dir "$output" -o "$output/static"
+"$compiler" inspect "$fixtures/hello.sela"
+"$compiler" "$fixtures/hello.sela" -o "$output/hello"
+"$compiler" "$fixtures/shared.sela" -o "$output/libdevice.so"
+"$compiler" "$fixtures/static.sela" -o "$output/libdevice.a"
+"$compiler" "$fixtures/shared-main.sela" --library-dir "$output" -o "$output/shared"
+"$compiler" "$fixtures/static-main.sela" --library-dir "$output" -o "$output/static"
 for executable in hello shared static; do
     check_elf "$output/$executable"
     env -i PATH=/usr/bin:/bin LC_ALL=C "$fixtures/reference/$target/$executable" > "$output/$executable.reference.txt"
@@ -56,7 +56,7 @@ for executable in hello shared static; do
 done
 check_elf "$output/libdevice.so"
 test "$(archive_tool t "$output/libdevice.a")" = "$(printf 'part.o\npart.o')"
-# This stock-native caller now uses the independently generated NieR DSO.
+# This stock-native caller now uses the independently generated Sela DSO.
 env -i PATH=/usr/bin:/bin LC_ALL=C LD_LIBRARY_PATH="$output" \
     "$fixtures/reference/$target/shared" > "$output/native-caller.txt"
 cmp "$output/shared.reference.txt" "$output/native-caller.txt"
@@ -73,7 +73,7 @@ done < "$fixtures/shared-libraries.list"
 matrix_count=0
 while IFS= read -r executable; do
     test -n "$executable"
-    "$compiler" "$fixtures/$executable.nier" --library-dir "$output" -o "$output/$executable"
+    "$compiler" "$fixtures/$executable.sela" --library-dir "$output" -o "$output/$executable"
     check_elf "$output/$executable"
     env -i PATH=/usr/bin:/bin LC_ALL=C "$fixtures/reference/$target/$executable" > "$output/$executable.reference.txt"
     env -i PATH=/usr/bin:/bin LC_ALL=C "$output/$executable" > "$output/$executable.actual.txt"
@@ -102,33 +102,33 @@ reject() {
     test "$protected_before" = "$(sha256sum "$output/protected")"
     test "$identity_before" = "$(stat -c '%i:%s:%Y:%a' "$output/protected")"
 }
-reject malformed "$fixtures/malformed.nier" -o "$output/protected"
-reject relocatable "$fixtures/relocatable.nier" -o "$output/protected"
+reject malformed "$fixtures/malformed.sela" -o "$output/protected"
+reject relocatable "$fixtures/relocatable.sela" -o "$output/protected"
 mkdir "$output/missing-library"
-reject missing-library "$fixtures/shared-main.nier" --library-dir "$output/missing-library" -o "$output/protected"
-reject foreign-compile "$fixtures/hello.nier" --target "$foreign" -o "$output/protected"
-reject foreign-lower lower "$fixtures/hello.nier" --target "$foreign" --output-dir "$output/foreign-lower"
+reject missing-library "$fixtures/shared-main.sela" --library-dir "$output/missing-library" -o "$output/protected"
+reject foreign-compile "$fixtures/hello.sela" --target "$foreign" -o "$output/protected"
+reject foreign-lower lower "$fixtures/hello.sela" --target "$foreign" --output-dir "$output/foreign-lower"
 test ! -e "$output/foreign-lower"
-reject alias "$fixtures/hello.nier" -o "$fixtures/hello.nier"
-"$compiler" inspect "$fixtures/foreign-only-$foreign.nier" > "$output/foreign-inspect.log"
+reject alias "$fixtures/hello.sela" -o "$fixtures/hello.sela"
+"$compiler" inspect "$fixtures/foreign-only-$foreign.sela" > "$output/foreign-inspect.log"
 grep -F "$foreign: 1 native compilation units; not validated (native backend unavailable)" "$output/foreign-inspect.log"
 if grep -F 'native validation passed' "$output/foreign-inspect.log"; then exit 1; fi
-reject foreign-only-compile "$fixtures/foreign-only-$foreign.nier" -o "$output/protected"
-reject foreign-only-lower lower "$fixtures/foreign-only-$foreign.nier" --output-dir "$output/foreign-only-lower"
+reject foreign-only-compile "$fixtures/foreign-only-$foreign.sela" -o "$output/protected"
+reject foreign-only-lower lower "$fixtures/foreign-only-$foreign.sela" --output-dir "$output/foreign-only-lower"
 test ! -e "$output/foreign-only-lower"
-"$compiler" inspect "$fixtures/foreign-only-$target.nier" > "$output/native-only-inspect.log"
+"$compiler" inspect "$fixtures/foreign-only-$target.sela" > "$output/native-only-inspect.log"
 grep -F "$target: 1 native compilation units; native validation passed" "$output/native-only-inspect.log"
-"$compiler" "$fixtures/foreign-only-$target.nier" -o "$output/native-only"
+"$compiler" "$fixtures/foreign-only-$target.sela" -o "$output/native-only"
 check_elf "$output/native-only"
 env -i PATH=/usr/bin:/bin LC_ALL=C "$output/native-only" > "$output/native-only.txt"
 cmp "$output/hello.reference.txt" "$output/native-only.txt"
 for domain in word32 word64; do
-    reject "malformed-$domain-inspect" inspect "$fixtures/malformed-inactive-$domain.nier"
-    reject "malformed-$domain-compile" "$fixtures/malformed-inactive-$domain.nier" -o "$output/protected"
+    reject "malformed-$domain-inspect" inspect "$fixtures/malformed-inactive-$domain.sela"
+    reject "malformed-$domain-compile" "$fixtures/malformed-inactive-$domain.sela" -o "$output/protected"
     grep -F 'invalid arithmetic flags in a public word domain' "$output/malformed-$domain-inspect.log"
     grep -F 'invalid arithmetic flags in a public word domain' "$output/malformed-$domain-compile.log"
 done
-printf 'NIER_CONSUMER_NATIVE_OUTPUT_HASHES target=%s\n' "$target"
+printf 'SELA_CONSUMER_NATIVE_OUTPUT_HASHES target=%s\n' "$target"
 sha256sum "$output/hello" "$output/shared" "$output/static" "$output/native-only" \
     "$output/libdevice.so" "$output/libdevice.a"
 while read -r artifact library; do sha256sum "$output/$library"; done < "$fixtures/shared-libraries.list"
@@ -141,4 +141,4 @@ while IFS= read -r executable; do sha256sum "$output/$executable"; done < "$fixt
     cd "$fixtures"
     sha256sum -c fixtures.sha256
 )
-printf 'NIER_CONSUMER_FIXTURES_PASS target=%s executables=28 shared=3 static=1 negatives=12\n' "$target"
+printf 'SELA_CONSUMER_FIXTURES_PASS target=%s executables=28 shared=3 static=1 negatives=12\n' "$target"

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-nierc=$(realpath "$1")
+selac=$(realpath "$1")
 sdk=$(realpath "$2")
 config=$(realpath "$3")
 project=$(cd "$(dirname "$0")/.." && pwd)
 llvm="$sdk/host/usr/lib/llvm-18/bin"
 export LD_LIBRARY_PATH="$sdk/host/usr/lib/llvm-18/lib:$sdk/host/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-work=$(mktemp -d -t nier-nonlocal-XXXXXX)
+work=$(mktemp -d -t sela-nonlocal-XXXXXX)
 expected='Native nonlocal jumps passed'
 for level in O0 O2; do
   lane="$work/$level"
@@ -26,10 +26,10 @@ for level in O0 O2; do
     test "$(env -u LD_LIBRARY_PATH "$lane/native-$target")" = "$expected"
   done
   "$llvm/clang" --config="$config" -std=gnu11 -"$level" \
-    "$project/tests/fixtures/nonlocal.c" -o "$lane/program.nier"
-  "$nierc" "$lane/program.nier" --sdk "$sdk" -o "$lane/program"
+    "$project/tests/fixtures/nonlocal.c" -o "$lane/program.sela"
+  "$selac" "$lane/program.sela" --sdk "$sdk" -o "$lane/program"
   test "$(env -u LD_LIBRARY_PATH "$lane/program")" = "$expected"
-  "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$lane/program.nier" --target i686 --output-dir "$lane/lowered32"
+  "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower "$lane/program.sela" --target i686 --output-dir "$lane/lowered32"
   "$llvm/opt" -passes="default<$level>" -verify-each "$lane/lowered32/0.ll" -o "$lane/optimized32.bc"
   "$llvm/llc" -O="${level#O}" -filetype=obj -relocation-model=pic "$lane/optimized32.bc" -o "$lane/program32.o"
   sysroot="$sdk/sysroots/i686-linux-gnu"

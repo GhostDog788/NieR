@@ -10,7 +10,7 @@
 #include "llvm/IR/ValueHandle.h"
 #include "llvm/Transforms/Utils/Local.h"
 
-namespace nier::detail {
+namespace sela::detail {
 namespace {
 bool metadataAllowed(const llvm::Instruction &instruction, bool storage) {
   llvm::SmallVector<std::pair<unsigned, llvm::MDNode *>, 4> metadata;
@@ -179,4 +179,4 @@ llvm::Expected<unsigned> normalizeNativeByteSwaps(llvm::Module &module) {
   }
   return normalized;
 }
-} // namespace nier::detail
+} // namespace sela::detail

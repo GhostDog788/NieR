@@ -7,7 +7,7 @@
 #include <algorithm>
 
 #include "NativeTargetConfig.h"
-namespace nier::detail::NIER_NATIVE_NAMESPACE {
+namespace sela::detail::SELA_NATIVE_NAMESPACE {
 namespace {
 llvm::Error failure(const llvm::Twine &message) {
   return llvm::createStringError(llvm::inconvertibleErrorCode(),
@@ -133,7 +133,7 @@ struct Classifier {
     if (auto error = validate(type)) return std::move(error);
     auto result = value(type);
 
-#if NIER_NATIVE_WORD_BITS == 32
+#if SELA_NATIVE_WORD_BITS == 32
     {
       if (returns || result.storageSize > 16) return indirect(type, returns);
       auto *record = llvm::cast<llvm::StructType>(type);
@@ -262,4 +262,4 @@ llvm::Expected<NativeABISignature> classifyNativeABI(
   return signature;
 }
 
-} // namespace nier::detail::NIER_NATIVE_NAMESPACE
+} // namespace sela::detail::SELA_NATIVE_NAMESPACE

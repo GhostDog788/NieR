@@ -4,7 +4,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Support/Error.h"
 
-namespace nier::detail {
+namespace sela::detail {
 // Current qualified overlapping storage is natural, scalar and non-bitfield.
 // The native LLVM carrier is a layout choice, never an ordered-record ABI
 // assertion. Consumers use semantic alternatives when classifying native calls.

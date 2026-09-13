@@ -4,21 +4,21 @@
 
 ## Objective and prerequisites
 
-This chapter explains how bytes become an admitted NieR artifact and how a failed compilation avoids damaging existing files.
+This chapter explains how bytes become an admitted Sela artifact and how a failed compilation avoids damaging existing files.
 You should understand the artifact's shared modules and compilation-unit plans, basic Unix file types, and the difference between a parser accepting syntax and a compiler accepting semantics.
 
 The maintainer objective is to reason about boundaries in their actual order:
 open a bounded input safely, decode its container, validate its declared contents,
 verify its IR, perform compilation privately, and publish only a successful result.
 Each step has a different failure mode.
-None should be confused with the planned executable authorization policy of SENieR (SEN), the separate security platform above NieR.
-SENieR is not implemented yet; these checks establish toolchain correctness and robustness, not security enforcement.
+None should be confused with the planned executable authorization policy of SESela (SES), the separate security platform above Sela.
+SESela is not implemented yet; these checks establish toolchain correctness and robustness, not security enforcement.
 
 ## The archive is a closed envelope
 
 `src/artifact/Artifact.cpp` reads an uncompressed tar container into a `PackageFiles` mapping.
 It does not extract arbitrary archive paths into a directory.
-The admitted contents are a canonical `manifest.json`, indexed `modules/N.nierbc` members, and an optional declared `link/version.script`.
+The admitted contents are a canonical `manifest.json`, indexed `modules/N.selabc` members, and an optional declared `link/version.script`.
 
 The manifest describes the experimental contract, artifact kind, supported target domain, managed runtime, native library declarations, qualified link options, module digests, and native compilation-unit plans.
 Supported kinds currently include object, executable, shared, and static.
@@ -29,10 +29,10 @@ Unknown manifest fields, unknown module fields, and undeclared archive members r
 An extra field could express a semantic requirement the consumer does not understand, or carry private source information which a superficial reader ignores.
 “Ignore what you do not recognize” is not this format's extension strategy.
 
-The same principle applies inside NieR IR.
+The same principle applies inside Sela IR.
 The core validates operation and attribute names, admitted types and relationships, source-location policy and target specialization.
 The archive validator does not claim to understand every bytecode instruction.
-`tests/package.cpp` deliberately uses opaque placeholder module bytes for some envelope tests; those tests are not evidence that the core would accept those bytes as NieR Code.
+`tests/package.cpp` deliberately uses opaque placeholder module bytes for some envelope tests; those tests are not evidence that the core would accept those bytes as Sela Code.
 
 ## Bound the input before decoding it
 
@@ -57,14 +57,14 @@ Claims about those stronger threats would need a different design and tests.
 
 ## Worked case: one changed module byte
 
-Suppose a valid artifact contains `modules/0.nierbc`, and one byte changes during copying while `manifest.json` remains unchanged.
+Suppose a valid artifact contains `modules/0.selabc`, and one byte changes during copying while `manifest.json` remains unchanged.
 
 First, the bounded file reader accepts the input only if it remains a regular file within the outer-size limit.
 Second, libarchive must decode valid headers and complete member bodies.
 These steps might succeed: a corrupted module payload need not corrupt tar's structure.
 
 Third, manifest parsing checks the experimental format and runtime contract, the allowed field set, target identifiers and artifact kind.
-The current canonical JSON requirement compares the parsed value's deterministic NieR encoding with the original manifest text.
+The current canonical JSON requirement compares the parsed value's deterministic Sela encoding with the original manifest text.
 LLVM's JSON object parser otherwise retains only one value for duplicate keys; canonical encoding prevents a discarded duplicate from hiding a competing declaration.
 
 Fourth, the validator looks up the module at its required indexed path and compares its SHA-256 digest with the declared digest.
@@ -79,7 +79,7 @@ Static outputs additionally need bounded native member identities.
 A plan cannot drop a module on one target, duplicate its effects, or attach a private side payload to a unit.
 
 This ordering makes diagnostics meaningful.
-A missing member is an envelope error; a bad digest is a consistency error; an unsupported NieR operation is an IR contract error.
+A missing member is an envelope error; a bad digest is a consistency error; an unsupported Sela operation is an IR contract error.
 Suppressing all three under “invalid file” makes future maintenance harder and can conceal which boundary was actually exercised by a negative test.
 
 ## Schema validation is more than JSON validation
@@ -103,7 +103,7 @@ A symbol named `INPUT` is not automatically a file-input directive in that gramm
 
 ## Output aliases and transactional publication
 
-Consider `nierc input.nier -o input.nier`. Even if compilation could finish, replacing the input would destroy the artifact.
+Consider `selac input.sela -o input.sela`. Even if compilation could finish, replacing the input would destroy the artifact.
 The consumer rejects this before working.
 Canonical path comparison covers spelling differences and parent directory symlinks;
 filesystem equivalence catches hard links whose pathnames are different but whose inode is the same.
@@ -123,7 +123,7 @@ Atomic replacement of one completed file and durable multi-file deployment are d
 There is also a driver boundary.
 Direct stock Clang retains its ordinary failed-`-o` cleanup behavior.
 The SDK coordinator therefore asks Clang to write to a private staged artifact and replaces the user's prior artifact only after success.
-An atomic writer buried inside `nier-ld` cannot stop the outer Clang driver from unlinking the same user path on failure.
+An atomic writer buried inside `sela-ld` cannot stop the outer Clang driver from unlinking the same user path on failure.
 The tests must exercise the actual entry point whose preservation guarantee is being claimed.
 
 ## A useful failure lab
@@ -133,18 +133,18 @@ Run it from the repository root:
 
 ```bash
 source sdk/env.sh
-validation_lab=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide-validation-XXXXXX")
-clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
+validation_lab=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide-validation-XXXXXX")
+clang --config="$PWD/build/prealpha/sela.cfg" -O2 \
   examples/hello/hello/main.c examples/hello/hello/hello.c \
-  -o "$validation_lab/hello.nier"
-build/prealpha/nierc inspect "$validation_lab/hello.nier"
-before=$(sha256sum "$validation_lab/hello.nier")
-if build/prealpha/nierc "$validation_lab/hello.nier" \
-    -o "$validation_lab/hello.nier"; then
+  -o "$validation_lab/hello.sela"
+build/prealpha/selac inspect "$validation_lab/hello.sela"
+before=$(sha256sum "$validation_lab/hello.sela")
+if build/prealpha/selac "$validation_lab/hello.sela" \
+    -o "$validation_lab/hello.sela"; then
   printf 'Unexpected alias acceptance\n' >&2
   exit 1
 fi
-after=$(sha256sum "$validation_lab/hello.nier")
+after=$(sha256sum "$validation_lab/hello.sela")
 test "$before" = "$after"
 printf 'Input preserved; lab files: %s\n' "$validation_lab"
 ```

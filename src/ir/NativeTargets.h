@@ -3,7 +3,7 @@
 #include "AggregateABI.h"
 #include "Internal.h"
 
-namespace nier::detail {
+namespace sela::detail {
 struct NativeTargetBackend {
   llvm::StringRef id;
   llvm::StringRef layout;
@@ -18,7 +18,7 @@ struct NativeTargetBackend {
 // Null means unavailable in this linked library, not an invalid public domain.
 const NativeTargetBackend *findNativeTarget(llvm::StringRef id);
 
-#define NIER_DECLARE_NATIVE_BACKEND(NS) \
+#define SELA_DECLARE_NATIVE_BACKEND(NS) \
 namespace NS { \
 const NativeTargetBackend &backend(); \
 llvm::Expected<std::unique_ptr<llvm::Module>> lowerModule( \
@@ -28,7 +28,7 @@ llvm::Expected<NativeABISignature> classifyNativeABI( \
 llvm::Expected<NativeABISignature> classifyNativeLayoutABI( \
     llvm::FunctionType *, llvm::ArrayRef<NativeABIRecordLayout>); \
 }
-NIER_DECLARE_NATIVE_BACKEND(native64)
-NIER_DECLARE_NATIVE_BACKEND(native32)
-#undef NIER_DECLARE_NATIVE_BACKEND
-} // namespace nier::detail
+SELA_DECLARE_NATIVE_BACKEND(native64)
+SELA_DECLARE_NATIVE_BACKEND(native32)
+#undef SELA_DECLARE_NATIVE_BACKEND
+} // namespace sela::detail

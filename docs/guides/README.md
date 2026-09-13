@@ -1,8 +1,8 @@
-# Learning NieR: from C programmer to compiler maintainer
+# Learning Sela: from C programmer to compiler maintainer
 
-NieR is a compiler project, a portable program representation, and a native publication workflow.
+Sela is a compiler project, a portable program representation, and a native publication workflow.
 Understanding all three at once is difficult.
-This series builds the ideas in dependency order: first understand what NieR Code means, then use it, then follow its implementation, and finally examine the algorithms and evidence a maintainer must preserve.
+This series builds the ideas in dependency order: first understand what Sela Code means, then use it, then follow its implementation, and finally examine the algorithms and evidence a maintainer must preserve.
 
 The intended reader has written small or medium Linux applications in C and used Make or CMake.
 You should know functions, pointers, structs, libraries, and ordinary terminal commands.
@@ -11,8 +11,8 @@ We introduce those ideas before relying on them.
 
 ## Just want to publish your C project?
 
-Start with [Use NieR with your C project](02-toolchain-users/using-nier-with-your-c-project.md).
-It is a standalone, command-oriented guide for existing Make and CMake applications: check the native build, configure the external integration, produce a `.nier` artifact, and compile and run it with `nierc`.
+Start with [Use Sela with your C project](02-toolchain-users/using-sela-with-your-c-project.md).
+It is a standalone, command-oriented guide for existing Make and CMake applications: check the native build, configure the external integration, produce a `.sela` artifact, and compile and run it with `selac`.
 You do not need to read the compiler course first or rewrite your application's build files.
 The examples include the current pre-alpha limitations and runtime requirements.
 
@@ -23,7 +23,7 @@ It starts with the ordinary Make/CMake project in `examples/hello/hello/` and fo
 
 | Reading path | Chapters | You should be able to… |
 | --- | --- | --- |
-| Foundations | 01–06 | Explain NieR's contract and read small NieR programs. |
+| Foundations | 01–06 | Explain Sela's contract and read small Sela programs. |
 | Practical user | 01–09 | Publish C applications, inspect artifacts, and understand native output and dependencies. |
 | Contributor | 01–14 | Navigate the repository, trace a failure, and follow a feature across the producer, core, consumer, and tests. |
 | Maintainer | 01–24 | Reason about the major algorithms, preservation obligations, rejection boundaries, and qualification evidence. |
@@ -38,23 +38,23 @@ The [glossary](reference/glossary.md) is a quick lookup aid, not prerequisite re
 The files are grouped by learning stage.
 Each folder has its own short index; chapter numbers preserve the full reading order across folders.
 
-- [01-foundations](01-foundations/README.md) — chapters 01–06: NieR Code and compiler concepts.
+- [01-foundations](01-foundations/README.md) — chapters 01–06: Sela Code and compiler concepts.
 - [02-toolchain-users](02-toolchain-users/README.md) — chapters 07–09, the Hello project walkthrough, and the standalone Make/CMake project guide.
 - [03-contributors](03-contributors/README.md) — chapters 10–14: repository, APIs, implementation flow, and testing.
 - [04-maintainers](04-maintainers/README.md) — chapters 15–24: compiler algorithms, robustness, distribution, and qualification.
 - [reference](reference/README.md) — glossary and quick terminology lookup.
 
-## Part I — Understanding NieR Code
+## Part I — Understanding Sela Code
 
 No SDK or build is required for these chapters.
 Begin here even if you are mainly interested in the implementation: the C producer is one implementation of the public contract, not the definition of that contract.
 
-1. [Meet NieR Code](01-foundations/01-meet-nier-code.md) — the problem, the public boundary, and the three distinct activities of publication, compilation, and execution.
+1. [Meet Sela Code](01-foundations/01-meet-sela-code.md) — the problem, the public boundary, and the three distinct activities of publication, compilation, and execution.
 2. [The Compiler Foundations](01-foundations/02-compiler-foundations.md) — frontend, IR, optimizer, backend, linker, loader, and the roles of Clang, LLVM, and MLIR.
-3. [Reading a NieR Program](01-foundations/03-reading-a-nier-program.md) — read actual operations, values, types, attributes, and a complete small function.
+3. [Reading a Sela Program](01-foundations/03-reading-a-sela-program.md) — read actual operations, values, types, attributes, and a complete small function.
 4. [Values, Control Flow, and Memory](01-foundations/04-values-control-flow-and-memory.md) — SSA, blocks, branches, loops, dominance, and mutable memory.
 5. [Architecture-Neutral Meaning](01-foundations/05-architecture-neutral-meaning.md) — native properties, fixed values, layout, ABI, and bounded portability.
-6. [From NieR Code to a Publication Artifact](01-foundations/06-publication-artifacts.md) — bytecode, manifests, modules, dependencies, and compilation-unit plans.
+6. [From Sela Code to a Publication Artifact](01-foundations/06-publication-artifacts.md) — bytecode, manifests, modules, dependencies, and compilation-unit plans.
 
 ## Part II — Using the real toolchain
 
@@ -65,9 +65,9 @@ Begin here even if you are mainly interested in the implementation: the C produc
 ## Part III — Understanding and contributing to the implementation
 
 10. [Reading the Repository](03-contributors/10-reading-the-repository.md) — component ownership and the C++/LLVM vocabulary needed to read the code.
-11. [Implementing the NieR Contract](03-contributors/11-implementing-the-nier-contract.md) — dialect, validation, serialization, and an independent producer.
+11. [Implementing the Sela Contract](03-contributors/11-implementing-the-sela-contract.md) — dialect, validation, serialization, and an independent producer.
 12. [Following the Developer-Side Compiler](03-contributors/12-developer-side-compiler.md) — stock Clang, private captures, profile processing, and publication linking.
-13. [Following `nierc`](03-contributors/13-following-nierc.md) — validation, specialization, LLVM, native linking, and the consumer boundary.
+13. [Following `selac`](03-contributors/13-following-selac.md) — validation, specialization, LLVM, native linking, and the consumer boundary.
 14. [Testing, Debugging, and Following a Feature](03-contributors/14-testing-debugging-and-features.md) — locate failures and follow the existing byte-swap feature through its implementation and evidence.
 
 ## Part IV — Compiler-maintainer deep dives
@@ -81,7 +81,7 @@ Begin here even if you are mainly interested in the implementation: the C produc
 21. [Preserving Build and Link Semantics](04-maintainers/21-build-and-link-semantics.md) — selected inputs, archive order, differing source inventories, and native translation units.
 22. [Artifact Validation and Compiler Robustness](04-maintainers/22-artifact-validation-and-robustness.md) — bounded readers, schema validation, output staging, and failure behavior.
 23. [The SDK and Compiler Distribution](04-maintainers/23-sdk-and-compiler-distribution.md) — pinned dependencies, compiler-only bundles, native loaders, and relocation boundaries.
-24. [Maintaining and Evolving NieR](04-maintainers/24-maintaining-and-evolving-nier.md) — evidence, qualification, format changes, extension obligations, and the separate future security platform.
+24. [Maintaining and Evolving Sela](04-maintainers/24-maintaining-and-evolving-sela.md) — evidence, qualification, format changes, extension obligations, and the separate future security platform.
 
 ## How to use a chapter
 
@@ -126,11 +126,11 @@ For example, language-independent input is implemented, but supporting every sou
 The current semantic target domain is x86-64/i686, and separate native compiler bundles exist for both devices.
 The [distribution reference](../reference/compiler-distribution.md) records their real-device and full-corpus qualification separately from private producer tests.
 The C producer's two private profiles do not establish ARM support.
-Native program execution needs no NieR interpreter, but ordinary native dependencies still exist.
+Native program execution needs no Sela interpreter, but ordinary native dependencies still exist.
 
 Source exclusion is not encryption or proof of native-equivalent reverse-engineering resistance.
 A well-formed artifact is not a signed, trusted artifact.
-Correctness checks are not SENieR (SEN), the separate security platform planned above NieR and not implemented yet.
+Correctness checks are not SESela (SES), the separate security platform planned above Sela and not implemented yet.
 These distinctions prevent a successful Hello World from being mistaken for completion of the whole product.
 
 ## Relationship to the rest of the documentation
@@ -147,4 +147,4 @@ Code, artifact contracts, and these explanations can change together without com
 Rebuild the tools and regenerate examples after a format change.
 Prefer source paths and symbol names over treating a copied bytecode dump or old test count as a permanent specification.
 
-Start with [01 — Meet NieR Code](01-foundations/01-meet-nier-code.md).
+Start with [01 — Meet Sela Code](01-foundations/01-meet-sela-code.md).

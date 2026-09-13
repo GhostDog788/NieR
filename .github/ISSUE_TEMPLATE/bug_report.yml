@@ -1,13 +1,13 @@
 name: Bug report
-description: Report a reproducible problem in the current NieR pre-alpha.
+description: Report a reproducible problem in the current Sela pre-alpha.
 title: "[Bug]: "
 body:
   - type: markdown
     attributes:
       value: |
-        This is a public report. For a suspected vulnerability, follow the [security policy](https://github.com/GhostDog788/NIER/blob/main/SECURITY.md) instead.
+        This is a public report. For a suspected vulnerability, follow the [security policy](https://github.com/GhostDog788/Sela/blob/main/SECURITY.md) instead.
         Do not upload credentials, private application source, or complete private capture workspaces.
-        Check the [implementation status](https://github.com/GhostDog788/NIER/blob/main/docs/02-implementation-plan.md) for the current qualified scope.
+        Check the [implementation status](https://github.com/GhostDog788/Sela/blob/main/docs/02-implementation-plan.md) for the current qualified scope.
   - type: checkboxes
     id: preparation
     attributes:

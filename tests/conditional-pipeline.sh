@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-nierc=$(realpath "$1")
+selac=$(realpath "$1")
 sdk=$(realpath "$2")
 config=$(realpath "$3")
 checker=$4
@@ -8,7 +8,7 @@ mode=${5:-pipeline}
 project=$(cd "$(dirname "$0")/.." && pwd)
 llvm="$sdk/host/usr/lib/llvm-18/bin"
 export LD_LIBRARY_PATH="$sdk/host/usr/lib/llvm-18/lib:$sdk/host/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-work=$(mktemp -d -t nier-conditional-pipeline-XXXXXX)
+work=$(mktemp -d -t sela-conditional-pipeline-XXXXXX)
 fixture="$project/tests/fixtures/conditional-switch.c"
 if [[ $mode != native-only && $mode != pipeline ]]; then exit 2; fi
 
@@ -34,15 +34,15 @@ for level in O0 O2; do
   done
   if [[ $mode == native-only ]]; then continue; fi
 
-  "$llvm/clang" --config="$config" -std=gnu11 -"$level" "$fixture" -o "$lane/program.nier"
-  "$checker" "$lane/program.nier" "$lane/shared.mlir"
-  "$nierc" "$lane/program.nier" --sdk "$sdk" -o "$lane/program"
+  "$llvm/clang" --config="$config" -std=gnu11 -"$level" "$fixture" -o "$lane/program.sela"
+  "$checker" "$lane/program.sela" "$lane/shared.mlir"
+  "$selac" "$lane/program.sela" --sdk "$sdk" -o "$lane/program"
   test "$(env -u LD_LIBRARY_PATH "$lane/program")" = \
        "$(env -u LD_LIBRARY_PATH "$lane/native-x86_64")"
 
   # The developer-only reference lowerer checks the other publication profile.
   # device-linking product. This private test uses only stock LLVM and LLD.
-  "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$lane/program.nier" --target i686 --output-dir "$lane/lowered32"
+  "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower "$lane/program.sela" --target i686 --output-dir "$lane/lowered32"
   "$llvm/opt" -passes="default<$level>" -verify-each "$lane/lowered32/0.ll" -o "$lane/optimized32.bc"
   "$llvm/llc" -O="${level#O}" -filetype=obj -relocation-model=pic "$lane/optimized32.bc" -o "$lane/program32.o"
   sysroot="$sdk/sysroots/i686-linux-gnu"

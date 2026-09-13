@@ -1,13 +1,13 @@
 # 14 — Testing, debugging, and following a feature
 
-[Course index](../README.md) · [Previous: following `nierc`](13-following-nierc.md) · [Next: capturing native programs](../04-maintainers/15-capturing-native-programs.md)
+[Course index](../README.md) · [Previous: following `selac`](13-following-selac.md) · [Next: capturing native programs](../04-maintainers/15-capturing-native-programs.md)
 
 ## Objective and prerequisites
 
 This is the contributor checkpoint. You should be able to trace a small semantic feature through its public contract, producer, consumer, and tests; then explain what evidence a safe change would require.
-You should know basic SSA and how the two sides of NieR connect. This chapter introduces the integer semantic details needed for its worked example.
+You should know basic SSA and how the two sides of Sela connect. This chapter introduces the integer semantic details needed for its worked example.
 
-We will follow **the existing `nier.bswap` feature**. It is already implemented.
+We will follow **the existing `sela.bswap` feature**. It is already implemented.
 The exercise is not to add a fictional missing operation or copy a recipe without understanding it.
 A completed feature is useful precisely because its implementation includes the less visible rejection and verification work.
 
@@ -23,14 +23,14 @@ This is not bit reversal. It is also not a request to change the machine's endia
 The operation has a meaning for the integer's bit pattern before we decide how a particular CPU implements it.
 
 In the current contract, the native integer width must be 16, 32, or 64 bits, and the result has the same type as the input.
-A `!nier.word` value can be used because it specializes to an admitted width in the current target domain.
+A `!sela.word` value can be used because it specializes to an admitted width in the current target domain.
 An independent producer can emit the operation directly.
 
 This is a genuine generic-assembly **fragment**, not a complete module.
 `%x` must already be defined in the surrounding function:
 
 ```mlir
-%reversed = "nier.bswap"(%x) : (i32) -> i32
+%reversed = "sela.bswap"(%x) : (i32) -> i32
 ```
 
 There are no source-language tags or captured native instruction sequences in that operation. The contract says what to compute; the selected native backend decides how to compute it.
@@ -54,7 +54,7 @@ It does not prove that all flag-bearing variants have the same behavior, so it d
 
 ## The public and private halves are different features
 
-`nier.bswap` is registered in the public dialect, admitted by the closed schema, checked by the consumer, and lowered to LLVM's `bswap` intrinsic.
+`sela.bswap` is registered in the public dialect, admitted by the closed schema, checked by the consumer, and lowered to LLVM's `bswap` intrinsic.
 The consumer checks operand/result agreement and the selected width. It does not need to rediscover a shift-and-mask idiom.
 
 Our LLVM producer has another responsibility: recognizing supported native inputs that should become that operation. A capture may already contain a qualified LLVM `bswap` intrinsic.
@@ -67,7 +67,7 @@ public:   one integer -> reverse its bytes -> same-width integer
 private:  prove this captured expression implements that public meaning
 ```
 
-A language producer that emits `nier.bswap` directly only needs the first. An improvement to our captured-idiom recognizer does not necessarily require changing the public format at all.
+A language producer that emits `sela.bswap` directly only needs the first. An improvement to our captured-idiom recognizer does not necessarily require changing the public format at all.
 
 ## Work through the captured idiom
 
@@ -100,7 +100,7 @@ Interior expression nodes cannot have users outside the candidate graph. Otherwi
 Relevant loads from the admitted slot must also belong to the graph.
 
 Only after these checks does the code ask LLVM's idiom recognizer for help. It probes a temporary module, not the real capture, because the upstream recognizer can insert trial instructions and can recognize forms broader than our contract.
-NieR accepts exactly the complete, same-width byte swap here, not a masked or partial swap.
+Sela accepts exactly the complete, same-width byte swap here, not a masked or partial swap.
 
 Commit is small: insert the intrinsic, replace the root's uses, and delete only the now-dead proved expression.
 The allocation and initializing store remain.
@@ -138,7 +138,7 @@ When a program fails, first distinguish these situations:
 
 - Clang could not produce an admitted capture.
 - Native profiles could not be correlated or normalized.
-- The resulting NieR program violated its public contract.
+- The resulting Sela program violated its public contract.
 - Target lowering or native LLVM verification failed.
 - Native tools failed, or the executed program behaved incorrectly.
 
@@ -158,12 +158,12 @@ From the repository root in Bash, using an already built pre-alpha tree:
 ```sh
 source sdk/env.sh
 set -euo pipefail
-guide14_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide14-XXXXXX")
+guide14_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide14-XXXXXX")
 ctest --test-dir build/prealpha \
   -R '^(ir_validation|producer_validation|byteswap_normalization)$' \
   --output-on-failure 2>&1 | tee "$guide14_work/tests.txt"
-rg -n 'nier.bswap|byteSwapPrimitive|normalizeNativeByteSwaps' \
-  include/nier/IR/Dialect.h src/ir/Compiler.cpp src/ir/NativeLowering.cpp src/ir/Producer.cpp src/ir/ByteSwap.cpp
+rg -n 'sela.bswap|byteSwapPrimitive|normalizeNativeByteSwaps' \
+  include/sela/IR/Dialect.h src/ir/Compiler.cpp src/ir/NativeLowering.cpp src/ir/Producer.cpp src/ir/ByteSwap.cpp
 printf 'Lab files: %s\n' "$guide14_work"
 ```
 
@@ -185,7 +185,7 @@ That is the contributor exit: not knowing every compiler algorithm, but knowing 
 > The upstream helper may mutate trial IR or recognize a broader idiom.
 > Rejected speculation must not change the real capture.
 
-> [!faq]- Does adding a private recognizer teach `nierc` about C?
+> [!faq]- Does adding a private recognizer teach `selac` about C?
 >
 > No. It makes our producer better at emitting an already-defined generic operation.
 
@@ -195,7 +195,7 @@ That is the contributor exit: not knowing every compiler algorithm, but knowing 
 
 ## Guided source and evidence
 
-Trace `ByteSwapOp` (`include/nier/IR/Dialect.h`), the schema (`src/ir/Compiler.cpp`) and native `nier.bswap` branch (`src/ir/NativeLowering.cpp`),
+Trace `ByteSwapOp` (`include/sela/IR/Dialect.h`), the schema (`src/ir/Compiler.cpp`) and native `sela.bswap` branch (`src/ir/NativeLowering.cpp`),
 intrinsic handling in the producer (`src/ir/Producer.cpp`), and the private recognizer (`src/ir/ByteSwap.cpp`).
 Compare normalizer tests (`tests/byteswap.cpp`), public IR tests (`tests/ir.cpp`), and paired producer tests (`tests/producer.cpp`).
 The next chapter begins the full maintainer track by asking where the native evidence comes from.

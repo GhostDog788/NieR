@@ -4,24 +4,24 @@
   "configurePresets": [
     {
       "name": "prealpha",
-      "displayName": "NieR pre-alpha (pinned SDK)",
+      "displayName": "Sela pre-alpha (pinned SDK)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/prealpha",
       "environment": {
-        "NIER_SDK_ROOT": "${sourceDir}/.sdk",
-        "PATH": "$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18/bin:$env{NIER_SDK_ROOT}/host/usr/bin:$penv{PATH}",
-        "LD_LIBRARY_PATH": "$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18/lib:$env{NIER_SDK_ROOT}/host/usr/lib/x86_64-linux-gnu",
-        "CMAKE_PREFIX_PATH": "$env{NIER_SDK_ROOT}/host/usr:$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18"
+        "SELA_SDK_ROOT": "${sourceDir}/.sdk",
+        "PATH": "$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18/bin:$env{SELA_SDK_ROOT}/host/usr/bin:$penv{PATH}",
+        "LD_LIBRARY_PATH": "$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18/lib:$env{SELA_SDK_ROOT}/host/usr/lib/x86_64-linux-gnu",
+        "CMAKE_PREFIX_PATH": "$env{SELA_SDK_ROOT}/host/usr:$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_EXPORT_COMPILE_COMMANDS": true,
-        "CMAKE_C_COMPILER": "$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18/bin/clang",
-        "CMAKE_CXX_COMPILER": "$env{NIER_SDK_ROOT}/host/usr/lib/llvm-18/bin/clang++",
-        "CMAKE_MAKE_PROGRAM": "$env{NIER_SDK_ROOT}/host/usr/bin/ninja",
-        "NIER_SDK_ROOT": "$env{NIER_SDK_ROOT}",
-        "NIER_BUILD_PUBLISHER": true,
-        "NIER_BUILD_TESTS": true
+        "CMAKE_C_COMPILER": "$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18/bin/clang",
+        "CMAKE_CXX_COMPILER": "$env{SELA_SDK_ROOT}/host/usr/lib/llvm-18/bin/clang++",
+        "CMAKE_MAKE_PROGRAM": "$env{SELA_SDK_ROOT}/host/usr/bin/ninja",
+        "SELA_SDK_ROOT": "$env{SELA_SDK_ROOT}",
+        "SELA_BUILD_PUBLISHER": true,
+        "SELA_BUILD_TESTS": true
       }
     },
     {
@@ -37,30 +37,30 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": true,
         "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/sdk/consumer/toolchain.cmake",
         "CMAKE_MAKE_PROGRAM": "${sourceDir}/.sdk/host/usr/bin/ninja",
-        "NIER_BUILD_SDK_ROOT": "${sourceDir}/.sdk",
-        "NIER_BUILD_PUBLISHER": false,
-        "NIER_BUILD_TESTS": true,
-        "NIER_USE_CONSUMER_SDK": true
+        "SELA_BUILD_SDK_ROOT": "${sourceDir}/.sdk",
+        "SELA_BUILD_PUBLISHER": false,
+        "SELA_BUILD_TESTS": true,
+        "SELA_USE_CONSUMER_SDK": true
       }
     },
     {
       "name": "consumer-x86_64",
-      "displayName": "NieR native x86-64 device compiler",
+      "displayName": "Sela native x86-64 device compiler",
       "inherits": "consumer-base",
       "cacheVariables": {
-        "NIER_DEVICE_TARGET": "x86_64",
-        "NIER_SDK_ROOT": "${sourceDir}/.sdk/consumer/x86_64",
+        "SELA_DEVICE_TARGET": "x86_64",
+        "SELA_SDK_ROOT": "${sourceDir}/.sdk/consumer/x86_64",
         "LLVM_DIR": "${sourceDir}/.sdk/consumer/build-x86_64/lib/cmake/llvm",
         "MLIR_DIR": "${sourceDir}/.sdk/consumer/build-x86_64/lib/cmake/mlir"
       }
     },
     {
       "name": "consumer-i686",
-      "displayName": "NieR native i686 device compiler",
+      "displayName": "Sela native i686 device compiler",
       "inherits": "consumer-base",
       "cacheVariables": {
-        "NIER_DEVICE_TARGET": "i686",
-        "NIER_SDK_ROOT": "${sourceDir}/.sdk/consumer/i686",
+        "SELA_DEVICE_TARGET": "i686",
+        "SELA_SDK_ROOT": "${sourceDir}/.sdk/consumer/i686",
         "LLVM_DIR": "${sourceDir}/.sdk/consumer/build-i686/lib/cmake/llvm",
         "MLIR_DIR": "${sourceDir}/.sdk/consumer/build-i686/lib/cmake/mlir"
       }

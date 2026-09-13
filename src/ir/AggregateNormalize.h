@@ -4,7 +4,7 @@
 #include "llvm/ADT/DenseMap.h"
 
 namespace llvm { class Function; class Module; class Value; class Instruction; class ReturnInst; class CallInst; }
-namespace nier::detail {
+namespace sela::detail {
 
 // Source-side debug data proposes these storage anchors; complete instruction
 // proofs below are mandatory. Consumer inverse anchors are generated directly

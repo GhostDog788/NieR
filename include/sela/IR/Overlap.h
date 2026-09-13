@@ -4,7 +4,7 @@
 #include "llvm/ADT/Hashing.h"
 #include <tuple>
 
-namespace nier::ir {
+namespace sela::ir {
 namespace detail {
 struct OverlapTypeStorage : mlir::TypeStorage {
   using KeyTy = std::tuple<llvm::StringRef, llvm::ArrayRef<mlir::Type>, llvm::ArrayRef<unsigned>>;
@@ -34,7 +34,7 @@ struct OverlapTypeStorage : mlir::TypeStorage {
 class OverlapType : public mlir::Type::TypeBase<OverlapType, mlir::Type, detail::OverlapTypeStorage> {
 public:
   using Base::Base;
-  static constexpr llvm::StringLiteral name = "nier.overlap";
+  static constexpr llvm::StringLiteral name = "sela.overlap";
   static OverlapType get(mlir::MLIRContext *context, llvm::StringRef identity,
                         llvm::ArrayRef<mlir::Type> alternatives, llvm::ArrayRef<unsigned> domains) {
     return Base::get(context, identity, alternatives, domains);

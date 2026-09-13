@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Record real stock-Clang/NieR commands, then render their PTY output.
+"""Record real stock-Clang/Sela commands, then render their PTY output.
 
-Run from any directory: bash /path/to/nier/scripts/record-hello-demo.sh
+Run from any directory: bash /path/to/sela/scripts/record-hello-demo.sh
 Requires the built publisher, SDK, Python 3, Pillow, DejaVu fonts, and file.
 No compiler rebuild or source-tree build is performed. Outputs default to assets/.
 The cast preserves actual timestamps, including intentional reading/typing pauses.
@@ -36,9 +36,9 @@ OSC = re.compile(r"\x1b\][^\x07]*\x07")
 CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 COMMANDS = [
     ("C source", "cat main.c hello.c", 4.5),
-    ("Publish with stock Clang", 'clang --config="$NIER_CONFIG" -O2 main.c hello.c -o hello.nier', 2.5),
-    ("One standalone artifact", "file hello.nier", 2.0),
-    ("Compile independently", "nierc hello.nier -o hello", 2.5),
+    ("Publish with stock Clang", 'clang --config="$SELA_CONFIG" -O2 main.c hello.c -o hello.sela', 2.5),
+    ("One standalone artifact", "file hello.sela", 2.0),
+    ("Compile independently", "selac hello.sela -o hello", 2.5),
     ("Run the native executable", "env -u LD_LIBRARY_PATH -u LD_PRELOAD ./hello", 5.0),
 ]
 
@@ -63,9 +63,9 @@ def clean(text):
 def record(directory):
     if shutil.which("file") is None:
         raise RuntimeError("The system file command is required for this recording")
-    clang = Path(os.environ["NIER_LLVM_ROOT"]) / "bin/clang"
-    config = REPOSITORY / "build/prealpha/nier.cfg"
-    compiler = REPOSITORY / "build/prealpha/nierc"
+    clang = Path(os.environ["SELA_LLVM_ROOT"]) / "bin/clang"
+    config = REPOSITORY / "build/prealpha/sela.cfg"
+    compiler = REPOSITORY / "build/prealpha/selac"
     for required in (clang, config, compiler):
         if not required.is_file():
             raise RuntimeError("Build the matching SDK and publisher before recording")
@@ -75,8 +75,8 @@ def record(directory):
     environment = {
         "PATH": str(compiler.parent) + os.pathsep + os.environ["PATH"],
         "LD_LIBRARY_PATH": os.environ.get("LD_LIBRARY_PATH", ""),
-        "NIER_SDK_ROOT": os.environ["NIER_SDK_ROOT"],
-        "NIER_CONFIG": str(config),
+        "SELA_SDK_ROOT": os.environ["SELA_SDK_ROOT"],
+        "SELA_CONFIG": str(config),
         "TERM": "dumb",
         "LC_ALL": "C",
         "PS1": "$ ",
@@ -115,8 +115,11 @@ def record(directory):
 
     def pause(seconds):
         deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            pump(min(0.02, deadline - time.monotonic()))
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            pump(min(0.02, remaining))
 
     def prompt_after(offset):
         deadline = time.monotonic() + 120
@@ -162,7 +165,7 @@ def record(directory):
     transcript = clean(output)
     if "\nHello world\n" not in transcript:
         raise RuntimeError("The real native output did not contain Hello world")
-    for private_path in (str(REPOSITORY), str(Path.home()), os.environ["NIER_SDK_ROOT"]):
+    for private_path in (str(REPOSITORY), str(Path.home()), os.environ["SELA_SDK_ROOT"]):
         if private_path in transcript:
             raise RuntimeError("Private path appeared in the terminal output")
     if "\r" in transcript or "\b" in transcript:
@@ -179,18 +182,18 @@ def record(directory):
                      "reading_pauses": "Included in cast timestamps and GIF"},
         "prepared_environment": {
             "working_directory": "Fresh temporary copy of examples/hello/hello C sources",
-            "NIER_CONFIG": "build/prealpha/nier.cfg (absolute path supplied privately)",
+            "SELA_CONFIG": "build/prealpha/sela.cfg (absolute path supplied privately)",
             "PATH": "Matching SDK tools and build/prealpha prepended",
             "application_environment": "LD_LIBRARY_PATH and LD_PRELOAD unset for execution",
         },
         "commands": stages,
         "source_sha256": {name: sha256(directory / name)
                           for name in ("main.c", "hello.c", "hello.h")},
-        "tool_sha256": {"clang": sha256(clang), "nierc": sha256(compiler),
-                        "nier.cfg": sha256(config),
-                        "libnier-clang.so": sha256(compiler.parent / "libnier-clang.so"),
-                        "nier-ld": sha256(compiler.parent / "nier-ld")},
-        "output_sha256": {"hello.nier": sha256(directory / "hello.nier"),
+        "tool_sha256": {"clang": sha256(clang), "selac": sha256(compiler),
+                        "sela.cfg": sha256(config),
+                        "libsela-clang.so": sha256(compiler.parent / "libsela-clang.so"),
+                        "sela-ld": sha256(compiler.parent / "sela-ld")},
+        "output_sha256": {"hello.sela": sha256(directory / "hello.sela"),
                           "hello": sha256(directory / "hello")},
         "clang_version": subprocess.check_output([str(clang), "--version"],
                                                  env=environment, text=True).splitlines()[0],
@@ -225,7 +228,7 @@ def render(events, metadata, output, font_directory):
         draw = ImageDraw.Draw(canvas)
         draw.rounded_rectangle((14, 14, WIDTH - 15, HEIGHT - 15), radius=16,
                                fill=panel, outline="#24344b", width=1)
-        draw.text((36, 30), "C → NieR → native", font=fonts["title"], fill=foreground)
+        draw.text((36, 30), "C → Sela → native", font=fonts["title"], fill=foreground)
         badge = "REAL TERMINAL RECORDING"
         badge_width = draw.textlength(badge, font=fonts["small"])
         draw.text((WIDTH - badge_width - 36, 37), badge, font=fonts["small"], fill=accent)
@@ -254,9 +257,9 @@ def main():
     parser.add_argument("--font-dir", type=Path,
                         default=Path("/usr/share/fonts/truetype/dejavu"))
     arguments = parser.parse_args()
-    # nierc prints an absolute output path. Keep that real message, using a
+    # selac prints an absolute output path. Keep that real message, using a
     # non-personal scratch path rather than redacting terminal output afterward.
-    with tempfile.TemporaryDirectory(prefix="nier-demo-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="sela-demo-", dir="/tmp") as temporary:
         scratch = Path(temporary)
         events, transcript, metadata = record(scratch)
         metadata["renderer"] = {"script_sha256": sha256(Path(__file__)),
@@ -269,17 +272,17 @@ def main():
         cast = {"version": 2, "width": COLUMNS, "height": ROWS,
                 "timestamp": metadata["recorded_at_unix"],
                 "duration": metadata["playback"]["duration_seconds"],
-                "title": "NieR: C source to artifact to native executable",
+                "title": "Sela: C source to artifact to native executable",
                 "env": {"TERM": "dumb", "SHELL": "/bin/bash"}}
         (scratch / "hello-demo.cast").write_text(
             "\n".join(json.dumps(item) for item in [cast, *events]) + "\n", encoding="utf-8")
         (scratch / "hello-demo.txt").write_text(
-            "NieR Hello demo — actual terminal transcript\n\n"
+            "Sela Hello demo — actual terminal transcript\n\n"
             "Reproduce: bash scripts/record-hello-demo.sh\n"
             "Prerequisites: built SDK/publisher, Python 3, Pillow, DejaVu fonts, file.\n"
             "The recorder copies the existing Hello C sources to fresh temporary storage.\n"
-            "NIER_CONFIG points to build/prealpha/nier.cfg in the toolchain checkout.\n"
-            "PATH selects the matching stock Clang and the independent nierc program.\n"
+            "SELA_CONFIG points to build/prealpha/sela.cfg in the toolchain checkout.\n"
+            "PATH selects the matching stock Clang and the independent selac program.\n"
             "The cast and GIF retain real elapsed time, including deliberate reading pauses.\n"
             "No compiler/source build cache is reused from the Hello example directory.\n\n"
             + transcript.rstrip() + "\n", encoding="utf-8")

@@ -1,13 +1,13 @@
 name: Feature request
-description: Propose a scoped improvement to NieR or its documentation.
+description: Propose a scoped improvement to Sela or its documentation.
 title: "[Feature]: "
 body:
   - type: markdown
     attributes:
       value: |
         Describe the problem and required behavior before choosing an implementation.
-        NieR's general vision and its currently qualified C pre-alpha are different scopes; consult the [requirements](https://github.com/GhostDog788/NIER/blob/main/docs/01-architecture-design.md) and [implementation status](https://github.com/GhostDog788/NIER/blob/main/docs/02-implementation-plan.md).
-        For a suspected vulnerability, use the [security policy](https://github.com/GhostDog788/NIER/blob/main/SECURITY.md), not this public form.
+        Sela's general vision and its currently qualified C pre-alpha are different scopes; consult the [requirements](https://github.com/GhostDog788/Sela/blob/main/docs/01-architecture-design.md) and [implementation status](https://github.com/GhostDog788/Sela/blob/main/docs/02-implementation-plan.md).
+        For a suspected vulnerability, use the [security policy](https://github.com/GhostDog788/Sela/blob/main/SECURITY.md), not this public form.
   - type: textarea
     id: problem
     attributes:

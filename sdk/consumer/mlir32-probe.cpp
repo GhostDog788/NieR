@@ -1,4 +1,4 @@
-// A real ELF32 link/run gate for the MLIR libraries consumed by nierc.
+// A real ELF32 link/run gate for the MLIR libraries consumed by selac.
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Parser/Parser.h"

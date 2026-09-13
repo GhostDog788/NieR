@@ -9,7 +9,7 @@ You will distinguish fixed values from native-width values, understand why build
 You need C and basic Make/CMake experience, plus a built SDK and publisher in `build/prealpha` for the optional labs.
 Each lab creates its own scratch workspace and can run independently.
 
-If you want to publish your own project immediately, use the standalone [Make/CMake user guide](using-nier-with-your-c-project.md). This chapter explains the native semantics behind that workflow.
+If you want to publish your own project immediately, use the standalone [Make/CMake user guide](using-sela-with-your-c-project.md). This chapter explains the native semantics behind that workflow.
 
 ## Portability does not mean identical answers on every target
 
@@ -20,7 +20,7 @@ On i686 the pointer size becomes four; the literal does not.
 
 Ordinary LLVM IR is already affected by target choices. A frontend may have turned `sizeof(void *)` into a numeric constant and `size_t` into a fixed-width integer type.
 Simply removing the module's target name would not recover the distinction. The existing C producer uses two native profiles and supporting evidence to recover qualified common semantics.
-The public representation can then express a native word as `!nier.word` and a pointer-size constant as `"pointer_bytes"`, while preserving genuinely fixed integers.
+The public representation can then express a native word as `!sela.word` and a pointer-size constant as `"pointer_bytes"`, while preserving genuinely fixed integers.
 
 This is a major responsibility of the producer.
 Two numerical examples alone are not a mathematical proof of arbitrary target behavior. The merger uses bounded structural and semantic rules, then checks each admitted native projection.
@@ -31,20 +31,20 @@ There is no automatic inference that the same artifact works on ARM because ARM 
 
 The existing width fixture prints pointer size, native word size, and fixed controls.
 Run this in Bash from the repository root.
-This optional developer inspection uses `nier_reference_lower`, a publisher-only test helper that can examine both private validation targets; it is not a public on-device cross-compilation command:
+This optional developer inspection uses `sela_reference_lower`, a publisher-only test helper that can examine both private validation targets; it is not a public on-device cross-compilation command:
 
 ```bash
 source sdk/env.sh
-guide_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide09-width-XXXXXX")
+guide_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide09-width-XXXXXX")
 
-clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
-  tests/fixtures/width.c -o "$guide_work/width.nier"
-build/prealpha/nierc "$guide_work/width.nier" -o "$guide_work/width"
+clang --config="$PWD/build/prealpha/sela.cfg" -O2 \
+  tests/fixtures/width.c -o "$guide_work/width.sela"
+build/prealpha/selac "$guide_work/width.sela" -o "$guide_work/width"
 env -u LD_LIBRARY_PATH "$guide_work/width"
 
-build/prealpha/nier_reference_lower lower "$guide_work/width.nier" \
+build/prealpha/sela_reference_lower lower "$guide_work/width.sela" \
   --target x86_64 --output-dir "$guide_work/wide"
-build/prealpha/nier_reference_lower lower "$guide_work/width.nier" \
+build/prealpha/sela_reference_lower lower "$guide_work/width.sela" \
   --target i686 --output-dir "$guide_work/narrow"
 opt -passes=verify -disable-output "$guide_work/wide/0.ll"
 opt -passes=verify -disable-output "$guide_work/narrow/0.ll"
@@ -55,7 +55,7 @@ printf 'Width workspace: %s\n' "$guide_work"
 The x86-64 executable prints `pointer=8 word=8 fixed=4,8`. The diff is expected to report differences, hence the explicit acceptance of `diff` status 1.
 Read the constants and function signatures rather than treating every textual change as a bug. The generated LLVM files have target-specific layouts because specialization has now happened.
 
-This lab verifies the narrow LLVM file but does not deploy an i686 application. Each public `nierc` compiles and lowers only its own device target; real i686 bundle qualification is separate from this publisher-only inspection.
+This lab verifies the narrow LLVM file but does not deploy an i686 application. Each public `selac` compiles and lowers only its own device target; real i686 bundle qualification is separate from this publisher-only inspection.
 Private test scripts can perform more elaborate 32-bit reference checks; those checks and a supported end-user target are separate claims.
 
 ## A build can execute programs before your application exists
@@ -67,7 +67,7 @@ Imagine a generator that writes a macro containing `sizeof(void *)`.
 Running only the x86-64 generator and sharing its output with the i686 compilation would silently bake the wrong answer into the narrow build.
 Preserving normal semantics requires the generated inputs to remain distinct when they really depend on the target.
 
-This is why a blanket `CC="clang --config=nier.cfg"` is insufficient for such projects. The probe would receive an archive where it expects a runnable native executable.
+This is why a blanket `CC="clang --config=sela.cfg"` is insufficient for such projects. The probe would receive an archive where it expects a runnable native executable.
 The SDK's Make/CMake integration instead coordinates two private **native** builds with real stock Clang.
 Configure probes and generators run in their proper lanes.
 Selected application captures are published only after successful native build and provenance checks.
@@ -81,28 +81,28 @@ This uses the repository's existing fixture without editing its Makefile or appl
 
 ```bash
 source sdk/env.sh
-guide_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide09-build-XXXXXX")
+guide_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide09-build-XXXXXX")
 
-make -f "$PWD/sdk/share/nier/Nier.mk" \
-  NIER_BUILD_TOOL="$PWD/build/prealpha/nier-build" \
-  NIER_SOURCE_DIR="$PWD/tests/fixtures/generated" \
-  NIER_TARGETS=hello NIER_NATIVE_OUTPUT=hello \
-  NIER_ARTIFACT="$guide_work/generated.nier"
+make -f "$PWD/sdk/share/sela/Sela.mk" \
+  SELA_BUILD_TOOL="$PWD/build/prealpha/sela-build" \
+  SELA_SOURCE_DIR="$PWD/tests/fixtures/generated" \
+  SELA_TARGETS=hello SELA_NATIVE_OUTPUT=hello \
+  SELA_ARTIFACT="$guide_work/generated.sela"
 
-build/prealpha/nierc inspect "$guide_work/generated.nier"
-build/prealpha/nierc "$guide_work/generated.nier" \
+build/prealpha/selac inspect "$guide_work/generated.sela"
+build/prealpha/selac "$guide_work/generated.sela" \
   -o "$guide_work/generated"
 env -u LD_LIBRARY_PATH "$guide_work/generated"
-tar -tf "$guide_work/generated.nier"
+tar -tf "$guide_work/generated.sela"
 printf 'Generated-header workspace: %s\n' "$guide_work"
 ```
 
 The native output prints `Generated width=8`. The final artifact contains the application module, not the generator executable.
 The fixture's two private generators produce their respective widths; the integration test checks both build systems and the artifact inventory.
 
-`NIER_BUILD_TOOL` names an internal coordinator used by the SDK integration. It is not a new public C source compiler.
+`SELA_BUILD_TOOL` names an internal coordinator used by the SDK integration. It is not a new public C source compiler.
 The actual publication steps it orchestrates still use stock Clang's paired-input producer and publication linker.
-For CMake, a small separate coordinator project calls `nier_add_publication(...)`; the application project can remain unchanged. The [integration guide](../../reference/build-integration.md) documents that interface and its argument rules.
+For CMake, a small separate coordinator project calls `sela_add_publication(...)`; the application project can remain unchanged. The [integration guide](../../reference/build-integration.md) documents that interface and its argument rules.
 
 The under-fifteen-minute integration target concerns developer configuration effort for qualifying projects with a working native build and installed SDK.
 It excludes automated build duration. These fixtures demonstrate useful mechanisms, not a guarantee that every project's build assumptions fit them.
@@ -113,18 +113,18 @@ A **static archive** is an ordered collection of native object members. A native
 Two members may even have the same basename.
 Preserving only a set of unique filenames would lose observable native behavior.
 
-The SDK can select a static-library output and publish a static-kind NieR artifact.
-`nierc` restores ordered native members with stock `llvm-ar`. This differs from publishing an executable that happened to use a static archive: that executable's selected graph contains the members the native link actually chose.
+The SDK can select a static-library output and publish a static-kind Sela artifact.
+`selac` restores ordered native members with stock `llvm-ar`. This differs from publishing an executable that happened to use a static archive: that executable's selected graph contains the members the native link actually chose.
 Selection and complete archive preservation are different tasks.
 
 A **shared library**, or DSO, remains a separately loaded native component. Its SONAME identifies the dependency expected by other native outputs; a version script can control exported symbols and symbol versions.
-The current publisher preserves qualified shared-link settings, and `nierc` can produce a native DSO from its own artifact.
+The current publisher preserves qualified shared-link settings, and `selac` can produce a native DSO from its own artifact.
 
 Dependent applications declare native libraries.
-In this prototype, separately publish and compile application libraries, then provide their native directory with `nierc --library-dir DIR`.
+In this prototype, separately publish and compile application libraries, then provide their native directory with `selac --library-dir DIR`.
 Missing declared libraries fail; arbitrary host libraries are not an automatic fallback. This is useful manual dependency provisioning, not the automatic package installer and updater required by the full product.
 
-Dynamic loading is not prohibited merely because code was published through NieR. The standalone toolchain remains under ordinary OS rules.
+Dynamic loading is not prohibited merely because code was published through Sela. The standalone toolchain remains under ordinary OS rules.
 A future security policy that constrains executable admission is a separate axis, not a hidden assumption behind these library examples.
 
 ## Know which boundary a test actually covers

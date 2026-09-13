@@ -11,7 +11,7 @@ output=$(realpath -m -- "$2")
 cache=$3
 test ! -e "$output"
 mkdir -p "$output"/{bin,lib,licenses} "$cache"
-packages=$(mktemp -d "${TMPDIR:-/tmp}/nier-vm-test-packages-XXXXXX")
+packages=$(mktemp -d "${TMPDIR:-/tmp}/sela-vm-test-packages-XXXXXX")
 printf 'Test-runner package extraction: %s\n' "$packages"
 while read -r package architecture version digest url extra; do
     [[ -n $package && $package != \#* ]] || continue

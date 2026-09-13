@@ -58,7 +58,7 @@ std::string fixture(bool extra, bool chain = false, unsigned label = 8) {
   return source;
 }
 
-bool projection(const nier::detail::ConditionalCFG &result,
+bool projection(const sela::detail::ConditionalCFG &result,
                 const llvm::Function &function, bool left) {
   auto original = function.begin();
   bool passed = true;
@@ -109,7 +109,7 @@ bool test(llvm::StringRef name, const std::string &a, const std::string &b,
   if (llvm::verifyModule(*left, &llvm::errs()) || llvm::verifyModule(*right, &llvm::errs())) return false;
   auto beforeLeft = text(*left), beforeRight = text(*right);
   auto *leftFunction = left->getFunction("sample"), *rightFunction = right->getFunction("sample");
-  auto result = nier::detail::pairConditionalCFG(*leftFunction, *rightFunction);
+  auto result = sela::detail::pairConditionalCFG(*leftFunction, *rightFunction);
   bool passed = check(bool(result) == accepted, name);
   if (!result) {
     if (accepted) llvm::logAllUnhandledErrors(result.takeError(), llvm::errs());
@@ -138,7 +138,7 @@ bool nativePair(llvm::StringRef leftPath, llvm::StringRef rightPath) {
   for (auto &function : *left) {
     auto *other = right->getFunction(function.getName());
     if (function.empty() || !other || function.size() == other->size()) continue;
-    auto result = nier::detail::pairConditionalCFG(function, *other);
+    auto result = sela::detail::pairConditionalCFG(function, *other);
     if (!result) {
       llvm::errs() << "native function " << function.getName() << ": ";
       llvm::logAllUnhandledErrors(result.takeError(), llvm::errs()); return false;

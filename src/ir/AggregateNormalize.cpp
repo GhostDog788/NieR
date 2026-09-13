@@ -10,7 +10,7 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/Analysis/ValueTracking.h"
 
-namespace nier::detail {
+namespace sela::detail {
 namespace {
 llvm::Error failure(const llvm::Twine &message) {
   return llvm::createStringError(std::make_error_code(std::errc::invalid_argument), message);

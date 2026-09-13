@@ -7,7 +7,7 @@
 #include "llvm/Support/MathExtras.h"
 #include <algorithm>
 
-namespace nier::detail {
+namespace sela::detail {
 namespace {
 llvm::Error failure(const llvm::Twine &message) {
   return llvm::createStringError(llvm::inconvertibleErrorCode(),
@@ -70,7 +70,7 @@ llvm::Value *address(llvm::IRBuilderBase &builder, llvm::Value *storage, uint64_
 
 llvm::Expected<llvm::DataLayout> nativeABIDataLayout(bool x64) {
   auto *target = findNativeTarget(x64 ? "x86_64" : "i686");
-  if (!target) return failure("requested native target is unavailable in this NieR library");
+  if (!target) return failure("requested native target is unavailable in this Sela library");
   return llvm::DataLayout(target->layout);
 }
 
@@ -78,7 +78,7 @@ llvm::Expected<NativeABISignature> classifyNativeABI(
     llvm::FunctionType *logical, bool x64,
     llvm::ArrayRef<llvm::StructType *> orderedRecords) {
   auto *target = findNativeTarget(x64 ? "x86_64" : "i686");
-  if (!target) return failure("requested native target is unavailable in this NieR library");
+  if (!target) return failure("requested native target is unavailable in this Sela library");
   return target->classify(logical, orderedRecords);
 }
 
@@ -86,7 +86,7 @@ llvm::Expected<NativeABISignature> classifyNativeLayoutABI(
     llvm::FunctionType *logical, bool x64,
     llvm::ArrayRef<NativeABIRecordLayout> records) {
   auto *target = findNativeTarget(x64 ? "x86_64" : "i686");
-  if (!target) return failure("requested native target is unavailable in this NieR library");
+  if (!target) return failure("requested native target is unavailable in this Sela library");
   return target->classifyLayout(logical, records);
 }
 
@@ -117,4 +117,4 @@ llvm::Error storeNativeABIPieces(
   }
   return llvm::Error::success();
 }
-} // namespace nier::detail
+} // namespace sela::detail

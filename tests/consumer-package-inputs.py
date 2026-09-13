@@ -71,7 +71,7 @@ class Fixture:
         self.build = work / "build"
         self.sdk = work / "sdk"
         self.output = work / "package"
-        self.compiler = self.build / "fixture-nierc"
+        self.compiler = self.build / "fixture-selac"
         self.shared = shared
         self.profile = profile
         self.build.mkdir()
@@ -80,7 +80,7 @@ class Fixture:
         shutil.copy2(compiler, self.compiler)
         paths = dynamic_strings(self.compiler, "RPATH")
         if len(paths) != 1:
-            raise AssertionError("source nierc must have one build/install RPATH")
+            raise AssertionError("source selac must have one build/install RPATH")
         replace_dynamic_string(self.compiler, paths[0], RPATH)
 
         # The real packager invokes this only after receipt/linkage admission.
@@ -93,7 +93,7 @@ class Fixture:
             "build = Path(sys.argv[sys.argv.index('--install') + 1])\n"
             "stage = Path(sys.argv[sys.argv.index('--prefix') + 1])\n"
             "(stage / 'bin').mkdir()\n"
-            "shutil.copy2(build / 'fixture-nierc', stage / 'bin/nierc')\n"
+            "shutil.copy2(build / 'fixture-selac', stage / 'bin/selac')\n"
         )
         installer.chmod(0o755)
         build_sdk = work / "build-sdk"
@@ -102,11 +102,11 @@ class Fixture:
         strip.write_text("#!/bin/sh\nexit 99\n")
         strip.chmod(0o755)
         self.cache = {
-            "NIER_DEVICE_TARGET:STRING": profile,
-            "NIER_LLVM_COMPONENT_LINKING:BOOL": "OFF" if shared else "ON",
-            "NIER_USE_CONSUMER_SDK:BOOL": "ON",
+            "SELA_DEVICE_TARGET:STRING": profile,
+            "SELA_LLVM_COMPONENT_LINKING:BOOL": "OFF" if shared else "ON",
+            "SELA_USE_CONSUMER_SDK:BOOL": "ON",
             "CMAKE_COMMAND:INTERNAL": str(installer),
-            "NIER_BUILD_SDK_ROOT:PATH": str(build_sdk),
+            "SELA_BUILD_SDK_ROOT:PATH": str(build_sdk),
         }
         tools = {}
         for name in ("opt", "llc", "llvm-ar", "lld"):
@@ -161,7 +161,7 @@ class Fixture:
 
 
 def run(build, sdk, repository):
-    compiler = build / "nierc"
+    compiler = build / "selac"
     with compiler.open("rb") as source:
         elf = source.read(20)
     abi = (elf[4], int.from_bytes(elf[18:20], "little"))
@@ -176,7 +176,7 @@ def run(build, sdk, repository):
 
     def check(label, mutate, expected, shared=False, existing=None):
         nonlocal count
-        with tempfile.TemporaryDirectory(prefix="nier-package-inputs-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="sela-package-inputs-") as temporary:
             fixture = Fixture(Path(temporary), compiler, library, repository, profile, shared)
             if existing == "directory":
                 fixture.output.mkdir()
@@ -209,7 +209,7 @@ def run(build, sdk, repository):
         (fixture.sdk / LLVM_ROOT / "bin/opt").write_bytes(b"corrupted tool\n")
 
     def linkage_mismatch(fixture):
-        fixture.cache["NIER_LLVM_COMPONENT_LINKING:BOOL"] = "ON" if fixture.shared else "OFF"
+        fixture.cache["SELA_LLVM_COMPONENT_LINKING:BOOL"] = "ON" if fixture.shared else "OFF"
         fixture.save()
 
     def corrupt_library(fixture):

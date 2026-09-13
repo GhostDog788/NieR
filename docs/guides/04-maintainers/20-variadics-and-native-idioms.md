@@ -4,9 +4,9 @@
 
 ## Objective and prerequisites
 
-This chapter explains how NieR represents operations whose native LLVM shapes differ substantially between targets:
+This chapter explains how Sela represents operations whose native LLVM shapes differ substantially between targets:
 extracting variadic arguments, forwarding a native `va_list`, and recognizing selected compiler idioms.
-It also explains why ordinary nonlocal jumps remain native calls rather than becoming a NieR runtime feature.
+It also explains why ordinary nonlocal jumps remain native calls rather than becoming a Sela runtime feature.
 
 You should know the preceding chapter's distinction between logical and physical call signatures, and be comfortable following SSA values through a branch and join.
 The maintainer skill to develop is recognizing a *complete state transition*.
@@ -17,11 +17,11 @@ A familiar-looking instruction sequence is not enough to justify replacing a sub
 In C, the fixed parameters of a variadic function still have an ordinary prototype.
 Values in its trailing argument list undergo default argument promotions.
 In the tested cases, a `float` is passed as `double`, and the provided narrow integer values are retrieved as `int`.
-A function receiving `...` must request compatible promoted types; NieR does not make an invalid `va_arg` expression defined.
+A function receiving `...` must request compatible promoted types; Sela does not make an invalid `va_arg` expression defined.
 
 This matters before target differences enter the picture.
 A common operation returning an eight-bit integer directly from variadic state would not describe the tested C promotion contract.
-The current `nier.va_arg` result domain is promoted 32-bit or 64-bit integers, native pointers, and `double`.
+The current `sela.va_arg` result domain is promoted 32-bit or 64-bit integers, native pointers, and `double`.
 Support for fixed scalar calls, variadic calls, variadic function bodies, and aggregate variadic extraction are separate questions.
 
 The state behind `va_list` is target-dependent.
@@ -29,7 +29,7 @@ In the pinned SysV x86-64 configuration it is represented by a one-element array
 In the pinned i686 configuration it is a pointer cursor.
 Shipping either representation as the architecture-neutral meaning would make the other target imitate an implementation detail.
 
-The public `!nier.va_list` type therefore describes variadic state, not a portable serialization of one platform's C header definition.
+The public `!sela.va_list` type therefore describes variadic state, not a portable serialization of one platform's C header definition.
 The consumer chooses the native representation for the selected target.
 No Clang header or language identifier needs to accompany that state on the device.
 
@@ -55,7 +55,7 @@ For the qualified integer pattern, the general-purpose comparison uses the obser
 For the qualified `double` pattern, the floating-point threshold is 160 and the register position advances by 16;
 the overflow path advances by 8.
 These numbers belong to the pinned native ABI pattern being recognized.
-They are not public NieR operands which a future target must reproduce.
+They are not public Sela operands which a future target must reproduce.
 
 `src/ir/Varargs.cpp` first identifies candidate state objects through the native `vastart`, `vacopy` and `vaend` intrinsics.
 It then checks a whole extraction: state layout, instruction ordering, addressing, alignments, comparison, increments, successor relationships, PHI inputs, and uses.
@@ -64,7 +64,7 @@ The narrow and wide patterns are independently proved before they can become the
 
 Only after those checks does the producer replace the native expansion with a logical operation.
 The requested type and state identity are the meaning to preserve.
-The consumer lowers `nier.va_arg` to LLVM's `VAArgInst` for the native state type.
+The consumer lowers `sela.va_arg` to LLVM's `VAArgInst` for the native state type.
 LLVM's ordinary target pipeline subsequently implements the native ABI; there is no interpreted argument reader installed beside the executable.
 
 The inverse check then specializes the common program back to each native profile and compares the qualified normalized contracts.
@@ -94,7 +94,7 @@ Forwarding does not extract one argument; it hands native list state to an ordin
 The qualified x86-64 ABI passes the array-state address.
 The i686 ABI passes the cursor value stored in the local state slot.
 Thus the same apparent pointer-to-state cannot simply be passed on both targets.
-`nier.va_forward` expresses this adaptation explicitly: wide lowering returns the state address, while narrow lowering loads the current cursor.
+`sela.va_forward` expresses this adaptation explicitly: wide lowering returns the state address, while narrow lowering loads the current cursor.
 It does not add a wrapper around `vsnprintf` or require a specially rebuilt libc.
 
 Copying the list is also meaningful.
@@ -110,13 +110,13 @@ The scalar transition proof does not cover that behavior, and passing the fixed-
 
 Memory intrinsics show a smaller but important target difference.
 LLVM's overloaded names can include a length type, such as an `i64` versus `i32` variant of `llvm.memcpy`.
-The producer recognizes the intrinsic identity and compatible signature, and NieR records the memory-intrinsic kind.
+The producer recognizes the intrinsic identity and compatible signature, and Sela records the memory-intrinsic kind.
 The consumer constructs the target's correct LLVM declaration.
 Merely treating the two spelled names as unrelated external functions would miss their shared meaning.
 Conversely, renaming arbitrary functions that resemble `memcpy` would invent that meaning without proof.
 
 Byte reversal is another example.
-The public `nier.bswap` operation has a bounded 16-, 32-, or 64-bit integer domain.
+The public `sela.bswap` operation has a bounded 16-, 32-, or 64-bit integer domain.
 `src/ir/ByteSwap.cpp` recognizes an admitted native integer idiom, including the distinction between a native-word carrier and the actual bit domain being reversed.
 The zlib CRC work required that distinction: a wider carrier does not automatically mean a 64-bit byte reversal.
 The consumer emits the ordinary LLVM `bswap` intrinsic.
@@ -128,7 +128,7 @@ Current acceptance is the closed set implemented and tested by the producer and 
 
 ## Nonlocal jumps remain native behavior
 
-The compiler does not implement `setjmp` and `longjmp` with a NieR exception interpreter.
+The compiler does not implement `setjmp` and `longjmp` with a Sela exception interpreter.
 Qualified calls and their semantic attributes remain native.
 The nonlocal fixture (`tests/fixtures/nonlocal.c`) uses `setjmp` in a permitted `switch` expression, jumps across frames, nests live environments,
 and checks the required conversion of a zero `longjmp` argument to a nonzero return.
@@ -146,20 +146,20 @@ From the repository root with a prepared build:
 
 ```bash
 source sdk/env.sh
-varargs_lab=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide-varargs-XXXXXX")
-clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
-  tests/abi/va_forward.c -o "$varargs_lab/forward.nier"
-build/prealpha/nierc "$varargs_lab/forward.nier" -o "$varargs_lab/forward"
+varargs_lab=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide-varargs-XXXXXX")
+clang --config="$PWD/build/prealpha/sela.cfg" -O2 \
+  tests/abi/va_forward.c -o "$varargs_lab/forward.sela"
+build/prealpha/selac "$varargs_lab/forward.sela" -o "$varargs_lab/forward"
 env -u LD_LIBRARY_PATH -u LD_PRELOAD "$varargs_lab/forward"
-build/prealpha/nier_reference_lower lower "$varargs_lab/forward.nier" \
+build/prealpha/sela_reference_lower lower "$varargs_lab/forward.sela" \
   --target x86_64 --output-dir "$varargs_lab/wide"
-build/prealpha/nier_reference_lower lower "$varargs_lab/forward.nier" \
+build/prealpha/sela_reference_lower lower "$varargs_lab/forward.sela" \
   --target i686 --output-dir "$varargs_lab/narrow"
 printf 'Lab files: %s\n' "$varargs_lab"
 ```
 
 Expect `Native va_list forwarding passed`.
-The two-target inspection uses the publisher-only `nier_reference_lower` test helper; the native-only public compiler does not provide foreign-target lowering.
+The two-target inspection uses the publisher-only `sela_reference_lower` test helper; the native-only public compiler does not provide foreign-target lowering.
 Compare the state layout and the argument passed to `vsnprintf` in the two lowered modules.
 Do not expect their native pointer manipulation to be textually identical; preserving the common logical operation is what makes the native differences correct.
 
@@ -179,7 +179,7 @@ The useful abstraction is a proved state transition or intrinsic operation, not 
 >
 > The qualified wide ABI passes a state address, while the narrow ABI passes its stored cursor value.
 
-> [!faq]- Can a passing native aggregate-varargs baseline establish NieR support?
+> [!faq]- Can a passing native aggregate-varargs baseline establish Sela support?
 >
 > No. It is a reference oracle; integrated public semantics and proofs remain separate obligations.
 

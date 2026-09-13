@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-The objective is to understand how NieR preserves native memory layout without publishing one target-fixed LLVM record for every target.
+The objective is to understand how Sela preserves native memory layout without publishing one target-fixed LLVM record for every target.
 You should understand the common type contract, pointer arithmetic, and the producer/core separation.
 You should also distinguish fixed-width integer operations from target-native properties.
 
@@ -37,13 +37,13 @@ For the currently pinned x86-64 and i686 Linux layouts, the native storage is:
 | Whole-object ABI alignment | 8 | 4 |
 
 The padding before `count` and after the final array follows native layout rules.
-NieR must not reuse the wide byte offsets on the narrow target, and it must not pack the fields tightly to make both targets look the same.
+Sela must not reuse the wide byte offsets on the narrow target, and it must not pack the fields tightly to make both targets look the same.
 
 A common storage type can instead retain the ordered field structure.
-This is an example of actual NieR type syntax, with an illustrative opaque identity:
+This is an example of actual Sela type syntax, with an illustrative opaque identity:
 
 ```mlir
-!nier.record<"r0", 0, [i8, !nier.word, !nier.ptr, !nier.array<3, i32>]>
+!sela.record<"r0", 0, [i8, !sela.word, !sela.ptr, !sela.array<3, i32>]>
 ```
 
 The `0` indicates nonpacked LLVM-style record storage. The integer array is fixed-width and fixed-length.
@@ -56,8 +56,8 @@ It describes a proved correspondence in the current profile domain. Other ABIs r
 ## Pairing storage types
 
 The producer's `type` routine pairs native types recursively.
-Equal admitted integer widths remain fixed; `i64` paired with `i32` can become `!nier.word`.
-Native address-space-zero pointers become `!nier.ptr`. Arrays pair their element types and preserve each target's extent.
+Equal admitted integer widths remain fixed; `i64` paired with `i32` can become `!sela.word`.
+Native address-space-zero pointers become `!sela.ptr`. Arrays pair their element types and preserve each target's extent.
 Ordinary records require compatible field inventories and storage properties.
 
 For identified records, the producer keeps a one-to-one correspondence map.
@@ -77,14 +77,14 @@ LLVM's `getelementptr`, usually called GEP, calculates an address using a source
 It does not itself load memory. In the State example, a path to `values[1]` first selects the record field and then the array element.
 The same structural path can produce different byte offsets under different native layouts.
 
-NieR retains the relevant element type, indices and native semantics instead of reducing every address to an unexplained integer offset.
+Sela retains the relevant element type, indices and native semantics instead of reducing every address to an unexplained integer offset.
 The consumer checks that the index path is valid for the reconstructed type before emitting the native GEP.
 Constant address expressions in global initializers have a corresponding checked representation.
 
 An `inbounds` GEP is not a runtime bounds check.
 It carries a promise about the address calculation; violating LLVM's relevant conditions can yield poison.
 As introduced in chapter 14, poison is not an ordinary value to be substituted freely.
-Preserving or adding `inbounds` therefore needs semantic justification. NieR does not make arbitrary C pointer arithmetic memory-safe.
+Preserving or adding `inbounds` therefore needs semantic justification. Sela does not make arbitrary C pointer arithmetic memory-safe.
 
 ## Alignment belongs to the access too
 
@@ -92,7 +92,7 @@ The type's natural alignment and a particular memory access's guaranteed alignme
 A packed subobject can be accessed with less alignment than a naturally aligned standalone integer of the same type.
 Conversely, an explicitly stronger access alignment is a promise that cannot be silently weakened or invented when comparing native contracts.
 
-NieR load, store, and allocation operations carry admitted alignment expressions.
+Sela load, store, and allocation operations carry admitted alignment expressions.
 The selected value must be a nonzero, bounded power of two. Volatile accesses retain their observable-access character.
 The producer compares corresponding access properties, and lowering emits the selected native operations.
 
@@ -120,7 +120,7 @@ Removing private spelling is not permission to remove symbol relationships.
 
 ## Different array extents without opaque target payloads
 
-The current dialect prints an equal-extent array as `!nier.array<N, T>` and a native-word-dependent array as `!nier.word_array<N64, N32, T>`.
+The current dialect prints an equal-extent array as `!sela.array<N, T>` and a native-word-dependent array as `!sela.word_array<N64, N32, T>`.
 The latter is one element-type contract with two admitted extents, not two opaque modules.
 
 The zlib CRC tables motivated an additional initializer form. A bounded shared element sequence can have a target-dependent selected count.
@@ -137,11 +137,11 @@ The finite-domain array form is not permission to embed whole native programs in
 A union's fields overlap. An LLVM record used as its storage carrier does not necessarily list every source alternative.
 Treating that carrier as an ordinary ordered record would lose important layout and future ABI facts.
 
-NieR therefore has an explicit `!nier.overlap` type. It contains an opaque identity, scalar alternatives in semantic order, and their domain masks.
+Sela therefore has an explicit `!sela.overlap` type. It contains an opaque identity, scalar alternatives in semantic order, and their domain masks.
 For example, this is valid type syntax for two alternatives present in both domains:
 
 ```mlir
-!nier.overlap<"r1", [i32, f32], [3, 3]>
+!sela.overlap<"r1", [i32, f32], [3, 3]>
 ```
 
 Our producer discovers qualified union evidence from actual global or local storage associations.
@@ -177,24 +177,24 @@ Run this from the repository root in Bash with the SDK and tools already built:
 ```sh
 source sdk/env.sh
 set -euo pipefail
-guide18_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide18-XXXXXX")
-clang --config="$PWD/build/prealpha/nier.cfg" -O0 \
-  tests/storage-native.c -o "$guide18_work/storage.nier"
+guide18_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide18-XXXXXX")
+clang --config="$PWD/build/prealpha/sela.cfg" -O0 \
+  tests/storage-native.c -o "$guide18_work/storage.sela"
 for guide18_target in x86_64 i686; do
-  build/prealpha/nier_reference_lower lower "$guide18_work/storage.nier" \
+  build/prealpha/sela_reference_lower lower "$guide18_work/storage.sela" \
     --target "$guide18_target" --output-dir "$guide18_work/$guide18_target"
 done
 rg -n '= type|global |getelementptr|alloca ' \
   "$guide18_work/x86_64" "$guide18_work/i686"
-build/prealpha/nierc "$guide18_work/storage.nier" \
-  --sdk "$NIER_SDK_ROOT" -o "$guide18_work/storage"
+build/prealpha/selac "$guide18_work/storage.sela" \
+  --sdk "$SELA_SDK_ROOT" -o "$guide18_work/storage"
 env -u LD_LIBRARY_PATH "$guide18_work/storage"
 printf 'Native exit status: %s\n' "$?"
 printf 'Lab files: %s\n' "$guide18_work"
 ```
 
 Successful execution returns zero without printing an application message.
-The two-target dumps come from the publisher-only `nier_reference_lower` test helper; a public device compiler has only its own native lowering implementation.
+The two-target dumps come from the publisher-only `sela_reference_lower` test helper; a public device compiler has only its own native lowering implementation.
 Inspect the native record fields and GEP paths; do not assume record numbering will remain unchanged between pre-alpha revisions.
 This fixture also exercises callbacks and native nonlocal jumps, but its storage relationships are enough for this chapter's inspection.
 
@@ -222,7 +222,7 @@ Explicit overlap is not interchangeable with ordered fields, and storage layout 
 
 ## Guided source and evidence
 
-Read the public storage types (`include/nier/IR/Dialect.h`), overlap type (`include/nier/IR/Overlap.h`), and their syntax implementation (`src/ir/Dialect.cpp`).
+Read the public storage types (`include/sela/IR/Dialect.h`), overlap type (`include/sela/IR/Overlap.h`), and their syntax implementation (`src/ir/Dialect.cpp`).
 Follow `type`, `initializer`, and GEP handling in `src/ir/Producer.cpp` and `src/ir/NativeLowering.cpp`.
 Compare private overlap evidence (`src/ir/OverlapEvidence.cpp`) with consumer carrier selection (`src/ir/OverlapLayout.cpp`).
 Storage tests (`tests/storage.cpp`), the State fixture (`tests/storage-native.c`), overlap tests (`tests/overlap.cpp`), and the packed-bitfield fixture (`tests/fixtures/packed-bitfield-storage.c`) make the boundaries concrete.

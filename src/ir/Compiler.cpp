@@ -1,10 +1,10 @@
-#include "nier/IR/Compiler.h"
+#include "sela/IR/Compiler.h"
 #include "Internal.h"
 #include "NativeTargets.h"
 #include "NativeABIBridge.h"
 #include "OverlapLayout.h"
 #include "ConditionalSpecialization.h"
-#include "nier/IR/Dialect.h"
+#include "sela/IR/Dialect.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -39,7 +39,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-namespace nier {
+namespace sela {
 namespace {
 
 using mlir::Attribute;
@@ -288,10 +288,10 @@ llvm::Error validatePublicTypes(mlir::ModuleOp module) {
 // Schema validation is intentionally closed: unknown optional-looking fields
 // cannot hide semantic requirements or private debug payloads from consumers.
 llvm::Error validateSchema(mlir::ModuleOp module) {
-  auto schema = module->getAttrOfType<mlir::IntegerAttr>("nier.schema");
+  auto schema = module->getAttrOfType<mlir::IntegerAttr>("sela.schema");
   if (!schema || schema.getValue().getBitWidth() > 64 || schema.getInt() != 1)
     return failure("unsupported common IR schema");
-  if (auto raw = module->getAttr("nier.module_flags")) {
+  if (auto raw = module->getAttr("sela.module_flags")) {
     auto flags = mlir::dyn_cast<mlir::ArrayAttr>(raw);
     if (!flags) return failure("invalid public module flag list");
     std::set<std::string> names;
@@ -316,30 +316,30 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
     }
   }
   const std::map<std::string, std::set<std::string>> allowed = {
-      {"builtin.module", {"nier.schema", "nier.module_flags"}},
-      {"nier.func", {"id", "type", "declaration", "variadic", "internal", "weak", "available_externally", "dso_local", "visibility", "intrinsic", "attributes", "block_domains", "native_abi"}},
-      {"nier.global", {"id", "bytes", "alignment", "unnamed", "element", "initializer", "constant", "declaration", "linkage", "dso_local", "visibility"}},
-      {"nier.constant", {"value"}}, {"nier.address", {"global"}},
-      {"nier.alloca", {"element", "alignment"}}, {"nier.load", {"alignment", "volatile"}},
-      {"nier.store", {"alignment", "volatile"}}, {"nier.call", {"callee", "attributes", "tail", "native_abi"}},
-      {"nier.call_indirect", {"type", "variadic", "attributes", "tail", "native_abi"}},
-      {"nier.binary", {"opcode", "flags"}}, {"nier.cast", {"opcode"}},
-      {"nier.compare", {"predicate"}}, {"nier.return", {}},
-      {"nier.gep", {"element", "inbounds"}},
-      {"nier.select", {}}, {"nier.fneg", {}}, {"nier.bswap", {}},
-      {"nier.va_arg", {}}, {"nier.va_forward", {}},
-      {"nier.br", {"loop", "loop_id"}}, {"nier.cond_br", {"true_count", "loop", "loop_id"}},
-      {"nier.switch", {"cases", "argument_counts", "case_domains"}},
-      {"nier.unreachable", {}}};
+      {"builtin.module", {"sela.schema", "sela.module_flags"}},
+      {"sela.func", {"id", "type", "declaration", "variadic", "internal", "weak", "available_externally", "dso_local", "visibility", "intrinsic", "attributes", "block_domains", "native_abi"}},
+      {"sela.global", {"id", "bytes", "alignment", "unnamed", "element", "initializer", "constant", "declaration", "linkage", "dso_local", "visibility"}},
+      {"sela.constant", {"value"}}, {"sela.address", {"global"}},
+      {"sela.alloca", {"element", "alignment"}}, {"sela.load", {"alignment", "volatile"}},
+      {"sela.store", {"alignment", "volatile"}}, {"sela.call", {"callee", "attributes", "tail", "native_abi"}},
+      {"sela.call_indirect", {"type", "variadic", "attributes", "tail", "native_abi"}},
+      {"sela.binary", {"opcode", "flags"}}, {"sela.cast", {"opcode"}},
+      {"sela.compare", {"predicate"}}, {"sela.return", {}},
+      {"sela.gep", {"element", "inbounds"}},
+      {"sela.select", {}}, {"sela.fneg", {}}, {"sela.bswap", {}},
+      {"sela.va_arg", {}}, {"sela.va_forward", {}},
+      {"sela.br", {"loop", "loop_id"}}, {"sela.cond_br", {"true_count", "loop", "loop_id"}},
+      {"sela.switch", {"cases", "argument_counts", "case_domains"}},
+      {"sela.unreachable", {}}};
   const std::map<std::string, std::set<std::string>> required = {
-      {"nier.func", {"id", "type", "declaration", "variadic", "internal", "dso_local", "attributes"}},
-      {"nier.constant", {"value"}}, {"nier.address", {"global"}},
-      {"nier.alloca", {"element", "alignment"}}, {"nier.load", {"alignment"}},
-      {"nier.store", {"alignment"}}, {"nier.call", {"callee", "attributes", "tail"}},
-      {"nier.call_indirect", {"type", "variadic", "attributes", "tail"}},
-      {"nier.binary", {"opcode", "flags"}}, {"nier.cast", {"opcode"}},
-      {"nier.compare", {"predicate"}}, {"nier.gep", {"element", "inbounds"}},
-      {"nier.cond_br", {"true_count"}}, {"nier.switch", {"cases", "argument_counts"}}};
+      {"sela.func", {"id", "type", "declaration", "variadic", "internal", "dso_local", "attributes"}},
+      {"sela.constant", {"value"}}, {"sela.address", {"global"}},
+      {"sela.alloca", {"element", "alignment"}}, {"sela.load", {"alignment"}},
+      {"sela.store", {"alignment"}}, {"sela.call", {"callee", "attributes", "tail"}},
+      {"sela.call_indirect", {"type", "variadic", "attributes", "tail"}},
+      {"sela.binary", {"opcode", "flags"}}, {"sela.cast", {"opcode"}},
+      {"sela.compare", {"predicate"}}, {"sela.gep", {"element", "inbounds"}},
+      {"sela.cond_br", {"true_count"}}, {"sela.switch", {"cases", "argument_counts"}}};
   const std::set<std::string> booleans = {"declaration", "variadic", "internal", "weak", "available_externally",
       "dso_local", "constant", "inbounds", "volatile"};
   const std::set<std::string> strings = {"id", "global", "callee", "visibility", "linkage", "intrinsic", "opcode", "bytes"};
@@ -375,7 +375,7 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
       if (field == "alignment") for (bool word64 : {true, false}) {
         auto value = publicInteger(attribute.getValue(), word64);
         if (!value) error = llvm::toString(value.takeError());
-        else if (!*value && found->first == "nier.global" && !operation->getAttr("bytes")) {
+        else if (!*value && found->first == "sela.global" && !operation->getAttr("bytes")) {
           // Typed globals may leave alignment unspecified. Memory operations
           // and byte-string definitions require an explicit positive value.
         } else if (!*value || *value > (1ULL << 29) || !llvm::isPowerOf2_64(*value))
@@ -422,7 +422,7 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
         }
       });
     }
-    if (operation->getName().getStringRef() == "nier.binary") {
+    if (operation->getName().getStringRef() == "sela.binary") {
       auto opcode = operation->getAttrOfType<mlir::StringAttr>("opcode");
       unsigned code = 0;
       if (opcode) for (unsigned i = llvm::Instruction::BinaryOpsBegin; i < llvm::Instruction::BinaryOpsEnd; ++i)
@@ -472,9 +472,9 @@ void summarize(mlir::ModuleOp module, ArtifactSummary &summary) {
   summary = {};
   module.walk([&](Operation *operation) {
     StringRef name = operation->getName().getStringRef();
-    if (name == "nier.func") ++summary.functions;
-    else if (name == "nier.global") ++summary.globals;
-    else if (name.starts_with("nier.")) ++summary.operations;
+    if (name == "sela.func") ++summary.functions;
+    else if (name == "sela.global") ++summary.globals;
+    else if (name.starts_with("sela.")) ++summary.operations;
     for (auto type : operation->getResultTypes())
       summary.symbolicTypes += mlir::isa<ir::WordType>(type);
     for (auto attribute : operation->getAttrs()) {
@@ -488,29 +488,29 @@ void summarize(mlir::ModuleOp module, ArtifactSummary &summary) {
 
 llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> readArtifact(
     StringRef path, mlir::MLIRContext &context) {
-  context.getOrLoadDialect<ir::NIERDialect>();
-  if (path.contains('\0')) return failure("invalid NieR input pathname");
+  context.getOrLoadDialect<ir::SelaDialect>();
+  if (path.contains('\0')) return failure("invalid Sela input pathname");
   struct Descriptor { int value; ~Descriptor() { if (value >= 0) ::close(value); } };
   Descriptor descriptor{::open(path.str().c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC)};
-  if (descriptor.value < 0) return failure("cannot open NieR bytecode input");
+  if (descriptor.value < 0) return failure("cannot open Sela bytecode input");
   struct stat status;
   if (::fstat(descriptor.value, &status) || !S_ISREG(status.st_mode) ||
       status.st_size < 0 || uint64_t(status.st_size) > 64 * 1024 * 1024)
-    return failure("NieR bytecode input must be a bounded regular file");
+    return failure("Sela bytecode input must be a bounded regular file");
   auto buffer = llvm::WritableMemoryBuffer::getNewUninitMemBuffer(status.st_size, path);
-  if (!buffer) return failure("cannot allocate bounded NieR input buffer");
+  if (!buffer) return failure("cannot allocate bounded Sela input buffer");
   size_t offset = 0;
   while (offset < buffer->getBufferSize()) {
     auto count = ::read(descriptor.value, buffer->getBufferStart() + offset, buffer->getBufferSize() - offset);
     if (count < 0 && errno == EINTR) continue;
-    if (count <= 0) return failure("NieR bytecode input was truncated or unreadable");
+    if (count <= 0) return failure("Sela bytecode input was truncated or unreadable");
     offset += size_t(count);
   }
   char extra;
   ssize_t tail;
   do { tail = ::read(descriptor.value, &extra, 1); } while (tail < 0 && errno == EINTR);
   if (tail != 0 || ::fstat(descriptor.value, &status) || uint64_t(status.st_size) != offset)
-    return failure("NieR bytecode input changed size while reading");
+    return failure("Sela bytecode input changed size while reading");
   if (!mlir::isBytecode(buffer->getMemBufferRef()))
     return failure("expected bounded MLIR bytecode, not textual IR");
   llvm::SourceMgr manager;
@@ -525,7 +525,7 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> readArtifact(
 
 llvm::Error verifyModuleStructure(mlir::ModuleOp module) {
   if (mlir::failed(mlir::verify(module)))
-    return failure("NieR structural verification failed");
+    return failure("Sela structural verification failed");
   return validateSchema(module);
 }
 
@@ -547,13 +547,13 @@ llvm::Error inspectArtifactStructure(StringRef bytecodeInput, ArtifactSummary &s
 
 llvm::Error verifyModule(mlir::ModuleOp module, llvm::ArrayRef<StringRef> targets) {
   if (auto error = verifyModuleStructure(module)) return error;
-  if (targets.empty()) return failure("NieR validation requires a semantic target domain");
+  if (targets.empty()) return failure("Sela validation requires a semantic target domain");
   std::set<std::string> seen;
   for (auto target : targets) {
     if ((target != "x86_64" && target != "i686") || !seen.insert(target.str()).second)
-      return failure("unsupported or duplicate NieR semantic target");
+      return failure("unsupported or duplicate Sela semantic target");
     if (!detail::findNativeTarget(target))
-      return failure("requested native target is unavailable in this NieR library: " + target);
+      return failure("requested native target is unavailable in this Sela library: " + target);
   }
   for (auto target : targets) {
     llvm::LLVMContext context;
@@ -570,9 +570,9 @@ llvm::Error writeModule(mlir::ModuleOp module, StringRef bytecodeOutput,
   llvm::raw_fd_ostream output(bytecodeOutput, ec, llvm::sys::fs::OF_None);
   if (ec) return llvm::errorCodeToError(ec);
   if (mlir::failed(mlir::writeBytecodeToFile(module, output)))
-    return failure("cannot serialize NieR module");
+    return failure("cannot serialize Sela module");
   output.flush();
-  if (output.has_error()) return failure("failed writing NieR bytecode");
+  if (output.has_error()) return failure("failed writing Sela bytecode");
   return llvm::Error::success();
 }
 
@@ -592,7 +592,7 @@ llvm::Error lowerArtifact(StringRef bytecodeInput, StringRef profile,
     return failure("unsupported target profile; expected x86_64 or i686");
   mlir::MLIRContext context;
   if (!detail::findNativeTarget(profile))
-    return failure("requested native target is unavailable in this NieR library: " + profile);
+    return failure("requested native target is unavailable in this Sela library: " + profile);
   auto source = readModuleStructure(bytecodeInput, context);
   if (!source) return source.takeError();
   llvm::LLVMContext llvmContext;
@@ -617,4 +617,4 @@ llvm::Error inspectArtifact(StringRef bytecodeInput, ArtifactSummary &summary,
   return llvm::Error::success();
 }
 
-} // namespace nier
+} // namespace sela

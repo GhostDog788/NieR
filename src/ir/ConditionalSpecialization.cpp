@@ -3,7 +3,7 @@
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseMap.h"
 
-namespace nier::detail {
+namespace sela::detail {
 namespace {
 llvm::Error fail(llvm::StringRef text) {
   return llvm::createStringError(std::make_error_code(std::errc::invalid_argument), text);
@@ -20,7 +20,7 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeConditionalCFG(
   mlir::OwningOpRef<mlir::ModuleOp> result(source.clone());
   const unsigned selected = word64 ? 1 : 2;
   for (auto &function : result->getBody()->getOperations()) {
-    if (function.getName().getStringRef() != "nier.func") continue;
+    if (function.getName().getStringRef() != "sela.func") continue;
     if (function.getNumRegions() != 1) return fail("conditional CFG requires one function region");
     auto &region = function.getRegion(0);
     auto rawDomains = function.getAttr("block_domains");
@@ -43,7 +43,7 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeConditionalCFG(
     for (auto &block : region) {
       for (auto iterator = block.begin(); iterator != block.end();) {
         auto &operation = *iterator++;
-        if (operation.getName().getStringRef() != "nier.switch") continue;
+        if (operation.getName().getStringRef() != "sela.switch") continue;
         auto rawCases = operation.getAttr("case_domains");
         auto caseDomains = mlir::dyn_cast_or_null<mlir::ArrayAttr>(rawCases);
         auto cases = operation.getAttrOfType<mlir::ArrayAttr>("cases");

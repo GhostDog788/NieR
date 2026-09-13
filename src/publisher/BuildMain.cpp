@@ -1,19 +1,19 @@
 #include "Build.h"
-#include "nier/Artifact/Artifact.h"
+#include "sela/Artifact/Artifact.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 
-using namespace nier::driver;
+using namespace sela::driver;
 namespace {
 llvm::Error build(int argc, char **argv) {
   BuildRequest request;
-  fs::path output, config = NIER_DEFAULT_CONFIG;
-  Sdk sdk{std::getenv("NIER_SDK_ROOT") ? std::getenv("NIER_SDK_ROOT") : NIER_DEFAULT_SDK};
+  fs::path output, config = SELA_DEFAULT_CONFIG;
+  Sdk sdk{std::getenv("SELA_SDK_ROOT") ? std::getenv("SELA_SDK_ROOT") : SELA_DEFAULT_SDK};
   bool keep = false;
   for (int i = 1; i < argc; ++i) {
     std::string argument = argv[i];
     if (argument == "--help") {
-      llvm::outs() << "Internal SDK service; use Nier.mk or Nier.cmake.\n"
+      llvm::outs() << "Internal SDK service; use Sela.mk or Sela.cmake.\n"
                       "--system make|cmake --source DIR --output RELPATH --artifact FILE\n"
                       "[--target NAME] [--configure-arg ARG] [--cflag ARG] [--keep-private]\n";
       return llvm::Error::success();
@@ -39,10 +39,10 @@ llvm::Error build(int argc, char **argv) {
     return fail("artifact output cannot be a directory or symlink");
   if (fs::exists(output)) {
     auto previous = readPackage(output);
-    if (!previous) return fail("refusing to overwrite a non-NieR build input/output: " +
+    if (!previous) return fail("refusing to overwrite a non-Sela build input/output: " +
                                llvm::toString(previous.takeError()));
     auto manifest = validatePackage(*previous);
-    if (!manifest) return fail("refusing to replace an invalid existing NieR artifact: " +
+    if (!manifest) return fail("refusing to replace an invalid existing Sela artifact: " +
                                llvm::toString(manifest.takeError()));
   }
   if (!fs::is_directory(output.parent_path())) return fail("artifact output directory does not exist");
@@ -60,10 +60,10 @@ llvm::Error build(int argc, char **argv) {
   std::vector<std::string> link{sdk.tool("clang").string(), "--config=" + config.string()};
   for (size_t i = 0; i < captured->units.size(); ++i) {
     const auto &unit = captured->units[i];
-    const auto artifact = scratch->path / ("unit-" + std::to_string(i) + ".nier");
+    const auto artifact = scratch->path / ("unit-" + std::to_string(i) + ".sela");
     std::vector<std::string> command{sdk.tool("clang").string(), "--config=" + config.string()};
     auto pluginArgument = [&](const std::string &value) {
-      command.insert(command.end(), {"-Xclang", "-plugin-arg-nier", "-Xclang", value});
+      command.insert(command.end(), {"-Xclang", "-plugin-arg-sela", "-Xclang", value});
     };
     if (unit.x64Paths.size() == 1 && unit.i686Paths.size() == 1) {
       pluginArgument("mode=pair");
@@ -76,14 +76,14 @@ llvm::Error build(int argc, char **argv) {
     pluginArgument("optimization=" + unit.optimization);
     command.insert(command.end(), {"-x", "ir", "-c", unit.x64Paths.front().string(), "-o", artifact.string()});
     if (auto error = run(command)) return error;
-    if (!fs::is_regular_file(artifact)) return fail("stock Clang did not emit paired NieR unit");
+    if (!fs::is_regular_file(artifact)) return fail("stock Clang did not emit paired Sela unit");
     link.push_back(artifact.string());
   }
   if (captured->kind == "shared") link.push_back("-shared");
   if (captured->kind == "static") {
-    link.insert(link.end(), {"-Xlinker", "--nier-static"});
+    link.insert(link.end(), {"-Xlinker", "--sela-static"});
     for (const auto &unit : captured->units)
-      link.insert(link.end(), {"-Xlinker", "--nier-member-name=" + unit.archiveMemberName});
+      link.insert(link.end(), {"-Xlinker", "--sela-member-name=" + unit.archiveMemberName});
   }
   for (const auto &library : captured->libraries) link.push_back("-l" + library);
   for (const auto &option : captured->linkOptions) { link.push_back("-Xlinker"); link.push_back(option); }
@@ -93,7 +93,7 @@ llvm::Error build(int argc, char **argv) {
       if (!order.empty()) order += ',';
       order += std::to_string(index);
     }
-    link.insert(link.end(), {"-Xlinker", "--nier-unit-order-i686=" + order});
+    link.insert(link.end(), {"-Xlinker", "--sela-unit-order-i686=" + order});
   }
   if (!captured->versionScript.empty()) {
     const auto script = scratch->path / "publication.version.script";
@@ -102,7 +102,7 @@ llvm::Error build(int argc, char **argv) {
   }
   // Stock Clang may unlink its -o output after a failed linker. Never point
   // that cleanup at the user's previously valid publication artifact.
-  const auto staged = scratch->path / "linked.nier";
+  const auto staged = scratch->path / "linked.sela";
   link.insert(link.end(), {"-o", staged.string()});
   if (auto error = run(link)) return error;
   auto finalFiles = readPackage(staged);
@@ -115,8 +115,8 @@ llvm::Error build(int argc, char **argv) {
 int main(int argc, char **argv) {
   try {
     if (auto error = build(argc, argv)) {
-      llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "nier-build: "); return 1;
+      llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "sela-build: "); return 1;
     }
     return 0;
-  } catch (const std::exception &error) { llvm::errs() << "nier-build: " << error.what() << '\n'; return 1; }
+  } catch (const std::exception &error) { llvm::errs() << "sela-build: " << error.what() << '\n'; return 1; }
 }

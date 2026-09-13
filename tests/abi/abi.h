@@ -1,5 +1,5 @@
-#ifndef NIER_TEST_NATIVE_ABI_H
-#define NIER_TEST_NATIVE_ABI_H
+#ifndef SELA_TEST_NATIVE_ABI_H
+#define SELA_TEST_NATIVE_ABI_H
 
 typedef struct { int first, second; } Pair;
 typedef struct { double amount; int tag; } Mixed;

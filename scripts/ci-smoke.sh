@@ -10,9 +10,9 @@ if (( $# > 1 )); then
 fi
 build_dir=${1:-$repo_root/build/prealpha}
 source "$repo_root/sdk/env.sh"
-ctest="$NIER_SDK_ROOT/host/usr/bin/ctest"
+ctest="$SELA_SDK_ROOT/host/usr/bin/ctest"
 if [[ ! -x $ctest || ! -f $build_dir/CTestTestfile.cmake ]]; then
-  printf 'Bootstrap the SDK and configure/build NieR with publisher tests enabled first.\n' >&2
+  printf 'Bootstrap the SDK and configure/build Sela with publisher tests enabled first.\n' >&2
   exit 1
 fi
 build_dir=$(cd -- "$build_dir" && pwd -P)

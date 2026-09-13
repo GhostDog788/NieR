@@ -1,4 +1,4 @@
-# NieR documentation
+# Sela documentation
 
 Open this `docs/` directory as the **Obsidian vault**.
 Open the **repository root** separately in VS Code for source code, builds, and terminal commands.
@@ -6,19 +6,19 @@ The checked-in Obsidian settings belong to this documentation vault; there is no
 
 ## Start here
 
-- [Work through the Hello project](guides/02-toolchain-users/hello-project-walkthrough.md) — start with a normal Make/CMake project and follow its NieR publication and native execution.
-- [Publish your C project](guides/02-toolchain-users/using-nier-with-your-c-project.md) — the practical Make/CMake route from an existing application to a NieR artifact and native executable.
-- [Learn NieR](guides/README.md) — the complete course, from NieR Code fundamentals to compiler-maintainer details.
-- [Build NieR](reference/building-nier.md) — prepare the SDK, build the tools, and set up VS Code.
+- [Work through the Hello project](guides/02-toolchain-users/hello-project-walkthrough.md) — start with a normal Make/CMake project and follow its Sela publication and native execution.
+- [Publish your C project](guides/02-toolchain-users/using-sela-with-your-c-project.md) — the practical Make/CMake route from an existing application to a Sela artifact and native executable.
+- [Learn Sela](guides/README.md) — the complete course, from Sela Code fundamentals to compiler-maintainer details.
+- [Build Sela](reference/building-sela.md) — prepare the SDK, build the tools, and set up VS Code.
 - [Reference documents](reference/README.md) — SDK, integration, distribution, qualification, and ABI details.
 - [Glossary](guides/reference/glossary.md) — quick terminology lookup.
 
 ## Requirements and implementation plan
 
-[01 — Project requirements](01-architecture-design.md) defines what NieR must achieve.
+[01 — Project requirements](01-architecture-design.md) defines what Sela must achieve.
 [02 — Implementation plan](02-implementation-plan.md) describes the implementation approach and its current qualification boundaries.
 The guides explain these documents; they do not replace them.
-NieR is the standalone format and toolchain; SENieR (SEN) is the separate, not-yet-implemented security platform planned above it.
+Sela is the standalone format and toolchain; SESela (SES) is the separate, not-yet-implemented security platform planned above it.
 
 ## Links and source references
 

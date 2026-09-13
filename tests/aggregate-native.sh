@@ -3,7 +3,7 @@ set -euo pipefail
 proof_tests=$1
 sdk_root=$(realpath -e -- "$2")
 fixture_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/abi" && pwd)
-abi_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-aggregate-regenerated-XXXXXX")
+abi_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-aggregate-regenerated-XXXXXX")
 llvm_bin="$sdk_root/host/usr/lib/llvm-18/bin"
 for profile in x86_64 i686; do
     case "$profile" in
@@ -24,7 +24,7 @@ for profile in x86_64 i686; do
             "$llvm_bin/clang" "${flags[@]}" -c "$lane/$source.regenerated.ll" -o "$lane/$source.o"
         done
         # These remain ordinary native dependencies. Aggregate variadic-tail
-        # extraction is not being advertised as a NieR qualification by this
+        # extraction is not being advertised as a Sela qualification by this
         # fixed-boundary helper test.
         for source in native_bridge varargs; do
             "$llvm_bin/clang" "${flags[@]}" -c "$fixture_root/$source.c" -o "$lane/$source.o"

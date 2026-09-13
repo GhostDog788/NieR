@@ -1,6 +1,6 @@
 #pragma once
 
-#include "nier/IR/Overlap.h"
+#include "sela/IR/Overlap.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/IR/Module.h"
@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace nier::detail {
+namespace sela::detail {
 struct OverlapAlternative {
   std::string privateName;
   llvm::Type *type;
@@ -18,7 +18,7 @@ struct NativeOverlap {
 };
 using NativeOverlaps = llvm::DenseMap<llvm::StructType *, NativeOverlap>;
 
-// Publisher-only debug association. Debug names never enter NieR Code.
+// Publisher-only debug association. Debug names never enter Sela Code.
 llvm::Expected<NativeOverlaps> discoverNativeOverlaps(llvm::Module &module);
 llvm::Expected<ir::OverlapType> mergeNativeOverlap(
     const NativeOverlap &left, const NativeOverlap &right,

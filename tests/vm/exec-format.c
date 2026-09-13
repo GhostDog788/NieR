@@ -12,6 +12,6 @@ int main(int argc, char **argv) {
         perror("ELF64 rejection did not return ENOEXEC");
         return 1;
     }
-    puts("NIER_VM_ELF64_ENOEXEC");
+    puts("SELA_VM_ELF64_ENOEXEC");
     return 0;
 }

@@ -1,4 +1,0 @@
-#ifndef NIER_TEST_OPTIONS_H
-#define NIER_TEST_OPTIONS_H
-#define HEADER_VALUE 23
-#endif

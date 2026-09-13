@@ -3,7 +3,7 @@ set -euo pipefail
 classifier_tests=$1
 sdk_root=$(realpath -e -- "$2")
 fixture_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/abi" && pwd)
-abi_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-aggregate-classifier-XXXXXX")
+abi_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-aggregate-classifier-XXXXXX")
 clang="$sdk_root/host/usr/lib/llvm-18/bin/clang"
 for level in O0 O2; do
     for target in x86_64 i686; do

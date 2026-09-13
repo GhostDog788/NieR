@@ -7,7 +7,7 @@
 #include "llvm/IR/Instructions.h"
 #include <map>
 
-namespace nier::detail {
+namespace sela::detail {
 namespace {
 llvm::Error fail(llvm::StringRef message) {
   return llvm::createStringError(std::make_error_code(std::errc::invalid_argument),
@@ -250,4 +250,4 @@ llvm::Expected<ConditionalCFG> pairConditionalCFG(const llvm::Function &left,
                                                  const llvm::Function &right) {
   return Pairing(left, right).run();
 }
-} // namespace nier::detail
+} // namespace sela::detail

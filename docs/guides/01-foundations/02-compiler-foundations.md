@@ -1,11 +1,11 @@
 # 02. The Compiler Foundations
 
-[Series](../README.md) · [Previous](01-meet-nier-code.md) · [Next](03-reading-a-nier-program.md)
+[Series](../README.md) · [Previous](01-meet-sela-code.md) · [Next](03-reading-a-sela-program.md)
 
 ## What you will understand
 
-You will distinguish a compiler frontend, intermediate representation, optimizer, backend, linker, and loader, and place Clang, LLVM, MLIR, and NieR in that picture.
-Read [chapter 01](01-meet-nier-code.md) first.
+You will distinguish a compiler frontend, intermediate representation, optimizer, backend, linker, and loader, and place Clang, LLVM, MLIR, and Sela in that picture.
+Read [chapter 01](01-meet-sela-code.md) first.
 No compiler build or C++ knowledge is needed.
 
 ## The command you know hides several jobs
@@ -46,7 +46,7 @@ An optimizer can work on that representation instead of having a separate implem
 A backend can accept a common representation instead of parsing every source language.
 Sharing those components is how a compiler ecosystem avoids rebuilding the whole pipeline for every language/CPU pair.
 
-For example, the following is **pseudocode**, not NieR syntax:
+For example, the following is **pseudocode**, not Sela syntax:
 
 ```text
 value0 = constant 2
@@ -83,20 +83,20 @@ In our current native profiles, a frontend can already express the result as eig
 Removing a target triple does not turn either constant back into a symbolic pointer size.
 The triple is a label for part of the contract, not the only place native assumptions appear.
 
-NieR is our explicit representation for the common meaning we can preserve and validate.
+Sela is our explicit representation for the common meaning we can preserve and validate.
 The reference producer recovers that meaning from private native evidence within a bounded target domain.
-An independent producer may construct valid NieR directly.
-Chapter 16 explains why the reference producer needs more than a mechanical LLVM-opcode-to-NieR-opcode rename.
+An independent producer may construct valid Sela directly.
+Chapter 16 explains why the reference producer needs more than a mechanical LLVM-opcode-to-Sela-opcode rename.
 
-## MLIR is infrastructure; NieR is a particular contract
+## MLIR is infrastructure; Sela is a particular contract
 
 MLIR provides a framework for representing operations, values, types, and regions.
 A **dialect** defines a vocabulary within that framework.
-NieR uses its own registered dialect rather than accepting arbitrary operations from every MLIR dialect.
+Sela uses its own registered dialect rather than accepting arbitrary operations from every MLIR dialect.
 The [MLIR language reference](https://mlir.llvm.org/docs/LangRef/) is useful later for the framework's syntax and terminology.
 
-In the current repository, NieR functions are represented by `nier.func`, not by a promise that every upstream function dialect is interchangeable.
-NieR pointers use `!nier.ptr`.
+In the current repository, Sela functions are represented by `sela.func`, not by a promise that every upstream function dialect is interchangeable.
+Sela pointers use `!sela.ptr`.
 Our implementation decides how to validate and lower those operations and types.
 MLIR does not infer their meaning from their names.
 
@@ -106,9 +106,9 @@ There are therefore three distinct things to avoid collapsing:
 | --- | --- |
 | LLVM IR | Private producer inputs and target-specific consumer output before native code generation. |
 | MLIR | Infrastructure used to define, hold, parse, and serialize our common representation. |
-| NieR Code | Our admitted operation/type/semantic contract implemented using that infrastructure. |
+| Sela Code | Our admitted operation/type/semantic contract implemented using that infrastructure. |
 
-There is no required step where `nierc` asks a C frontend to reinterpret NieR.
+There is no required step where `selac` asks a C frontend to reinterpret Sela.
 The public representation has already crossed the source-language boundary.
 
 ## Linking and loading are not the same thing
@@ -120,11 +120,11 @@ The linker resolves and arranges the selected inputs according to the output kin
 A static archive can hold many object members; a normal link may select only some of them.
 A shared library can remain a runtime dependency rather than being copied into the executable.
 These choices affect program behavior and which code belongs to the application.
-NieR must preserve them rather than flattening every available object into one universal program.
+Sela must preserve them rather than flattening every available object into one universal program.
 
 The **loader** acts when the native program starts.
 It maps the executable and required native libraries and performs the platform's startup work.
-The prototype uses an ordinary native loader with supplied runtime paths; it does not introduce a NieR application loader.
+The prototype uses an ordinary native loader with supplied runtime paths; it does not introduce a Sela application loader.
 Producing a native ELF still does not mean that all machines have its requested interpreter and libraries installed.
 
 ## The complete route in this repository
@@ -134,9 +134,9 @@ Read this as a responsibility map, not a literal list of subprocesses:
 ```text
 Source language
     → stock-Clang frontend and private LLVM captures
-    → reference producer: common NieR semantics
-    → independent .nier publication
-    → nierc: validated, target-specialized LLVM IR
+    → reference producer: common Sela semantics
+    → independent .sela publication
+    → selac: validated, target-specialized LLVM IR
     → LLVM optimization and object generation
     → native linking
     → ordinary native loading and execution
@@ -146,7 +146,7 @@ For target compilation, the current consumer coordinates the SDK's `opt` (optimi
 Static archive outputs use `llvm-ar`.
 These are implementation choices behind the public consumer boundary, not extra source-language compilers that an application must run at execution time.
 
-The developer side is deliberately different: normal C publication is entered through stock Clang configured with the NieR integration.
+The developer side is deliberately different: normal C publication is entered through stock Clang configured with the Sela integration.
 More complex native builds have SDK coordination helpers, but those do not redefine the public format or make the consumer language-aware.
 
 ## Recap
@@ -158,13 +158,13 @@ optimization preserves those semantics;
 lowering realizes them with more native detail;
 linking chooses and combines native inputs;
 loading starts the finished native program.
-NieR adds an independent publication contract between the producer and target compiler, reusing LLVM and MLIR without treating them as synonyms.
+Sela adds an independent publication contract between the producer and target compiler, reusing LLVM and MLIR without treating them as synonyms.
 
 ## Check your understanding
 
 1. Why is deleting an LLVM module's target triple insufficient to make it neutral?
 2. Is lowering always an optimization?
-3. If `nierc` invokes `llc`, does the generated application depend on `llc` at runtime?
+3. If `selac` invokes `llc`, does the generated application depend on `llc` at runtime?
 
 > [!faq]- Answers
 >
@@ -174,8 +174,8 @@ NieR adds an independent publication contract between the producer and target co
 
 ## Source and evidence trail
 
-- Consumer entry point (`src/consumer/Main.cpp`): find `lowerCompilationUnit`, `opt`, and `llc` to see the stages coordinated by `nierc`.
-- Dialect registration (`src/ir/Dialect.cpp`): `NIERDialect` registers our vocabulary; it does not register every upstream dialect.
+- Consumer entry point (`src/consumer/Main.cpp`): find `lowerCompilationUnit`, `opt`, and `llc` to see the stages coordinated by `selac`.
+- Dialect registration (`src/ir/Dialect.cpp`): `SelaDialect` registers our vocabulary; it does not register every upstream dialect.
 - [LLVM 18 language reference](https://releases.llvm.org/18.1.8/docs/LangRef.html): consult when later chapters discuss target data layouts and instruction semantics. The repository SDK is pinned separately; upstream documentation is supporting reference, not a replacement for the checked-in contract.
 
-[Next: Reading a NieR Program](03-reading-a-nier-program.md)
+[Next: Reading a Sela Program](03-reading-a-sela-program.md)

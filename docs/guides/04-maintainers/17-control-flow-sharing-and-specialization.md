@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-This chapter explains how NieR represents a supported target-conditioned region inside one shared function,
+This chapter explains how Sela represents a supported target-conditioned region inside one shared function,
 and how the consumer removes inactive regions without breaking the program.
 You should understand basic blocks, SSA, dominance, PHIs/block arguments, and the finite-domain correspondence claim from the previous chapter.
 
@@ -13,7 +13,7 @@ Passing any one of these does not imply that the others pass.
 
 ## Why matching instruction lists is insufficient
 
-A preprocessor condition can change the number of blocks before NieR sees the program.
+A preprocessor condition can change the number of blocks before Sela sees the program.
 In the existing conditional-switch fixture, the wide profile includes cases 8 and 16, while the narrow profile includes case 4.
 Cases 1 and 2 and the default path are shared.
 
@@ -74,7 +74,7 @@ A restriction on the captured producer template is not a ban on LLVM optimizing 
 
 ## The public domain representation
 
-NieR records conditional presence with native-word domain masks:
+Sela records conditional presence with native-word domain masks:
 
 | Mask | Meaning in the current contract |
 |---|---|
@@ -86,12 +86,12 @@ A function can carry `block_domains`, aligned with its block inventory. A switch
 The shared entry remains present in both domains.
 These masks describe the current semantic target domain; they are not C preprocessor directives or evidence about all 64-bit and 32-bit architectures.
 
-The instructions themselves are ordinary NieR operations. A one-sided arm is not an opaque LLVM payload.
+The instructions themselves are ordinary Sela operations. A one-sided arm is not an opaque LLVM payload.
 In its single-domain translation mode, the producer must still resolve values against established shared correspondences or supported values within that arm.
 Unknown aggregate layouts or unmatched uses do not become acceptable just because only one target needs them.
 
 The public common graph is also independent of how it was produced.
-A direct NieR producer can construct a valid conditional graph without our LLVM CFG pairing helper.
+A direct Sela producer can construct a valid conditional graph without our LLVM CFG pairing helper.
 The consumer checks the public contract, not a private certificate saying that Clang produced the code.
 
 ## Work through wide specialization
@@ -125,7 +125,7 @@ On the wide target, deleting the arm would leave a use without a definition.
 Replacing that value with zero would invent semantics; retaining a dangling reference would create malformed IR.
 
 The public consumer must reject this graph. It cannot assume an artifact is safe because our current producer would not emit it.
-Public NieR construction is independent, and malformed input can arrive at the same API.
+Public Sela construction is independent, and malformed input can arrive at the same API.
 
 Another rejected case is a one-sided source branch with structure outside the closed-switch-arm template.
 It may be valid C and may have an obvious meaning to a human, yet the producer lacks an admitted graph proof.
@@ -157,11 +157,11 @@ From the repository root in Bash, using the already built tools:
 ```sh
 source sdk/env.sh
 set -euo pipefail
-guide17_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide17-XXXXXX")
-clang --config="$PWD/build/prealpha/nier.cfg" -O0 \
-  tests/fixtures/conditional-switch.c -o "$guide17_work/switch.nier"
+guide17_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide17-XXXXXX")
+clang --config="$PWD/build/prealpha/sela.cfg" -O0 \
+  tests/fixtures/conditional-switch.c -o "$guide17_work/switch.sela"
 for guide17_target in x86_64 i686; do
-  build/prealpha/nier_reference_lower lower "$guide17_work/switch.nier" \
+  build/prealpha/sela_reference_lower lower "$guide17_work/switch.sela" \
     --target "$guide17_target" --output-dir "$guide17_work/$guide17_target"
 done
 rg -n -A10 'switch i32' "$guide17_work/x86_64" "$guide17_work/i686"
@@ -172,7 +172,7 @@ printf 'Lab files: %s\n' "$guide17_work"
 ```
 
 Compare the case lists, then follow an arm's effects to the join. This lab does not claim that any pair of differing CFGs can be published.
-The two-target inspection uses the publisher-only `nier_reference_lower` test helper, not a public cross-target device compiler.
+The two-target inspection uses the publisher-only `sela_reference_lower` test helper, not a public cross-target device compiler.
 The negative fixtures are as important as the positive switch example.
 Check the test command's exit status rather than treating log output as a success signal.
 

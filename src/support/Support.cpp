@@ -1,4 +1,4 @@
-#include "nier/Support.h"
+#include "sela/Support.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
@@ -11,7 +11,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-namespace nier::driver {
+namespace sela::driver {
 llvm::Error fail(const std::string &message) {
   return llvm::createStringError(llvm::inconvertibleErrorCode(), "%s", message.c_str());
 }
@@ -79,7 +79,7 @@ llvm::Error replaceFile(const fs::path &source, const fs::path &output, bool exe
   if (fs::exists(status) && !fs::is_regular_file(status))
     return fail("output must be a regular file, not a directory, symlink or special file: " + output.string());
   ec.clear();
-  std::string temporary = (parent / ".nier-output-XXXXXX").string();
+  std::string temporary = (parent / ".sela-output-XXXXXX").string();
   int fd = mkstemp(temporary.data());
   if (fd < 0) return fail("cannot create output staging file");
   close(fd);
@@ -138,7 +138,7 @@ Scratch::~Scratch() {
   }
 }
 llvm::Expected<Scratch> Scratch::create() {
-  std::string pattern = (fs::temp_directory_path() / "nier-private-XXXXXX").string();
+  std::string pattern = (fs::temp_directory_path() / "sela-private-XXXXXX").string();
   if (!mkdtemp(pattern.data())) return fail("cannot make private work directory");
   Scratch result;
   result.path = pattern;

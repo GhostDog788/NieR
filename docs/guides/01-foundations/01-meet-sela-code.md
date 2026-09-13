@@ -1,10 +1,10 @@
-# 01. Meet NieR Code
+# 01. Meet Sela Code
 
 [Series](../README.md) · [Next: The Compiler Foundations](02-compiler-foundations.md)
 
 ## What you will understand
 
-By the end of this chapter, you should be able to explain why NieR Code exists, which two programs exchange it, and what runs after compilation finishes.
+By the end of this chapter, you should be able to explain why Sela Code exists, which two programs exchange it, and what runs after compilation finishes.
 You only need your existing experience writing and building C applications.
 There is no installation exercise yet.
 
@@ -15,7 +15,7 @@ You want to publish it without shipping the source,
 but you also want the receiving machine to produce an ordinary native executable suitable for its supported environment.
 You need a way to describe the application between those two events.
 
-NieR Code is that description.
+Sela Code is that description.
 It is a language for compilers to exchange a program, rather than a language application developers normally write by hand.
 The program is expressed using operations such as addition, function calls, branches, and memory access.
 Some decisions remain symbolic until a target is selected.
@@ -26,18 +26,18 @@ The most important picture in the project is:
 ```text
 Developer's machine                       Target machine
 
-C source → producer → application.nier → nierc → native executable
+C source → producer → application.sela → selac → native executable
                                                     ↓
                                              ordinary OS execution
 ```
 
 The producer understands its source language and emits the agreed format.
-`nierc` understands that format and the target's native rules.
+`selac` understands that format and the target's native rules.
 The executable does not need either compiler to stay alive while it runs.
 
 In our current C workflow, the producer is integrated with **stock Clang**.
-The developer invokes Clang configured for NieR publication.
-`nierc` is a separate executable, not another mode of a combined source-language compiler.
+The developer invokes Clang configured for Sela publication.
+`selac` is a separate executable, not another mode of a combined source-language compiler.
 This separation is a product boundary, not just a convenient directory layout.
 
 ## Why source portability does not imply binary portability
@@ -53,7 +53,7 @@ Its loader and libraries must be available with compatible interfaces.
 A binary linked against a newer glibc interface may require symbols an older machine does not provide.
 Linux is an OS family, not one universal native binary contract covering every CPU and userspace.
 
-NieR moves the final native compilation decision to the destination.
+Sela moves the final native compilation decision to the destination.
 That does not remove native contracts.
 Instead, the producer must preserve enough meaning for the destination compiler to make the right decisions later.
 Native dependencies must still be supplied in a compatible environment.
@@ -68,22 +68,22 @@ Description B: return the number of bytes in a native pointer
 They happen to agree on our 64-bit target.
 They do not mean the same thing.
 A portable representation needs to distinguish them.
-This is why a NieR producer does more than rename a native object file or remove its CPU label.
+This is why a Sela producer does more than rename a native object file or remove its CPU label.
 
 ## Three activities, three different outputs
 
 **Publication** happens on the developer's side.
-It transforms the application into NieR Code and packages that code with the information the consumer needs.
+It transforms the application into Sela Code and packages that code with the information the consumer needs.
 Publication may use private source files, headers, debug evidence, and native reference builds.
 Those private inputs are not automatically public payload.
 
-**Target compilation** happens when `nierc` receives the artifact.
+**Target compilation** happens when `selac` receives the artifact.
 It validates the input, resolves admitted target-dependent properties, generates native code, and links the required output.
 An executable is one possible output; the implementation also supports qualified shared-library and static-archive outputs.
 
 **Execution** happens afterward.
 The OS loads ordinary native output using the native runtime arrangement selected during linking.
-There is no NieR virtual machine interpreting operations on each call, and no requirement to retain a resident compiler.
+There is no Sela virtual machine interpreting operations on each call, and no requirement to retain a resident compiler.
 Ordinary libraries such as libc can still be necessary.
 
 This distinction also explains the name “on-device compiler.”
@@ -91,20 +91,20 @@ The device is where the final compiler can run, not where every application inst
 Our development exercises often perform both stages on one machine so you can observe the boundary without a second computer.
 The inputs and responsibilities are still separate.
 
-## NieR is not defined by C
+## Sela is not defined by C
 
-Suppose another compiler produces valid NieR operations directly.
+Suppose another compiler produces valid Sela operations directly.
 It does not have to imitate our C producer's private work.
 It has to obey the same public meaning: valid types, calls, memory operations, target constraints, and package rules.
 The consumer can then compile those operations without a switch saying “this was written in C” or “this was written in language X.”
 
 The repository already tests this distinction.
-An independent producer builds NieR modules through the public libraries without Clang captures.
+An independent producer builds Sela modules through the public libraries without Clang captures.
 That proves the boundary is usable independently; it does not prove that every language's semantics have already been implemented.
 
 A language with exceptions, garbage collection, or another runtime model needs an appropriate representation and dependencies.
-If the existing NieR contract cannot express a required behavior, somebody must extend the contract and its consumer support.
-“MLIR is extensible” does not mean `nierc` can compile an operation it has never been taught to understand.
+If the existing Sela contract cannot express a required behavior, somebody must extend the contract and its consumer support.
+“MLIR is extensible” does not mean `selac` can compile an operation it has never been taught to understand.
 
 ## What the current implementation does—and does not—establish
 
@@ -120,9 +120,9 @@ Omitting source is not the same as proving that reverse engineering is as diffic
 Bytecode is not an encryption mechanism.
 
 Security is a separate axis.
-**SENieR**, shortened to **SEN**, is the planned security platform above NieR.
+**SESela**, shortened to **SES**, is the planned security platform above Sela.
 The `SE` prefix means “Security Enhanced,” as in SELinux.
-SENieR is not implemented yet; the standalone NieR toolchain can operate without signing policy, a trusted store, or executable-memory enforcement.
+SESela is not implemented yet; the standalone Sela toolchain can operate without signing policy, a trusted store, or executable-memory enforcement.
 Those are important platform requirements, but this course will not describe them as features already provided by ordinary artifact validation.
 
 ## A worked thought experiment
@@ -130,11 +130,11 @@ Those are important platform requirements, but this course will not describe the
 Take the two-file Hello application used later in the course.
 `main` calls `hello`, and `hello` prints a message.
 During publication, Clang knows about C declarations and includes.
-In NieR, the important surviving facts are functions, calls, values, data, and the native contracts needed to reproduce behavior.
+In Sela, the important surviving facts are functions, calls, values, data, and the native contracts needed to reproduce behavior.
 
-During target compilation, `nierc` does not reopen `hello.h` to check a C prototype.
-The producer has already expressed the function contract in NieR.
-During execution, the native program does not reopen `application.nier` to interpret `nier.call`.
+During target compilation, `selac` does not reopen `hello.h` to check a C prototype.
+The producer has already expressed the function contract in Sela.
+During execution, the native program does not reopen `application.sela` to interpret `sela.call`.
 That operation has already become native code.
 
 Ask “who needs this information, and at which stage?” whenever the repository seems confusing.
@@ -145,7 +145,7 @@ Putting all three in one SDK directory for development does not merge their role
 
 ## Recap
 
-NieR Code is the independent program contract exchanged between a producer and `nierc`.
+Sela Code is the independent program contract exchanged between a producer and `selac`.
 The producer knows how to express a source program; the consumer knows how to realize that meaning for a supported target.
 The eventual program runs natively.
 Portability, native dependencies, source privacy, and security remain different questions with different evidence requirements.
@@ -154,7 +154,7 @@ Portability, native dependencies, source privacy, and security remain different 
 
 1. If both compilers run on your laptop during a demonstration, has the independent boundary disappeared?
 2. Does a language-independent consumer need to understand native calling conventions?
-3. Can a successful NieR validation establish that a publisher is trusted?
+3. Can a successful Sela validation establish that a publisher is trusted?
 
 > [!faq]- Answers
 >
@@ -165,7 +165,7 @@ Portability, native dependencies, source privacy, and security remain different 
 ## Source and evidence trail
 
 - [Requirements, purpose and product boundary](../../01-architecture-design.md) states the intended product; read its standalone and security sections separately.
-- Independent producer (`tests/independent.cpp`) is the concrete example of creating NieR without our Clang pipeline. You will read its API use in chapter 11.
+- Independent producer (`tests/independent.cpp`) is the concrete example of creating Sela without our Clang pipeline. You will read its API use in chapter 11.
 - Hello source (`examples/hello/hello/main.c`) is deliberately ordinary C, not a program rewritten for a special runtime.
 
 [Next: The Compiler Foundations](02-compiler-foundations.md)

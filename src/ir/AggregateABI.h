@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <optional>
 
-namespace nier::detail {
+namespace sela::detail {
 
 enum class NativeABIKind { Direct, Coerce, Expand, Indirect };
 
@@ -102,4 +102,4 @@ llvm::Error storeNativeABIPieces(
     llvm::Value *storage, llvm::Align baseAlignment,
     llvm::ArrayRef<llvm::Value *> pieces);
 
-} // namespace nier::detail
+} // namespace sela::detail

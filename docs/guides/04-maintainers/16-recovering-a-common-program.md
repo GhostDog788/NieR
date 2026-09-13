@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-This chapter explains the reference producer's central algorithm: turning two private native LLVM observations into one public NieR program.
+This chapter explains the reference producer's central algorithm: turning two private native LLVM observations into one public Sela program.
 You should understand SSA, native-width types, capture provenance, and the integer flags introduced in [chapter 14](../03-contributors/14-testing-debugging-and-features.md).
 
 The result is neither a source reconstruction nor a general equivalence proof.
@@ -15,7 +15,7 @@ The algorithm fails when it cannot establish that relationship. Those failures a
 
 `mergeProfiles` accepts an x86-64 LLVM capture, an i686 LLVM capture, and a bytecode output path.
 Its optional summary is descriptive, not a proof token.
-On success, the output is NieR bytecode; capture paths and mandatory producer provenance are not part of the public module contract.
+On success, the output is Sela bytecode; capture paths and mandatory producer provenance are not part of the public module contract.
 
 Each capture is first checked for the pinned target assumptions and verified as LLVM.
 The producer then applies specific private normalizations, constructs the common module, lowers it back for each profile,
@@ -25,7 +25,7 @@ The essential shape is:
 
 ```text
 left capture  ----\                 /---- reconstructed left
-                  common NieR Code
+                  common Sela Code
 right capture ----/                 \---- reconstructed right
         |                                    |
         +---- compare each corresponding ----+
@@ -39,19 +39,19 @@ Comparing only the wide reconstruction would leave the narrow specialization unp
 
 Return to two functions: one returns `sizeof(void *)`, the other literal 8. Suppose their result type in C is `size_t`.
 
-The native result types are `i64` on x86-64 and `i32` on i686. The merger can pair that type correspondence as `!nier.word`.
+The native result types are `i64` on x86-64 and `i32` on i686. The merger can pair that type correspondence as `!sela.word`.
 For the first function, the native values 8 and 4 become the symbolic `pointer_bytes` expression.
 For the second, equal values 8 and 8 become a fixed literal.
 
-These are valid generic NieR fragments inside functions; `%width` and `%eight` are different values even on a target where they happen to agree:
+These are valid generic Sela fragments inside functions; `%width` and `%eight` are different values even on a target where they happen to agree:
 
 ```mlir
-%width = "nier.constant"() {value = "pointer_bytes"} : () -> !nier.word
-%eight = "nier.constant"() {value = 8 : i64} : () -> !nier.word
+%width = "sela.constant"() {value = "pointer_bytes"} : () -> !sela.word
+%eight = "sela.constant"() {value = 8 : i64} : () -> !sela.word
 ```
 
 The `i64` on the attribute is the representation of that literal attribute, not a declaration that the result must always be 64 bits.
-The operation's result type is `!nier.word`.
+The operation's result type is `!sela.word`.
 
 The implementation's `expression` helper also has a finite native-word form for other differing values: a dictionary with `word64` and `word32` entries.
 This is not a symbolic algebra engine that discovers the original source formula.
@@ -160,12 +160,12 @@ Run from the repository root in Bash with the SDK and tools already built:
 ```sh
 source sdk/env.sh
 set -euo pipefail
-guide16_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide16-XXXXXX")
-clang --config="$PWD/build/prealpha/nier.cfg" -O0 \
-  tests/fixtures/width.c -o "$guide16_work/width.nier"
-build/prealpha/nierc inspect "$guide16_work/width.nier"
+guide16_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide16-XXXXXX")
+clang --config="$PWD/build/prealpha/sela.cfg" -O0 \
+  tests/fixtures/width.c -o "$guide16_work/width.sela"
+build/prealpha/selac inspect "$guide16_work/width.sela"
 for guide16_target in x86_64 i686; do
-  build/prealpha/nier_reference_lower lower "$guide16_work/width.nier" \
+  build/prealpha/sela_reference_lower lower "$guide16_work/width.sela" \
     --target "$guide16_target" --output-dir "$guide16_work/$guide16_target"
 done
 rg -n 'target triple|ret i(32|64) [48]|i32 4|i32 8' \
@@ -174,8 +174,8 @@ printf 'Lab files: %s\n' "$guide16_work"
 ```
 
 Read the surrounding functions rather than treating a matching text pattern as a proof.
-Both dumps come from the same `.nier` artifact.
-`nier_reference_lower` is a publisher-only test helper with both native validators; public device `nierc` builds do not expose foreign-target lowering.
+Both dumps come from the same `.sela` artifact.
+`sela_reference_lower` is a publisher-only test helper with both native validators; public device `selac` builds do not expose foreign-target lowering.
 This demonstrates the qualified two-profile specialization, not a new CPU port or installed i686 execution support.
 
 ## Recap and questions

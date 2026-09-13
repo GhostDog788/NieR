@@ -1,7 +1,7 @@
-#include "nier/Artifact/Artifact.h"
+#include "sela/Artifact/Artifact.h"
 #include "llvm/Support/raw_ostream.h"
 
-using namespace nier::driver;
+using namespace sela::driver;
 
 llvm::Error makeStatic(const fs::path &input, const fs::path &output) {
   auto files = readPackage(input);

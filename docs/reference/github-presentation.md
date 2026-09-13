@@ -4,16 +4,21 @@
 
 The root README is the short public introduction.
 Detailed compiler behavior belongs in the guides and reference pages, with visible links from that introduction.
-Keep the distinction between the NieR format's general vision and the qualified C/Linux pre-alpha explicit.
+Keep the distinction between the Sela format's general vision and the qualified C/Linux pre-alpha explicit.
 
 ## Repository settings to finish on GitHub
 
 Committing files does not configure every repository setting.
-After reviewing and pushing the changes to `GhostDog788/NIER`, complete these steps with a repository administrator account.
-The repository is already public; no visibility or collaborator-permission change is needed to apply the Apache-2.0 license.
+The repository name and URL used by the current documentation are the intended `GhostDog788/Sela` destination.
+The external GitHub repository rename has not yet been applied; its new endpoint returned 404 when checked during the local rename.
+An administrator must first rename the existing repository to **Sela** under **Settings → General**, then verify the new URL before updating the local Git remote and pushing.
+The local rename deliberately preserves Git metadata and the existing working remote until that external step succeeds.
+The existing repository is public; no visibility or collaborator-permission change is needed to apply the Apache-2.0 license.
+After the rename and push, complete the remaining settings below with a repository administrator account.
+The new-URL workflow badge and security links depend on that external rename; local changes do not establish their availability.
 
 1. Open **Settings → General → Social preview**, choose **Edit → Upload an image**, and upload `assets/social-preview.png` from the checkout.
-   It is 1280 × 640, below GitHub's 1 MB limit, and uses the supplied NieR logo.
+   It is 1280 × 640, below GitHub's 1 MB limit, and uses the supplied Sela icon and wordmark.
    See [GitHub's social-preview instructions](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/customizing-your-repositorys-social-media-preview).
 2. Open **Settings → Advanced Security** and enable **Private vulnerability reporting** if it is not already enabled.
    Confirm that **Security → Advisories → Report a vulnerability** is available to reporters.
@@ -29,7 +34,7 @@ The repository is already public; no visibility or collaborator-permission chang
 Suggested description:
 
 ```text
-Architecture-neutral NieR artifacts, compiled into ordinary native binaries. An open-source, pre-alpha C/LLVM toolchain.
+Architecture-neutral Sela artifacts, compiled into ordinary native binaries. An open-source, pre-alpha C/LLVM toolchain.
 ```
 
 Suggested topics:
@@ -46,33 +51,34 @@ The repository owns these presentation files:
 
 | Repository path | Purpose |
 | --- | --- |
-| `assets/nier-logo.png` | Original user-supplied wordmark, reused unchanged. |
-| `assets/nier-flow.svg` | Editable diagram of publication, the independent artifact, and target-side compilation. |
-| `assets/social-preview.svg` | Editable social-card layout with the original wordmark embedded for self-contained rendering. |
+| `assets/sela.png` | Original user-supplied stone icon, preserved unchanged. |
+| `assets/sela-word.png` | Original user-supplied wordmark, preserved unchanged and used in the README. |
+| `assets/sela-flow.svg` | Editable diagram of publication, the independent artifact, and target-side compilation. |
+| `assets/social-preview.svg` | Editable social-card layout with both supplied images embedded for self-contained rendering. |
 | `assets/social-preview.png` | Rendered image for GitHub's social-preview upload. |
 
 The diagram and social card use an explicit dark background and a single teal accent, so their labels remain legible in both light and dark surrounding pages.
 They are code-native SVG assets; the project logo is not redrawn or generated.
 Do not change current-support labels into promises that the compiler has not demonstrated.
 
-To render the social PNG after editing its SVG, use FFmpeg with its `librsvg` decoder and DejaVu Sans/Mono fonts installed:
+To refresh the embedded supplied images and render the social PNG after editing its SVG, use Python 3, FFmpeg with its `librsvg` decoder, and DejaVu Sans/Mono fonts:
 
 ```bash
 bash scripts/render-branding.sh
 ```
 
-This overwrites only the generated `assets/social-preview.png`.
+This refreshes the embedded image payloads in `assets/social-preview.svg` and overwrites the generated `assets/social-preview.png`.
 Inspect the result for clipped text and verify the dimensions and file size before uploading it.
-If the wordmark changes, update both the original logo and the image embedded in the social SVG; the embedded copy deliberately has no external file dependency.
+If the supplied artwork changes, replace the appropriate original PNG and rerun the script; the embedded copies deliberately have no external file dependency.
 
 ## Refresh the real Hello recording
 
 The README animation comes from real interactive Bash output, not illustrative compiler logs.
-The recorder uses a fresh temporary copy of the Hello C sources and the existing stock-Clang integration and `nierc` binaries.
+The recorder uses a fresh temporary copy of the Hello C sources and the existing stock-Clang integration and `selac` binaries.
 It does not rebuild those tools or copy application build caches.
 
 The optional recording tools are Python 3, Pillow, DejaVu Sans/Mono fonts, and the host `file` utility.
-They are presentation-maintenance dependencies, not prerequisites for compiling or using NieR.
+They are presentation-maintenance dependencies, not prerequisites for compiling or using Sela.
 Build a coherent SDK and pre-alpha toolchain first; do not relink it while recording.
 
 ```bash
@@ -84,10 +90,10 @@ The plain-text transcript provides the same commands and output without animatio
 The cast preserves actual terminal-event timestamps; the animation includes intentional typing and reading pauses at real-time playback speed.
 Neither duration is a compilation-performance benchmark.
 
-The recording's prepared shell puts the SDK tools and `build/prealpha` on `PATH`, and supplies `NIER_CONFIG` privately.
-The displayed compiler commands are stock `clang` and the separate `nierc`; the preparation is not a new public compiler entry point.
+The recording's prepared shell puts the SDK tools and `build/prealpha` on `PATH`, and supplies `SELA_CONFIG` privately.
+The displayed compiler commands are stock `clang` and the separate `selac`; the preparation is not a new public compiler entry point.
 The recording rejects personal checkout, home, or SDK paths in its output.
-A generated `/tmp/nier-demo-…` output pathname is ordinary compiler output, not a leaked private workspace.
+A generated `/tmp/sela-demo-…` output pathname is ordinary compiler output, not a leaked private workspace.
 Review the transcript before publishing, even when the automated guard passes.
 
 ## Maintain honest CI and support information
@@ -100,7 +106,7 @@ bash scripts/ci-smoke.sh
 
 It expects the standard publisher-enabled `build/prealpha` build and checks that all nine named smoke tests exist before running them.
 An optional argument selects another configured build directory.
-It does not configure or compile NieR, run the full corpus, or claim security/performance acceptance.
+It does not configure or compile Sela, run the full corpus, or claim security/performance acceptance.
 The hosted workflow bootstraps and builds on Ubuntu 24.04 with two build jobs, a 30-minute job limit, and bounded individual steps and tests.
 
 The SDK archive cache is keyed by the package lock; every archive is still hash-verified during bootstrap.

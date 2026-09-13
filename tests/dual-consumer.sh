@@ -12,31 +12,31 @@ config=$(realpath -e -- "$1")
 sdk=$(realpath -e -- "$2")
 wide_bundle=$(realpath -m -- "$3")
 narrow_bundle=$(realpath -m -- "$4")
-export NIER_SDK_ROOT="$sdk"
+export SELA_SDK_ROOT="$sdk"
 source "$repository/sdk/env.sh"
 clang="$sdk/host/usr/lib/llvm-18/bin/clang"
 llvm_ar="$sdk/host/usr/lib/llvm-18/bin/llvm-ar"
 artifact_fixtures="$(dirname -- "$config")/consumer_artifact_fixtures"
 test -x "$artifact_fixtures"
-work=$(mktemp -d "${TMPDIR:-/tmp}/nier-dual-consumer-XXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/sela-dual-consumer-XXXXXX")
 fixtures="$work/fixtures"
 source_dir="$repository/tests/fixtures/dual-consumer"
 mkdir -p "$fixtures" "$work/publication"
 printf 'Dual-consumer fixture evidence: %s\n' "$work"
 trap 'status=$?; printf "Dual-consumer evidence retained: %s (status %s)\n" "$work" "$status"' EXIT
-"$clang" --config="$config" -O2 -c "$source_dir/hello.c" -o "$fixtures/relocatable.nier"
-"$clang" --config="$config" "$fixtures/relocatable.nier" -o "$fixtures/hello.nier"
-"$artifact_fixtures" "$fixtures/hello.nier" "$fixtures"
+"$clang" --config="$config" -O2 -c "$source_dir/hello.c" -o "$fixtures/relocatable.sela"
+"$clang" --config="$config" "$fixtures/relocatable.sela" -o "$fixtures/hello.sela"
+"$artifact_fixtures" "$fixtures/hello.sela" "$fixtures"
 "$clang" --config="$config" -O2 -fPIC -shared "$source_dir/shared.c" \
-    -Wl,-soname,libdevice.so -o "$fixtures/shared.nier"
-"$clang" --config="$config" -O2 "$source_dir/shared-main.c" -l:libdevice.so -o "$fixtures/shared-main.nier"
+    -Wl,-soname,libdevice.so -o "$fixtures/shared.sela"
+"$clang" --config="$config" -O2 "$source_dir/shared-main.c" -l:libdevice.so -o "$fixtures/shared-main.sela"
 for member in first second; do
     "$clang" --config="$config" -O2 -c "$source_dir/static-$member.c" -o "$work/publication/$member.o"
 done
 "$clang" --config="$config" "$work/publication/first.o" "$work/publication/second.o" \
-    -Wl,--nier-static,--nier-member-name=part.o,--nier-member-name=part.o -o "$fixtures/static.nier"
-"$clang" --config="$config" -O2 "$source_dir/static-main.c" -l:libdevice.a -o "$fixtures/static-main.nier"
-printf 'deliberately not a NieR archive\n' > "$fixtures/malformed.nier"
+    -Wl,--sela-static,--sela-member-name=part.o,--sela-member-name=part.o -o "$fixtures/static.sela"
+"$clang" --config="$config" -O2 "$source_dir/static-main.c" -l:libdevice.a -o "$fixtures/static-main.sela"
+printf 'deliberately not a Sela archive\n' > "$fixtures/malformed.sela"
 
 # Reuse the existing positive regression sources without reducing their scope.
 matrix=(scalars width storage scalar-fields packed-bitfields overlap varargs va-forward nonlocal conditional aggregate)
@@ -58,14 +58,14 @@ matrix_sources() {
 for level in O0 O2; do
     for name in "${matrix[@]}"; do
         matrix_sources "$name"
-        "$clang" --config="$config" -std=gnu11 "-$level" "${sources[@]}" -o "$fixtures/$name-$level.nier"
+        "$clang" --config="$config" -std=gnu11 "-$level" "${sources[@]}" -o "$fixtures/$name-$level.sela"
         printf '%s\n' "$name-$level" >> "$fixtures/executables.list"
     done
     "$clang" --config="$config" -std=gnu11 "-$level" -shared "$repository/tests/abi/boundaries.c" \
-        -Wl,-soname,"libaggregate-$level.so" -o "$fixtures/aggregate-library-$level.nier"
-    printf '%s %s\n' "aggregate-library-$level.nier" "libaggregate-$level.so" >> "$fixtures/shared-libraries.list"
+        -Wl,-soname,"libaggregate-$level.so" -o "$fixtures/aggregate-library-$level.sela"
+    printf '%s %s\n' "aggregate-library-$level.sela" "libaggregate-$level.so" >> "$fixtures/shared-libraries.list"
     "$clang" --config="$config" -std=gnu11 "-$level" "$repository/tests/abi/fixed_main.c" \
-        "$repository/tests/abi/native_bridge.c" -l:"libaggregate-$level.so" -o "$fixtures/aggregate-dso-$level.nier"
+        "$repository/tests/abi/native_bridge.c" -l:"libaggregate-$level.so" -o "$fixtures/aggregate-dso-$level.sela"
     printf '%s\n' "aggregate-dso-$level" >> "$fixtures/executables.list"
 done
 
@@ -74,7 +74,7 @@ for target in x86_64 i686; do
     destination_bundle="$wide_bundle"
     loader=ld-linux-x86-64.so.2
     if [[ $target == i686 ]]; then
-        destination_bundle=/opt/nier
+        destination_bundle=/opt/sela
         loader=ld-linux.so.2
         destination_lib="$destination_bundle/sdk/sysroots/i686-linux-gnu/usr/lib/i386-linux-gnu"
     else
@@ -125,6 +125,6 @@ if [[ $prepare_only == true ]]; then
 fi
 env -i PATH=/usr/bin:/bin LC_ALL=C TMPDIR="${TMPDIR:-/tmp}" \
     /bin/sh "$repository/tests/consumer-fixtures.sh" "$wide_bundle" "$fixtures" "$work/x86_64-output" x86_64
-env -u LD_LIBRARY_PATH -u LD_PRELOAD -u NIER_SDK_ROOT \
+env -u LD_LIBRARY_PATH -u LD_PRELOAD -u SELA_SDK_ROOT \
     bash "$repository/tests/consumer-vm.sh" "$narrow_bundle" "$fixtures"
 printf 'Dual-consumer functional smoke passed using one portable fixture set: %s\n' "$work"

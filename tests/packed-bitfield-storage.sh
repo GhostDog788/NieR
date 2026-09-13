@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-nierc=$(realpath "$1")
+selac=$(realpath "$1")
 sdk=$(realpath "$2")
 config=$(realpath "$3")
 project=$(cd "$(dirname "$0")/.." && pwd)
 llvm="$sdk/host/usr/lib/llvm-18/bin"
-export NIER_SDK_ROOT="$sdk"
+export SELA_SDK_ROOT="$sdk"
 export LD_LIBRARY_PATH="$sdk/host/usr/lib/llvm-18/lib:$sdk/host/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-work=$(mktemp -d -t nier-packed-bitfield-storage-XXXXXX)
+work=$(mktemp -d -t sela-packed-bitfield-storage-XXXXXX)
 fixture="$project/tests/fixtures/packed-bitfield-storage.c"
 
 for level in O0 O2; do
@@ -33,13 +33,13 @@ for level in O0 O2; do
     test "$(env -u LD_LIBRARY_PATH "$lane/native-$target")" = "$expected"
   done
 
-  "$llvm/clang" --config="$config" -std=c11 -"$level" "$fixture" -o "$lane/program.nier"
-  "$nierc" "$lane/program.nier" --sdk "$sdk" -o "$lane/program"
+  "$llvm/clang" --config="$config" -std=c11 -"$level" "$fixture" -o "$lane/program.sela"
+  "$selac" "$lane/program.sela" --sdk "$sdk" -o "$lane/program"
   test "$(env -u LD_LIBRARY_PATH "$lane/program")" = \
        "$(env -u LD_LIBRARY_PATH "$lane/native-x86_64")"
 
   for target in x86_64 i686; do
-    "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$lane/program.nier" --target "$target" --output-dir "$lane/lowered-$target"
+    "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower "$lane/program.sela" --target "$target" --output-dir "$lane/lowered-$target"
     native_ir="$lane/lowered-$target/0.ll"
     "$llvm/opt" -passes=verify -disable-output "$native_ir"
     # Check real packed storage, unaligned native scalar accesses and signed

@@ -5,7 +5,7 @@
 #include "llvm/Support/Error.h"
 #include "mlir/IR/BuiltinOps.h"
 
-namespace nier {
+namespace sela {
 
 struct ArtifactSummary {
   unsigned functions = 0;
@@ -48,4 +48,4 @@ llvm::Error inspectArtifact(llvm::StringRef bytecodeInput,
                             ArtifactSummary &summary,
     llvm::ArrayRef<llvm::StringRef> targets);
 
-} // namespace nier
+} // namespace sela

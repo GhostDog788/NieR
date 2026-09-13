@@ -4,15 +4,15 @@ set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 profile=${1:?Usage: bootstrap-consumer-sdk.sh x86_64|i686 [output-directory]}
 [[ $# -le 2 && $profile =~ ^(x86_64|i686)$ ]] || { echo 'Expected x86_64 or i686' >&2; exit 2; }
-llvm_linkage=${NIER_CONSUMER_LLVM_LINKAGE:-shared}
+llvm_linkage=${SELA_CONSUMER_LLVM_LINKAGE:-shared}
 [[ $llvm_linkage == shared || $llvm_linkage == static-components ]] || {
-  echo 'NIER_CONSUMER_LLVM_LINKAGE must be shared or static-components' >&2; exit 2;
+  echo 'SELA_CONSUMER_LLVM_LINKAGE must be shared or static-components' >&2; exit 2;
 }
 [[ $(uname -m) == x86_64 ]] || { echo 'Bootstrap currently requires an x86-64 Linux build host.' >&2; exit 2; }
 for utility in curl sha256sum dpkg-deb flock realpath tar readelf python3; do
   command -v "$utility" >/dev/null || { echo "Missing utility: $utility" >&2; exit 1; }
 done
-publisher=$(realpath -- "${NIER_BUILD_SDK_ROOT:-$repo/.sdk}")
+publisher=$(realpath -- "${SELA_BUILD_SDK_ROOT:-$repo/.sdk}")
 destination=$(realpath -m -- "${2:-$repo/.sdk/consumer/$profile}")
 case "$destination" in /|/usr|/usr/local|"$repo"|"$publisher"|"${HOME:-/nonexistent}")
   echo 'Output must be a dedicated consumer SDK directory.' >&2; exit 2;; esac
@@ -23,16 +23,16 @@ work="$repo/.sdk/consumer"
 mkdir -p "$destination"
 exec 9>"$destination/bootstrap.lock"
 flock 9
-mirror=${NIER_CONSUMER_UBUNTU_MIRROR:-https://snapshot.ubuntu.com/ubuntu/20260910T000000Z}
+mirror=${SELA_CONSUMER_UBUNTU_MIRROR:-https://snapshot.ubuntu.com/ubuntu/20260910T000000Z}
 definition="$repo/sdk/consumer"
 python3 "$definition/receipt.py" check-build "$destination" "$work" "$profile" "$publisher"
 python3 "$definition/receipt.py" claim "$destination" "$profile"
 python3 "$definition/receipt.py" invalidate "$destination"
 mkdir -p "$work/downloads" "$work/source" "$destination/receipts" "$destination/host"
-compile_jobs=${NIER_CONSUMER_COMPILE_JOBS:-2}
-[[ $compile_jobs =~ ^[1-8]$ ]] || { echo 'NIER_CONSUMER_COMPILE_JOBS must be between 1 and 8' >&2; exit 2; }
-parallel_targets=${NIER_CONSUMER_PARALLEL_TARGETS:-0}
-[[ $parallel_targets =~ ^[01]$ ]] || { echo 'NIER_CONSUMER_PARALLEL_TARGETS must be 0 or 1' >&2; exit 2; }
+compile_jobs=${SELA_CONSUMER_COMPILE_JOBS:-2}
+[[ $compile_jobs =~ ^[1-8]$ ]] || { echo 'SELA_CONSUMER_COMPILE_JOBS must be between 1 and 8' >&2; exit 2; }
+parallel_targets=${SELA_CONSUMER_PARALLEL_TARGETS:-0}
+[[ $parallel_targets =~ ^[01]$ ]] || { echo 'SELA_CONSUMER_PARALLEL_TARGETS must be 0 or 1' >&2; exit 2; }
 source_lock="$definition/source.lock"
 packages_lock="$definition/packages.lock"
 host_llvm="$publisher/host/usr/lib/llvm-18"
@@ -121,7 +121,7 @@ pointer_bytes=8
 [[ $profile == i686 ]] && pointer_bytes=4
 "$host_llvm/bin/clang++" --target="$profile-unknown-linux-gnu" --sysroot="$sysroot" \
   "--gcc-install-dir=$sysroot/usr/lib/gcc/$triple/13" -std=c++17 -fuse-ld="$host_llvm/bin/ld.lld" \
-  "-Wl,-rpath-link,$sysroot/usr/lib/$multiarch" -DNIER_EXPECT_POINTER_BYTES="$pointer_bytes" \
+  "-Wl,-rpath-link,$sysroot/usr/lib/$multiarch" -DSELA_EXPECT_POINTER_BYTES="$pointer_bytes" \
   "$definition/abi-probe.cpp" -larchive -o "$destination/abi-probe"
 loader="$sysroot/usr/lib/$multiarch/ld-linux-x86-64.so.2"
 [[ $profile == i686 ]] && loader="$sysroot/usr/lib/$multiarch/ld-linux.so.2"
@@ -168,7 +168,7 @@ fi
 "$cmake" -S "$source_tree/llvm" -B "$build" "${common[@]}" \
   "${target_linkage[@]}" -DLLVM_DYLIB_COMPONENTS=all \
   -DCMAKE_TOOLCHAIN_FILE="$definition/toolchain.cmake" \
-  -DNIER_SDK_ROOT="$destination" -DNIER_DEVICE_TARGET="$profile" -DNIER_BUILD_SDK_ROOT="$publisher" \
+  -DSELA_SDK_ROOT="$destination" -DSELA_DEVICE_TARGET="$profile" -DSELA_BUILD_SDK_ROOT="$publisher" \
   "-DCMAKE_C_LINKER_LAUNCHER=flock;$work/link.lock" \
   "-DCMAKE_CXX_LINKER_LAUNCHER=flock;$work/link.lock" \
   -DCMAKE_INSTALL_PREFIX="$prefix" \

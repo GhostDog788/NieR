@@ -1,10 +1,10 @@
-#include "nier/Artifact/Artifact.h"
-#include "nier/IR/Compiler.h"
-#include "nier/IR/Dialect.h"
+#include "sela/Artifact/Artifact.h"
+#include "sela/IR/Compiler.h"
+#include "sela/IR/Dialect.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/Support/raw_ostream.h"
 
-using namespace nier::driver;
+using namespace sela::driver;
 namespace {
 llvm::Error inspect(const fs::path &input, const fs::path &dump) {
   auto files = readPackage(input);
@@ -14,24 +14,24 @@ llvm::Error inspect(const fs::path &input, const fs::path &dump) {
   auto &record = *manifest->getAsObject();
   auto *modules = record.getArray("modules");
   if (!modules || modules->size() != 1 || files->size() != 2)
-    return fail("conditional fixture must contain one shared NieR module and its manifest only");
+    return fail("conditional fixture must contain one shared Sela module and its manifest only");
   auto path = (*modules)[0].getAsObject()->getString("path");
-  if (!path || !path->ends_with(".nierbc")) return fail("conditional fixture is not NieR bytecode");
+  if (!path || !path->ends_with(".selabc")) return fail("conditional fixture is not Sela bytecode");
   auto scratch = Scratch::create();
   if (!scratch) return scratch.takeError();
-  auto bytecode = scratch->path / "fixture.nierbc";
+  auto bytecode = scratch->path / "fixture.selabc";
   if (auto error = write(bytecode, files->at(path->str()))) return error;
   mlir::MLIRContext context;
-  context.getOrLoadDialect<nier::ir::NIERDialect>();
-  auto module = nier::readModule(bytecode.string(), context, nier::supportedNativeTargets());
+  context.getOrLoadDialect<sela::ir::SelaDialect>();
+  auto module = sela::readModule(bytecode.string(), context, sela::supportedNativeTargets());
   if (!module) return module.takeError();
   unsigned definitions = 0, chosenBodies = 0, dispatches = 0;
   bool validNamespaces = true, wideBlock = false, narrowBlock = false;
   bool wideCase = false, secondWideCase = false, narrowCase = false;
   (*module)->walk([&](mlir::Operation *operation) {
     auto name = operation->getName().getStringRef();
-    if (name != "builtin.module" && !name.starts_with("nier.")) validNamespaces = false;
-    if (name != "nier.func") return;
+    if (name != "builtin.module" && !name.starts_with("sela.")) validNamespaces = false;
+    if (name != "sela.func") return;
     auto declaration = operation->getAttrOfType<mlir::BoolAttr>("declaration");
     if (declaration && !declaration.getValue()) ++definitions;
     auto identity = operation->getAttrOfType<mlir::StringAttr>("id");
@@ -47,7 +47,7 @@ llvm::Error inspect(const fs::path &input, const fs::path &dump) {
       narrowBlock |= value.getInt() == 2;
     }
     operation->walk([&](mlir::Operation *nested) {
-      if (nested->getName().getStringRef() != "nier.switch") return;
+      if (nested->getName().getStringRef() != "sela.switch") return;
       ++dispatches;
       auto cases = nested->getAttrOfType<mlir::ArrayAttr>("cases");
       auto domains = nested->getAttrOfType<mlir::ArrayAttr>("case_domains");

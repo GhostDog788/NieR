@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only, dependency-aware accounting for an installed NieR compiler bundle.
+"""Read-only, dependency-aware accounting for an installed Sela compiler bundle.
 
 Uses readelf (never executes inspected binaries). Regular-file bytes and section
 totals count each inode once; symlinks are not followed. Allocated bytes include
@@ -19,7 +19,7 @@ import tarfile
 
 
 TOOLS = ("opt", "llc", "ld.lld", "llvm-ar")
-GROUPS = ("nierc", *("llvm_tools." + tool for tool in TOOLS), "shared_llvm",
+GROUPS = ("selac", *("llvm_tools." + tool for tool in TOOLS), "shared_llvm",
           "compiler_libraries.xml_icu", "compiler_libraries.archive", "compiler_libraries.compression",
           "compiler_libraries.other", "compiler_libraries.unreferenced",
           "native_runtime", "compiler_rt", "metadata")
@@ -86,7 +86,7 @@ def dependency_sets(files, aliases):
     for alias, canonical in aliases.items():
         if alias.startswith("sdk/host/") and canonical in files and files[canonical].get("elf"):
             libraries[Path(alias).name] = canonical
-    roots = [name for name in files if name == "bin/nierc" or
+    roots = [name for name in files if name == "bin/selac" or
              name.startswith("sdk/host/") and "/bin/" in name and Path(name).name in TOOLS]
 
     def closure(block_archive):
@@ -107,8 +107,8 @@ def dependency_sets(files, aliases):
 
 
 def classify(name, reachable):
-    if name == "bin/nierc":
-        return "nierc"
+    if name == "bin/selac":
+        return "selac"
     if name.startswith("sdk/host/"):
         if "/bin/" in name and Path(name).name in TOOLS:
             return "llvm_tools." + Path(name).name
@@ -179,7 +179,7 @@ def measure(bundle, compressed=False):
     # Their entire cost remains attributed to that role, not to metadata.
     def role_order(entry):
         name = entry[0]
-        role = 0 if name == "bin/nierc" else (1 if name.startswith("sdk/host/") and
+        role = 0 if name == "bin/selac" else (1 if name.startswith("sdk/host/") and
                "/bin/" in name and Path(name).name in TOOLS else 2)
         return role, name
 

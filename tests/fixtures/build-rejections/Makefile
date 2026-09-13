@@ -33,7 +33,7 @@ helper.lo: helper.o
 	mv helper.o helper.lo
 
 missing-capture: main.o helper.o
-	objcopy --remove-section=.nier.capture helper.o uncaptured.o
+	objcopy --remove-section=.sela.capture helper.o uncaptured.o
 	$(CC) main.o uncaptured.o -o missing-capture
 
 mutated-object: changed-main.o helper.o
@@ -41,8 +41,8 @@ mutated-object: changed-main.o helper.o
 	$(CC) changed-main.o changed-helper.o -o mutated-object
 
 transplanted-marker: main.o helper.o alternate.o
-	objcopy --dump-section .nier.capture=marker.bin helper.o
-	objcopy --update-section .nier.capture=marker.bin alternate.o transplanted.o
+	objcopy --dump-section .sela.capture=marker.bin helper.o
+	objcopy --update-section .sela.capture=marker.bin alternate.o transplanted.o
 	$(CC) main.o transplanted.o -o transplanted-marker
 
 dependent: main.o libhelper.so

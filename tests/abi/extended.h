@@ -1,5 +1,5 @@
-#ifndef NIER_TEST_EXTENDED_ABI_H
-#define NIER_TEST_EXTENDED_ABI_H
+#ifndef SELA_TEST_EXTENDED_ABI_H
+#define SELA_TEST_EXTENDED_ABI_H
 
 typedef union { float number; unsigned bits; } FloatBits;
 typedef union { double number; unsigned long long bits; } DoubleBits;
@@ -27,18 +27,18 @@ PackedPair transform_packed_pair(PackedPair);
 Bits transform_bits(Bits);
 CrossingBits transform_crossing_bits(CrossingBits);
 
-#define NIER_EXTENDED_BRIDGE(type, name) \
+#define SELA_EXTENDED_BRIDGE(type, name) \
     type bridge_##name(type (*callback)(type), type value)
-NIER_EXTENDED_BRIDGE(FloatBits, float_bits);
-NIER_EXTENDED_BRIDGE(DoubleBits, double_bits);
-NIER_EXTENDED_BRIDGE(WideUnion, wide_union);
-NIER_EXTENDED_BRIDGE(FloatUnion, float_union);
-NIER_EXTENDED_BRIDGE(WidthUnion, width_union);
-NIER_EXTENDED_BRIDGE(Packed, packed);
-NIER_EXTENDED_BRIDGE(PackedPair, packed_pair);
-NIER_EXTENDED_BRIDGE(Bits, bits);
-NIER_EXTENDED_BRIDGE(CrossingBits, crossing_bits);
-#undef NIER_EXTENDED_BRIDGE
+SELA_EXTENDED_BRIDGE(FloatBits, float_bits);
+SELA_EXTENDED_BRIDGE(DoubleBits, double_bits);
+SELA_EXTENDED_BRIDGE(WideUnion, wide_union);
+SELA_EXTENDED_BRIDGE(FloatUnion, float_union);
+SELA_EXTENDED_BRIDGE(WidthUnion, width_union);
+SELA_EXTENDED_BRIDGE(Packed, packed);
+SELA_EXTENDED_BRIDGE(PackedPair, packed_pair);
+SELA_EXTENDED_BRIDGE(Bits, bits);
+SELA_EXTENDED_BRIDGE(CrossingBits, crossing_bits);
+#undef SELA_EXTENDED_BRIDGE
 
 Packed packed_stack_pressure(int, int, int, int, int, Packed);
 WideUnion union_stack_pressure(int, int, int, int, int, WideUnion, int);

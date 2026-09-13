@@ -1,10 +1,10 @@
-NieR Hello demo — actual terminal transcript
+Sela Hello demo — actual terminal transcript
 
 Reproduce: bash scripts/record-hello-demo.sh
 Prerequisites: built SDK/publisher, Python 3, Pillow, DejaVu fonts, file.
 The recorder copies the existing Hello C sources to fresh temporary storage.
-NIER_CONFIG points to build/prealpha/nier.cfg in the toolchain checkout.
-PATH selects the matching stock Clang and the independent nierc program.
+SELA_CONFIG points to build/prealpha/sela.cfg in the toolchain checkout.
+PATH selects the matching stock Clang and the independent selac program.
 The cast and GIF retain real elapsed time, including deliberate reading pauses.
 No compiler/source build cache is reused from the Hello example directory.
 
@@ -21,11 +21,11 @@ int main(void) {
 void hello(void) {
     printf("Hello world\n");
 }
-$ clang --config="$NIER_CONFIG" -O2 main.c hello.c -o hello.nier
-$ file hello.nier
-hello.nier: POSIX tar archive
-$ nierc hello.nier -o hello
-Native output: /tmp/nier-demo-35h6vt0h/hello
+$ clang --config="$SELA_CONFIG" -O2 main.c hello.c -o hello.sela
+$ file hello.sela
+hello.sela: POSIX tar archive
+$ selac hello.sela -o hello
+Native output: /tmp/sela-demo-2wo2sxie/hello
 $ env -u LD_LIBRARY_PATH -u LD_PRELOAD ./hello
 Hello world
 $

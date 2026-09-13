@@ -1,10 +1,10 @@
-# 03. Reading a NieR Program
+# 03. Reading a Sela Program
 
 [Series](../README.md) · [Previous](02-compiler-foundations.md) · [Next](04-values-control-flow-and-memory.md)
 
 ## What you will understand
 
-You will read an actual small NieR module rather than a made-up assembly notation.
+You will read an actual small Sela module rather than a made-up assembly notation.
 You will distinguish operation names, runtime values, types, attributes, and function metadata.
 Read chapters 01–02 first; you do not need an SDK to follow the example.
 
@@ -19,17 +19,17 @@ int fixed_eight(void) {
 ```
 
 Its interesting contract is small: no parameters, a 32-bit result in our current native profiles, and a returned value of eight.
-We can express that contract directly in NieR without asking a C frontend to produce it.
+We can express that contract directly in Sela without asking a C frontend to produce it.
 
-The following is a **complete textual NieR module** adapted from the helper module in the independent-producer test.
-It is a compiler representation, not a complete `.nier` package or an executable.
+The following is a **complete textual Sela module** adapted from the helper module in the independent-producer test.
+It is a compiler representation, not a complete `.sela` package or an executable.
 A programmatically parsed module also needs its source locations normalized before publication, as chapter 11 explains.
 
 ```mlir
-module attributes {nier.schema = 1 : i32} {
-  "nier.func"() ({
-    %eight = "nier.constant"() {value = 8 : i64} : () -> i32
-    "nier.return"(%eight) : (i32) -> ()
+module attributes {sela.schema = 1 : i32} {
+  "sela.func"() ({
+    %eight = "sela.constant"() {value = 8 : i64} : () -> i32
+    "sela.return"(%eight) : (i32) -> ()
   }) {id = "fixed_eight", type = () -> i32,
       declaration = false, variadic = false,
       internal = false, dso_local = true,
@@ -46,12 +46,12 @@ The remaining syntax makes these relationships precise.
 Start with the body:
 
 ```mlir
-%eight = "nier.constant"() {value = 8 : i64} : () -> i32
-"nier.return"(%eight) : (i32) -> ()
+%eight = "sela.constant"() {value = 8 : i64} : () -> i32
+"sela.return"(%eight) : (i32) -> ()
 ```
 
-`"nier.constant"` is an **operation name**.
-`nier` identifies our dialect; `constant` identifies an operation in that vocabulary.
+`"sela.constant"` is an **operation name**.
+`sela` identifies our dialect; `constant` identifies an operation in that vocabulary.
 Quotation marks are part of MLIR's generic operation syntax.
 They do not turn the instruction into a runtime string that the application interprets.
 
@@ -88,11 +88,11 @@ The operation's implementation validates and interprets the literal for its resu
 The distinction becomes even clearer with a symbolic constant:
 
 ```mlir
-%size = "nier.constant"() {value = "pointer_bytes"} : () -> !nier.word
+%size = "sela.constant"() {value = "pointer_bytes"} : () -> !sela.word
 ```
 
 This real **operation excerpt** encodes a target property instead of an integer literal.
-`!nier.word` is a NieR type whose width is selected for the target.
+`!sela.word` is a Sela type whose width is selected for the target.
 Chapter 05 explains that selection.
 The attribute is descriptive information; `%size` is the resulting program value.
 
@@ -102,7 +102,7 @@ Conversely, arbitrary debug annotations are not accepted just because MLIR can s
 
 ## Reading the function wrapper
 
-`"nier.func"() (...)` is an operation that **contains a region**, the body enclosed by the inner braces.
+`"sela.func"() (...)` is an operation that **contains a region**, the body enclosed by the inner braces.
 A region holds blocks of operations.
 Our example has one unnamed entry block.
 Later examples give blocks explicit labels.
@@ -119,13 +119,13 @@ A declaration can name a function implemented elsewhere.
 `internal` and `dso_local` express different native linkage/resolution facts; they are not source-language tags.
 Later linking chapters unpack them.
 
-The `attributes = [[], []]` field is the NieR function's encoded native attribute list:
+The `attributes = [[], []]` field is the Sela function's encoded native attribute list:
 function attributes followed by return attributes, then parameter slots when parameters exist.
 Here the slots are empty, not omitted by guesswork.
 Do not remove bookkeeping from a real module merely because the function body seems obvious.
 Validation checks the whole contract.
 
-Finally, `nier.schema = 1 : i32` identifies the current module schema.
+Finally, `sela.schema = 1 : i32` identifies the current module schema.
 It is not a promise to accept historical formats indefinitely.
 This project is pre-alpha and can change that contract together with its producers and consumers.
 
@@ -134,21 +134,21 @@ This project is pre-alpha and can change that contract together with its produce
 The following is a **body excerpt** from the shape used in the IR tests:
 
 ```mlir
-%a = "nier.constant"() {value = 1 : i64} : () -> i32
-%b = "nier.constant"() {value = 2 : i64} : () -> i32
-%sum = "nier.binary"(%a, %b) {opcode = "add", flags = 0 : i32} : (i32, i32) -> i32
-"nier.return"(%sum) : (i32) -> ()
+%a = "sela.constant"() {value = 1 : i64} : () -> i32
+%b = "sela.constant"() {value = 2 : i64} : () -> i32
+%sum = "sela.binary"(%a, %b) {opcode = "add", flags = 0 : i32} : (i32, i32) -> i32
+"sela.return"(%sum) : (i32) -> ()
 ```
 
 The data-flow chain is now explicit.
 `%sum` depends on `%a` and `%b`; the return depends on `%sum`.
-`nier.binary` is a family of operations selected by its `opcode` attribute.
+`sela.binary` is a family of operations selected by its `opcode` attribute.
 The two operands and result have fixed-width types.
 The `flags` field supplies additional arithmetic constraints; zero here does not assert extra overflow/exactness flags.
 Chapter 16 explains why those flags must be preserved rather than treated as optimization hints that can be invented freely.
 
 An optimizer may eventually return three directly.
-NieR is still a useful representation before that optimization: it records enough meaning to make the transformation legitimate.
+Sela is still a useful representation before that optimization: it records enough meaning to make the transformation legitimate.
 A printed instruction count is not the same as the final machine instruction count.
 
 ## How to read a larger dump
@@ -165,7 +165,7 @@ The latter needs a semantic argument.
 
 Textual IR is a view of a structured compiler object.
 Our publication stores modules as bytecode.
-A tool that can print the structure with unregistered dialects is useful for inspection, but it does not thereby know whether NieR's specific rules hold.
+A tool that can print the structure with unregistered dialects is useful for inspection, but it does not thereby know whether Sela's specific rules hold.
 Chapter 08 separates viewing from validation explicitly.
 
 ## Optional paper exercise
@@ -187,7 +187,7 @@ Always distinguish complete inputs, body excerpts, and pseudocode when experimen
 
 1. Why is the constant's `i64` attribute compatible with an `i32` result?
 2. Does the function operation's final `() -> ()` mean `fixed_eight` returns nothing?
-3. If an operation has a `nier.` name, must every `nierc` understand it?
+3. If an operation has a `sela.` name, must every `selac` understand it?
 
 > [!faq]- Answers
 >
@@ -199,6 +199,6 @@ Always distinguish complete inputs, body excerpts, and pseudocode when experimen
 
 - Independent producer (`tests/independent.cpp`): `helperModule` contains the real fixed-value and native-property examples.
 - IR tests (`tests/ir.cpp`): `valid` contains the calculation shape, with a complete function wrapper.
-- Dialect definitions (`include/nier/IR/Dialect.h`) name the operations and types; core validation (`src/ir/Compiler.cpp`) and native lowering (`src/ir/NativeLowering.cpp`) give them their admitted behavior.
+- Dialect definitions (`include/sela/IR/Dialect.h`) name the operations and types; core validation (`src/ir/Compiler.cpp`) and native lowering (`src/ir/NativeLowering.cpp`) give them their admitted behavior.
 
 [Next: Values, Control Flow, and Memory](04-values-control-flow-and-memory.md)

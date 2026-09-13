@@ -4,7 +4,7 @@
 #include "llvm/Support/Error.h"
 
 namespace llvm { class Module; class AllocaInst; }
-namespace nier::detail {
+namespace sela::detail {
 struct NativeVarargs {
   llvm::DenseSet<const llvm::AllocaInst *> states;
   unsigned scalarExtractions = 0;

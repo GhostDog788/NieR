@@ -3,7 +3,7 @@ set -euo pipefail
 capture_plugin=$1
 sdk_root=$2
 fixture_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-scalar_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-scalar-varargs-XXXXXX")
+scalar_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-scalar-varargs-XXXXXX")
 llvm_bin="$sdk_root/host/usr/lib/llvm-18/bin"
 for profile in x86_64 i686; do
     case "$profile" in
@@ -19,7 +19,7 @@ for profile in x86_64 i686; do
             -resource-dir="$sdk_root/host/usr/lib/llvm-18/lib/clang/18"
             -std=c11 -fPIC -g -fstandalone-debug "-$level")
         for source in scalar_varargs va_forward; do
-            NIER_BUILD_METADATA= NIER_CAPTURE_RECORD= NIER_CAPTURE_PATH="$lane/$source.bc" \
+            SELA_BUILD_METADATA= SELA_CAPTURE_RECORD= SELA_CAPTURE_PATH="$lane/$source.bc" \
                 "$llvm_bin/clang" "${flags[@]}" -fpass-plugin="$capture_plugin" \
                 -c "$fixture_root/$source.c" -o "$lane/$source.o"
             "$llvm_bin/llvm-dis" "$lane/$source.bc" -o "$lane/$source.ll"

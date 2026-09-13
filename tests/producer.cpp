@@ -1,4 +1,4 @@
-#include "nier/Producer/LLVM.h"
+#include "sela/Producer/LLVM.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
@@ -112,7 +112,7 @@ bool write(llvm::StringRef path, llvm::StringRef contents) {
 
 int main() {
   llvm::SmallString<256> directory;
-  if (auto error = llvm::sys::fs::createUniqueDirectory("nier-producer-tests", directory)) {
+  if (auto error = llvm::sys::fs::createUniqueDirectory("sela-producer-tests", directory)) {
     llvm::errs() << error.message() << '\n'; return 1;
   }
   std::string base = directory.str().str();
@@ -129,8 +129,8 @@ int main() {
       "define i32 @wordcast(i32 %input) { ret i32 %input }\n"
       "define i32 @signed_domain(i32 %input) { %value = sub nsw i32 %input, 1\n ret i32 %value }\n");
   if (passed) {
-    nier::ArtifactSummary summary;
-    if (auto error = nier::mergeProfiles(left, right, artifact, &summary)) {
+    sela::ArtifactSummary summary;
+    if (auto error = sela::mergeProfiles(left, right, artifact, &summary)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "producer: ");
       passed = false;
     } else if (summary.functions != 10) {

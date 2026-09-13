@@ -1,9 +1,9 @@
 #include "Build.h"
-#include "nier/Artifact/Artifact.h"
+#include "sela/Artifact/Artifact.h"
 #include "llvm/Support/raw_ostream.h"
 #include <set>
 
-using namespace nier::driver;
+using namespace sela::driver;
 namespace {
 llvm::Error sameArtifact(const fs::path &original, const fs::path &replayed) {
   auto first = readPackage(original);
@@ -34,13 +34,13 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   if (auto error = sdk.validate(true)) return error;
   auto captured = selectRetainedBuild(retained, laneOutput);
   if (!captured) return captured.takeError();
-  if (auto error = sameArtifact(retained / "linked.nier", published)) return error;
+  if (auto error = sameArtifact(retained / "linked.sela", published)) return error;
   std::set<std::string> expected;
   for (size_t i = 0; i < captured->units.size(); ++i)
-    expected.insert("unit-" + std::to_string(i) + ".nier");
+    expected.insert("unit-" + std::to_string(i) + ".sela");
   for (const auto &entry : fs::directory_iterator(retained)) {
     auto name = entry.path().filename().string();
-    if (llvm::StringRef(name).starts_with("unit-") && llvm::StringRef(name).ends_with(".nier")) {
+    if (llvm::StringRef(name).starts_with("unit-") && llvm::StringRef(name).ends_with(".sela")) {
       if (!entry.is_regular_file() || !expected.erase(name))
         return fail("unexpected retained publication unit: " + entry.path().string());
     }
@@ -52,32 +52,32 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   llvm::outs() << "Retained replay evidence: " << scratch->path.string() << '\n';
   std::string receipt = "Retained native-capture regression replay\n"
       "No source compilation, configure, native reference build or upstream test was rerun.\n"
-      "Strict inverse verification is performed by the current stock-Clang NieR plugin.\n"
+      "Strict inverse verification is performed by the current stock-Clang Sela plugin.\n"
       "Prior publication and evidence remain unchanged; all replay outputs are new.\n"
       "Retained workspace: " + retained.string() + "\nSelected lane output: " + laneOutput.string() +
       "\nPrior publication: " + published.string() + "\n";
   const auto binaryDirectory = configuration.parent_path();
-  for (const auto &path : {configuration, sdk.tool("clang"), binaryDirectory / "libnier-clang.so",
-                           binaryDirectory / "nier-ld", sdk.root / "sdk-lock.sha256"}) {
+  for (const auto &path : {configuration, sdk.tool("clang"), binaryDirectory / "libsela-clang.so",
+                           binaryDirectory / "sela-ld", sdk.root / "sdk-lock.sha256"}) {
     auto bytes = read(path, 512 * 1024 * 1024);
     if (!bytes) return bytes.takeError();
     receipt += "Tool/input SHA256 " + digest(*bytes) + " " + path.string() + "\n";
   }
   auto environment = sdk.toolEnvironment();
-  environment["NIER_SDK_ROOT"] = sdk.root.string();
+  environment["SELA_SDK_ROOT"] = sdk.root.string();
   environment["LD_PRELOAD"] = "";
-  for (const auto *variable : {"NIER_BUILD_METADATA", "NIER_BUILD_LANE", "NIER_BUILD_PROFILE",
-                               "NIER_CAPTURE_PATH", "NIER_CAPTURE_RECORD"})
+  for (const auto *variable : {"SELA_BUILD_METADATA", "SELA_BUILD_LANE", "SELA_BUILD_PROFILE",
+                               "SELA_CAPTURE_PATH", "SELA_CAPTURE_RECORD"})
     environment[variable] = "";
   std::vector<std::string> link{sdk.tool("clang").string(), "--config=" + configuration.string()};
   for (size_t i = 0; i < captured->units.size(); ++i) {
     const auto &unit = captured->units[i];
     if (unit.x64Paths.empty() || unit.i686Paths.empty()) return fail("retained paired unit is empty");
-    const auto name = "unit-" + std::to_string(i) + ".nier";
+    const auto name = "unit-" + std::to_string(i) + ".sela";
     const auto artifact = scratch->path / name;
     std::vector<std::string> command{sdk.tool("clang").string(), "--config=" + configuration.string()};
     auto argument = [&](const std::string &value) {
-      command.insert(command.end(), {"-Xclang", "-plugin-arg-nier", "-Xclang", value});
+      command.insert(command.end(), {"-Xclang", "-plugin-arg-sela", "-Xclang", value});
     };
     if (unit.x64Paths.size() == 1 && unit.i686Paths.size() == 1) {
       argument("mode=pair"); argument("peer=" + unit.i686Paths.front().string());
@@ -97,9 +97,9 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   }
   if (captured->kind == "shared") link.push_back("-shared");
   if (captured->kind == "static") {
-    link.insert(link.end(), {"-Xlinker", "--nier-static"});
+    link.insert(link.end(), {"-Xlinker", "--sela-static"});
     for (const auto &unit : captured->units)
-      link.insert(link.end(), {"-Xlinker", "--nier-member-name=" + unit.archiveMemberName});
+      link.insert(link.end(), {"-Xlinker", "--sela-member-name=" + unit.archiveMemberName});
   }
   for (const auto &library : captured->libraries) link.push_back("-l" + library);
   for (const auto &option : captured->linkOptions) link.insert(link.end(), {"-Xlinker", option});
@@ -109,17 +109,17 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
       if (!order.empty()) order += ',';
       order += std::to_string(index);
     }
-    link.insert(link.end(), {"-Xlinker", "--nier-unit-order-i686=" + order});
+    link.insert(link.end(), {"-Xlinker", "--sela-unit-order-i686=" + order});
   }
   if (!captured->versionScript.empty()) {
     const auto script = scratch->path / "publication.version.script";
     if (auto error = write(script, captured->versionScript)) return error;
     link.insert(link.end(), {"-Xlinker", "--version-script=" + script.string()});
   }
-  const auto linked = scratch->path / "linked.nier";
+  const auto linked = scratch->path / "linked.sela";
   link.insert(link.end(), {"-o", linked.string()});
   if (auto error = run(link, {}, environment)) return error;
-  if (auto error = sameArtifact(retained / "linked.nier", linked)) return error;
+  if (auto error = sameArtifact(retained / "linked.sela", linked)) return error;
   if (auto error = sameArtifact(published, linked)) return error;
   // Recheck evidence after compilation as well, without producing new capture
   // data. This is not a claim of protection against concurrent hostile writes.

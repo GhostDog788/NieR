@@ -5,16 +5,16 @@ sdk_root=$(realpath -e -- "$2")
 independent_producer=$3
 static_fixture=$4
 repository=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-profile=$("$build_dir/nierc" --print-target)
+profile=$("$build_dir/selac" --print-target)
 case "$profile" in
     x86_64) foreign=i686; multiarch=x86_64-linux-gnu; native_namespace=native64; foreign_namespace=native32 ;;
     i686) foreign=x86_64; multiarch=i386-linux-gnu; native_namespace=native32; foreign_namespace=native64 ;;
     *) exit 2 ;;
 esac
-install_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-consumer-test-XXXXXX")
-"$independent_producer" "$install_work/independent.nier"
-"$static_fixture" "$install_work/independent.nier" "$install_work/static.nier"
-source_products=("$build_dir/nierc")
+install_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-consumer-test-XXXXXX")
+"$independent_producer" "$install_work/independent.sela"
+"$static_fixture" "$install_work/independent.sela" "$install_work/static.sela"
+source_products=("$build_dir/selac")
 for tool in opt llc ld.lld llvm-ar; do
     source_products+=("$sdk_root/host/usr/lib/llvm-18/bin/$tool")
 done
@@ -42,35 +42,35 @@ rg -Fxq -- "$license_hash  LICENSE" "$bundle/payload.sha256"
 cmp -- "$sdk_root/consumer-sdk.json" "$bundle/sdk/consumer-sdk.json"
 cmp -- "$sdk_root/sysroots/$profile-linux-gnu/usr/share/doc/libc6/copyright" "$bundle/licenses/libc6.copyright"
 cmp -- "$sdk_root/host/usr/share/doc/libarchive13t64/copyright" "$bundle/licenses/libarchive13t64.copyright"
-env -i PATH=/usr/bin:/bin LC_ALL=C "$bundle/bin/nierc" --check-sdk
+env -i PATH=/usr/bin:/bin LC_ALL=C "$bundle/bin/selac" --check-sdk
 env -i PATH=/usr/bin:/bin LC_ALL=C python3 -B \
-    "$repository/tests/consumer-package-boundary.py" "$bundle/bin/nierc" "$install_work/independent.nier"
+    "$repository/tests/consumer-package-boundary.py" "$bundle/bin/selac" "$install_work/independent.sela"
 mkdir "$install_work/incomplete-sdk"
 printf '%064d\n' 0 > "$install_work/incomplete-sdk/sdk-lock.sha256"
-if env -i PATH=/usr/bin:/bin LC_ALL=C NIER_SDK_ROOT="$install_work/incomplete-sdk" \
-    "$bundle/bin/nierc" --check-sdk > "$install_work/mismatched-sdk.log" 2>&1; then
+if env -i PATH=/usr/bin:/bin LC_ALL=C SELA_SDK_ROOT="$install_work/incomplete-sdk" \
+    "$bundle/bin/selac" --check-sdk > "$install_work/mismatched-sdk.log" 2>&1; then
     printf 'ERROR: compiler accepted a mismatched SDK identity\n' >&2; exit 1
 fi
 rg -Fq 'SDK package lock does not match' "$install_work/mismatched-sdk.log"
 cp -- "$bundle/sdk/sdk-lock.sha256" "$install_work/incomplete-sdk/sdk-lock.sha256"
-if env -i PATH=/usr/bin:/bin LC_ALL=C NIER_SDK_ROOT="$install_work/incomplete-sdk" \
-    "$bundle/bin/nierc" --check-sdk > "$install_work/incomplete-sdk.log" 2>&1; then
+if env -i PATH=/usr/bin:/bin LC_ALL=C SELA_SDK_ROOT="$install_work/incomplete-sdk" \
+    "$bundle/bin/selac" --check-sdk > "$install_work/incomplete-sdk.log" 2>&1; then
     printf 'ERROR: compiler accepted an SDK without a completion receipt\n' >&2; exit 1
 fi
 rg -Fq 'consumer SDK build is incomplete' "$install_work/incomplete-sdk.log"
-if rg --files --hidden --no-ignore "$bundle" | rg "/include/|/cmake/|/sysroots/$foreign-linux-gnu/|/bin/(clang|clang-[0-9]+|nier-build|nier-ld|nier-native-ld)$|libclang-cpp|libnier-clang|nier-capture"; then
+if rg --files --hidden --no-ignore "$bundle" | rg "/include/|/cmake/|/sysroots/$foreign-linux-gnu/|/bin/(clang|clang-[0-9]+|sela-build|sela-ld|sela-native-ld)$|libclang-cpp|libsela-clang|sela-capture"; then
     printf 'ERROR: publisher/development inputs leaked into consumer bundle\n' >&2; exit 1
 fi
 # Static backend identity is audited before release stripping. Successful
 # execution, architecture and dependency checks below cover the shipped copy.
-consumer_symbols=$(nm -C --defined-only "$build_dir/nierc")
-if ! rg -Fq "nier::detail::$native_namespace::" <<< "$consumer_symbols"; then
+consumer_symbols=$(nm -C --defined-only "$build_dir/selac")
+if ! rg -Fq "sela::detail::$native_namespace::" <<< "$consumer_symbols"; then
     printf 'ERROR: expected native implementation missing from compiler symbol inventory\n' >&2; exit 1
 fi
-if rg "clang::|nier::mergeProfiles|NierAction|ProfileMerger|nier::detail::$foreign_namespace::" <<< "$consumer_symbols"; then
+if rg "clang::|sela::mergeProfiles|SelaAction|ProfileMerger|sela::detail::$foreign_namespace::" <<< "$consumer_symbols"; then
     printf 'ERROR: frontend/producer code was linked into the independent compiler\n' >&2; exit 1
 fi
-shipped_binaries=("$bundle/bin/nierc" "$bundle/sdk/host/usr/lib/llvm-18/bin/"{opt,llc,ld.lld,llvm-ar})
+shipped_binaries=("$bundle/bin/selac" "$bundle/sdk/host/usr/lib/llvm-18/bin/"{opt,llc,ld.lld,llvm-ar})
 if (( ${#llvm_runtime[@]} )); then shipped_binaries+=("$bundle/sdk/host/usr/lib/llvm-18/lib/${llvm_runtime[1]}"); fi
 for binary in "${shipped_binaries[@]}"; do
     sections=$(readelf -SW "$binary")
@@ -88,13 +88,13 @@ for kind in independent static; do
     [[ $kind != static ]] || output="$install_work/static.a"
     env -i PATH=/usr/bin:/bin LC_ALL=C TMPDIR="$install_work" \
         strace -f -e trace=openat,execve -o "$install_work/$kind.trace" \
-        "$bundle/bin/nierc" "$install_work/$kind.nier" -o "$output"
+        "$bundle/bin/selac" "$install_work/$kind.sela" -o "$output"
     for forbidden in "$sdk_root" "$build_dir" "$install_work/original"; do
         if rg -F -- "$forbidden" "$install_work/$kind.trace"; then
             printf 'ERROR: relocated compiler accessed an original dependency path\n' >&2; exit 1
         fi
     done
-    if rg 'libclang-cpp|libnier-clang|nier-capture|/bin/clang("| )|/usr/include/' "$install_work/$kind.trace"; then
+    if rg 'libclang-cpp|libsela-clang|sela-capture|/bin/clang("| )|/usr/include/' "$install_work/$kind.trace"; then
         printf 'ERROR: compiler used a frontend or source header\n' >&2; exit 1
     fi
     # Failed loader probes are harmless; successful non-glibc host loads are
@@ -114,7 +114,7 @@ test "$(ar t "$install_work/static.a")" = "$(printf 'member0.o\nmember1.o')"
 env -i PATH=/usr/bin:/bin LC_ALL=C strace -f -e trace=openat,execve \
     -o "$install_work/native.trace" "$install_work/independent.native"
 rg -Fq "$bundle/sdk/sysroots/$profile-linux-gnu/lib/$multiarch/libc.so.6" "$install_work/native.trace"
-if rg '\.nier"|/bin/nierc|libLLVM|/bin/(clang|opt|llc|ld.lld|llvm-ar)"' "$install_work/native.trace"; then
+if rg '\.sela"|/bin/selac|libLLVM|/bin/(clang|opt|llc|ld.lld|llvm-ar)"' "$install_work/native.trace"; then
     printf 'ERROR: native application required compiler/artifact inputs\n' >&2; exit 1
 fi
 printf 'Relocated compiler-only executable/static output and clean native execution passed: %s\n' "$install_work"

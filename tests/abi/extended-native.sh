@@ -3,7 +3,7 @@ set -euo pipefail
 capture_plugin=$1
 sdk_root=$(realpath -e -- "$2")
 fixture_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-extended_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-extended-abi-XXXXXX")
+extended_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-extended-abi-XXXXXX")
 llvm_bin="$sdk_root/host/usr/lib/llvm-18/bin"
 for profile in x86_64 i686; do
     case "$profile" in
@@ -19,7 +19,7 @@ for profile in x86_64 i686; do
             -resource-dir="$sdk_root/host/usr/lib/llvm-18/lib/clang/18"
             -std=c11 -fPIC -g -fstandalone-debug "-$level")
         for unit in extended extended-bridge extended-main; do
-            NIER_BUILD_METADATA= NIER_CAPTURE_RECORD= NIER_CAPTURE_PATH="$lane/$unit.bc" \
+            SELA_BUILD_METADATA= SELA_CAPTURE_RECORD= SELA_CAPTURE_PATH="$lane/$unit.bc" \
                 "$llvm_bin/clang" "${flags[@]}" -fpass-plugin="$capture_plugin" \
                 -c "$fixture_root/$unit.c" -o "$lane/$unit.o"
             "$llvm_bin/llvm-dis" "$lane/$unit.bc" -o "$lane/$unit.ll"

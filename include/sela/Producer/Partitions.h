@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace nier {
+namespace sela {
 struct MergedPartitions {
   std::vector<std::string> fragments;
   std::vector<std::vector<size_t>> x64Units, i686Units;

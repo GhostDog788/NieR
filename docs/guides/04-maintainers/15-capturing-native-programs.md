@@ -9,7 +9,7 @@ Its objective is to explain what our C producer captures, why the capture point 
 and how a private native build supplies evidence without becoming the published application.
 You should understand the stock-Clang entry point, LLVM IR, and the difference between publication and native execution.
 
-Remember the direction of dependency: NieR defines a public contract, and our LLVM merger is one producer of it.
+Remember the direction of dependency: Sela defines a public contract, and our LLVM merger is one producer of it.
 Independent producers do not need Clang captures.
 Everything in this chapter is machinery for **our reference producer**, not a requirement to identify a source language on the device.
 
@@ -37,12 +37,12 @@ The finite target domain is part of the resulting claim.
 ## The capture point
 
 The LLVM pass plugin in `src/capture/Snapshot.cpp` registers a pipeline-start callback.
-Its `Snapshot` pass writes the module as LLVM bitcode to the private `NIER_CAPTURE_PATH`.
+Its `Snapshot` pass writes the module as LLVM bitcode to the private `SELA_CAPTURE_PATH`.
 It is marked as a required pass so the intended observation also occurs for the qualified O0 path.
 
 The pass observes the module; stock Clang still continues producing the ordinary native object.
 This distinction is especially important for existing builds. A configure probe must run as a native program.
-Replacing its output with a NieR archive would break the build before publication selection even begins.
+Replacing its output with a Sela archive would break the build before publication selection even begins.
 
 The requested optimization setting is not discarded.
 An O0 capture can carry attributes such as `optnone`; an O2 invocation has different code-generation settings even though the snapshot precedes the main optimizer pipeline.
@@ -54,8 +54,8 @@ The native reference is not fabricated by disabling optimization everywhere.
 
 ## The direct source path
 
-When a developer uses the supplied `nier.cfg`, stock Clang selects our publication frontend action.
-That action does not translate a C AST into NieR.
+When a developer uses the supplied `sela.cfg`, stock Clang selects our publication frontend action.
+That action does not translate a C AST into Sela.
 Its `captureSource` helper copies a Clang invocation and asks unmodified Clang to compile for each qualified native profile.
 
 The helper must distinguish project choices from target configuration.
@@ -70,11 +70,11 @@ A precise rejection is therefore the correct behavior until that configuration i
 Private full debug information is useful here.
 Native lowering may turn a source aggregate argument into several scalar arguments or a hidden pointer; debug type and parameter records can propose the relationship.
 Those records are hints to be checked against layouts and actual instructions, not authority to rewrite a program.
-They are not copied into the public NieR module as a source-language dependency.
+They are not copied into the public Sela module as a source-language dependency.
 
 After both captures exist, the action calls the shared merger and packages the resulting common bytecode.
 The stock driver invokes the internal publication linker for normal separate compilation and final publication.
-The capture objects and private debug material do not become ordinary application payloads inside the `.nier` archive.
+The capture objects and private debug material do not become ordinary application payloads inside the `.sela` archive.
 
 ## Existing builds need stronger evidence
 
@@ -98,11 +98,11 @@ source/configuration/dependencies
               |
       actual native selection
               |
-         NieR publication
+         Sela publication
 ```
 
 During integrated native capture, the snapshot is written **before** the private object-provenance marker is added.
-The marker lives in a non-executable `.nier.capture` section of the native evidence object and refers to its private journal.
+The marker lives in a non-executable `.sela.capture` section of the native evidence object and refers to its private journal.
 It lets later selection recover the evidence even when an object has been moved or archived.
 Because it is added after the pristine snapshot, it is not ordinary program data in the captured publication input.
 
@@ -154,14 +154,14 @@ Use Bash from the repository root with the SDK and capture plugin already built:
 ```sh
 source sdk/env.sh
 set -euo pipefail
-guide15_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide15-XXXXXX")
+guide15_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide15-XXXXXX")
 for guide15_target in x86_64 i686; do
-  NIER_BUILD_METADATA= \
-  NIER_CAPTURE_PATH="$guide15_work/$guide15_target.bc" \
+  SELA_BUILD_METADATA= \
+  SELA_CAPTURE_PATH="$guide15_work/$guide15_target.bc" \
   clang --target="$guide15_target-unknown-linux-gnu" \
-    --sysroot="$NIER_SDK_ROOT/sysroots/$guide15_target-linux-gnu" \
+    --sysroot="$SELA_SDK_ROOT/sysroots/$guide15_target-linux-gnu" \
     -O0 -fPIC -g -fstandalone-debug \
-    -fpass-plugin="$PWD/build/prealpha/nier-capture.so" \
+    -fpass-plugin="$PWD/build/prealpha/sela-capture.so" \
     -c tests/fixtures/width.c -o "$guide15_work/$guide15_target.o"
   llvm-dis "$guide15_work/$guide15_target.bc" \
     -o "$guide15_work/$guide15_target.ll"
@@ -171,7 +171,7 @@ rg -n 'target triple|target datalayout|pointer_size|ret i(32|64) [48]' \
 printf 'Private lab evidence: %s\n' "$guide15_work"
 ```
 
-The captures are LLVM bitcode, not NieR bytecode. They intentionally contain private debug information.
+The captures are LLVM bitcode, not Sela bytecode. They intentionally contain private debug information.
 Observe that the native-width function changes width and value. Do not distribute this directory as an application artifact.
 
 ## Recap and questions
@@ -183,7 +183,7 @@ It cannot recover information the frontend already erased, and it does not estab
 >
 > Frontend constant evaluation, preprocessing, layout and ABI lowering have already occurred.
 
-> [!faq]- Why keep native outputs during a NieR build?
+> [!faq]- Why keep native outputs during a Sela build?
 >
 > Probes and generators must run, and actual native selection provides evidence for publication.
 
@@ -193,7 +193,7 @@ It cannot recover information the frontend already erased, and it does not estab
 
 > [!faq]- Can an independent producer omit all this machinery?
 >
-> Yes. It can emit valid NieR directly, provided it satisfies the public semantic and dependency contract.
+> Yes. It can emit valid Sela directly, provided it satisfies the public semantic and dependency contract.
 
 ## Guided source and evidence
 

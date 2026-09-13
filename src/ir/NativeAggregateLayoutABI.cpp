@@ -6,7 +6,7 @@
 #include "llvm/Support/MathExtras.h"
 #include <algorithm>
 
-namespace nier::detail::NIER_NATIVE_NAMESPACE {
+namespace sela::detail::SELA_NATIVE_NAMESPACE {
 namespace {
 constexpr uint64_t SizeLimit = 1ULL << 30;
 llvm::Error failure(const llvm::Twine &message) {
@@ -203,7 +203,7 @@ public:
     auto &record = *records.at(recordType);
     auto result = value(type, information);
 
-#if NIER_NATIVE_WORD_BITS == 32
+#if SELA_NATIVE_WORD_BITS == 32
     {
       if (returns || information.size > 16) return memory(type, information, returns, freeGP);
       uint64_t bytes = 0;
@@ -312,4 +312,4 @@ llvm::Expected<NativeABISignature> classifyNativeLayoutABI(
   signature.remainingGP = freeGP; signature.remainingSSE = freeSSE;
   return signature;
 }
-} // namespace nier::detail
+} // namespace sela::detail

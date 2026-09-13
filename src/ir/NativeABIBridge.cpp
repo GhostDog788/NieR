@@ -3,7 +3,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/NoFolder.h"
 
-namespace nier::detail {
+namespace sela::detail {
 namespace {
 llvm::Error failure(const llvm::Twine &message) {
   return llvm::createStringError(std::make_error_code(std::errc::invalid_argument), message);

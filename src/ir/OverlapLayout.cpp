@@ -1,7 +1,7 @@
 #include "OverlapLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 
-namespace nier::detail {
+namespace sela::detail {
 llvm::Expected<llvm::Type *> selectOverlapCarrier(llvm::ArrayRef<llvm::Type *> alternatives,
                                                 const llvm::DataLayout &layout) {
   auto fail = [](llvm::StringRef message) -> llvm::Error {

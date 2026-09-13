@@ -1,11 +1,11 @@
 # 04. Values, Control Flow, and Memory
 
-[Series](../README.md) · [Previous](03-reading-a-nier-program.md) · [Next](05-architecture-neutral-meaning.md)
+[Series](../README.md) · [Previous](03-reading-a-sela-program.md) · [Next](05-architecture-neutral-meaning.md)
 
 ## What you will understand
 
-You will follow a NieR program across branches and loops, distinguish SSA values from mutable memory, and understand why valid control flow is a compiler obligation.
-Read [chapter 03](03-reading-a-nier-program.md) first.
+You will follow a Sela program across branches and loops, distinguish SSA values from mutable memory, and understand why valid control flow is a compiler obligation.
+Read [chapter 03](03-reading-a-sela-program.md) first.
 All examples are readable without a build; fragments are labeled explicitly.
 
 ## A C variable can hide several values
@@ -27,7 +27,7 @@ This is a representation of data flow, not a restriction preventing C assignment
 The compiler translates the source's changing variables into explicit relationships.
 It can then ask whether a definition is used, what depends on it, or whether a replacement preserves all uses.
 
-NieR uses this value model.
+Sela uses this value model.
 It does not require each value to occupy a unique machine register.
 Register allocation happens later; the backend may combine, spill, or eliminate values while preserving behavior.
 
@@ -37,20 +37,20 @@ A **basic block** is a sequence of operations with a defined control-flow exit.
 A branch transfers control to another block.
 The blocks and their possible transfers form a **control-flow graph**, or CFG.
 
-Here is a **real NieR function-body excerpt**, following `validCFG` in the IR tests.
+Here is a **real Sela function-body excerpt**, following `validCFG` in the IR tests.
 The containing module and function attributes are omitted:
 
 ```mlir
-%condition = "nier.constant"() {value = 1 : i64} : () -> i1
-"nier.cond_br"(%condition)[^yes, ^no] {true_count = 0 : i32} : (i1) -> ()
+%condition = "sela.constant"() {value = 1 : i64} : () -> i1
+"sela.cond_br"(%condition)[^yes, ^no] {true_count = 0 : i32} : (i1) -> ()
 ^yes:
-  %left = "nier.constant"() {value = 42 : i64} : () -> i32
-  "nier.br"(%left)[^join] : (i32) -> ()
+  %left = "sela.constant"() {value = 42 : i64} : () -> i32
+  "sela.br"(%left)[^join] : (i32) -> ()
 ^no:
-  %right = "nier.constant"() {value = 7 : i64} : () -> i32
-  "nier.br"(%right)[^join] : (i32) -> ()
+  %right = "sela.constant"() {value = 7 : i64} : () -> i32
+  "sela.br"(%right)[^join] : (i32) -> ()
 ^join(%result : i32):
-  "nier.return"(%result) : (i32) -> ()
+  "sela.return"(%result) : (i32) -> ()
 ```
 
 `i1` is a one-bit condition type.
@@ -81,7 +81,7 @@ The representation still has to be structurally and semantically valid before th
 
 ## The branch interface is a type contract
 
-In `nier.cond_br`, operands after the condition can carry values to the two destinations.
+In `sela.cond_br`, operands after the condition can carry values to the two destinations.
 `true_count` says how many belong to the true edge; the rest belong to the false edge.
 In the example it is zero because neither `^yes` nor `^no` takes arguments.
 The unconditional branches pass one `i32` to `^join`, matching its one `i32` argument.
@@ -143,14 +143,14 @@ SSA values do not make C memory immutable.
 A pointer can identify storage, and a store can change the bytes in that storage.
 The pointer value itself does not have to change.
 
-This is a **NieR body excerpt** showing the distinction:
+This is a **Sela body excerpt** showing the distinction:
 
 ```mlir
-%slot = "nier.alloca"() {element = i32, alignment = 4 : i64} : () -> !nier.ptr
-%value = "nier.constant"() {value = 42 : i64} : () -> i32
-"nier.store"(%value, %slot) {alignment = 4 : i64, volatile = false} : (i32, !nier.ptr) -> ()
-%loaded = "nier.load"(%slot) {alignment = 4 : i64, volatile = false} : (!nier.ptr) -> i32
-"nier.return"(%loaded) : (i32) -> ()
+%slot = "sela.alloca"() {element = i32, alignment = 4 : i64} : () -> !sela.ptr
+%value = "sela.constant"() {value = 42 : i64} : () -> i32
+"sela.store"(%value, %slot) {alignment = 4 : i64, volatile = false} : (i32, !sela.ptr) -> ()
+%loaded = "sela.load"(%slot) {alignment = 4 : i64, volatile = false} : (!sela.ptr) -> i32
+"sela.return"(%loaded) : (i32) -> ()
 ```
 
 The allocation produces `%slot`, a pointer to local storage for an `i32`.
@@ -159,12 +159,12 @@ The load reads an `i32` from that address.
 `%value` and `%loaded` are distinct SSA definitions even though this example reads back the same number.
 `%slot` was defined once; the pointed-to memory changed.
 
-`!nier.ptr` is a pointer type, not an integer that you may freely replace with a fixed-width address.
+`!sela.ptr` is a pointer type, not an integer that you may freely replace with a fixed-width address.
 The allocation's `element` describes its storage.
 The load/store value types describe the access.
 The alignment attributes are part of the access contract, not decorative formatting.
 
-`nier.gep` computes an address using an element/layout description and indices.
+`sela.gep` computes an address using an element/layout description and indices.
 It does not load the object at that address.
 This is the same conceptual difference you know between `&array[i]` and `array[i]`, but the IR exposes the addressing calculation as its own operation.
 Chapter 18 expands the layout rules and why a fixed byte offset is not always portable.
@@ -191,7 +191,7 @@ None of this removes mutable memory or licenses a compiler to ignore its effects
 
 1. Why can the join return `%result` but not generally `%left`?
 2. Does a loop violate single assignment when its body executes many times?
-3. Does `nier.gep` read memory? Does `nier.store` redefine its pointer operand?
+3. Does `sela.gep` read memory? Does `sela.store` redefine its pointer operand?
 
 > [!faq]- Answers
 >

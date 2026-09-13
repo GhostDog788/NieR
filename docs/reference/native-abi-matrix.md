@@ -1,29 +1,29 @@
 # Native aggregate and variadic ABI evidence
 
 These are unchanged C programs, compiled with stock pinned Clang through the ordinary native ABI.
-The baseline scripts below are **native-only evidence**; the separate producer, consumer and public-pipeline gates qualify the implemented NieR boundary support.
-No failed NieR import is counted as a passing qualification test.
+The baseline scripts below are **native-only evidence**; the separate producer, consumer and public-pipeline gates qualify the implemented Sela boundary support.
+No failed Sela import is counted as a passing qualification test.
 
 Run from the repository root:
 
 ```sh
-bash tests/abi/native.sh "$PWD/build/prealpha/nier-capture.so" "$PWD/.sdk"
+bash tests/abi/native.sh "$PWD/build/prealpha/sela-capture.so" "$PWD/.sdk"
 ```
 
 The script executes x86-64 and i686 native binaries at O0/O2.
 Each program links an independently built native shared library which invokes application callbacks.
-Private preoptimization LLVM captures and readable `.ll` files are retained in the printed temporary directory. The snapshot does not use the NieR source importer or alter the native function ABI.
+Private preoptimization LLVM captures and readable `.ll` files are retained in the printed temporary directory. The snapshot does not use the Sela source importer or alter the native function ABI.
 
 The scalar-only variadic baseline is independent of the aggregate matrix:
 
 ```sh
-bash tests/abi/scalar-native.sh "$PWD/build/prealpha/nier-capture.so" "$PWD/.sdk"
+bash tests/abi/scalar-native.sh "$PWD/build/prealpha/sela-capture.so" "$PWD/.sdk"
 ```
 
 `tests/abi/scalar_varargs.c` covers default promotions, int/i64/pointer/double retrieval, both register-bank overflows, and copied-list traversal.
 `tests/abi/va_forward.c` separately forwards an ordinary native `va_list` to `vsnprintf`.
-Both run at O0/O2 on both native widths and retain pristine captures for the positive NieR tests.
-Aggregate `va_arg` extraction remains a separate, future qualification; these native baselines alone do not claim any NieR importer support.
+Both run at O0/O2 on both native widths and retain pristine captures for the positive Sela tests.
+Aggregate `va_arg` extraction remains a separate, future qualification; these native baselines alone do not claim any Sela importer support.
 
 ## Current qualification status
 
@@ -33,14 +33,14 @@ Aggregate `va_arg` extraction remains a separate, future qualification; these na
 | Ordinary-record entry/call/result proof | Complete signatures and closed storage shims; negative tests retain or reject unmatched effects |
 | Native materialization and inverse | Exact normalized native-to-common-to-native comparison on both widths at O0/O2 |
 | Native callback execution | Regenerated application boundaries linked to an unchanged native shared library, both widths at O0/O2 |
-| Shared NieR artifact and core-only consumer | Fixed-argument main, boundary and bridge units merge with both strict inverses; the same NieR units execute on both widths at O0/O2 |
-| Public stock-Clang publication | `aggregate_pipeline` passes Clang to standalone `.nier` to `nierc`, plus a stock-native caller of a NieR-produced DSO, on x86-64 at O0/O2 |
+| Shared Sela artifact and core-only consumer | Fixed-argument main, boundary and bridge units merge with both strict inverses; the same Sela units execute on both widths at O0/O2 |
+| Public stock-Clang publication | `aggregate_pipeline` passes Clang to standalone `.sela` to `selac`, plus a stock-native caller of a Sela-produced DSO, on x86-64 at O0/O2 |
 | Independent native device compilers | The fresh `dual-consumer.sh` matrix publishes the fixed-argument aggregate fixtures once and runs native executable/DSO callers on both devices at O0/O2; i686 uses a real 32-bit kernel |
 | Aggregate variadic extraction | Native-only baseline; not qualified by the aggregate importer |
 | Union/packed/bitfield fixed by-value boundaries | Explicit classifier and native baselines pass; producer/core boundary integration is not yet qualified |
 
 `tests/abi/fixed_main.c` isolates the fixed-argument matrix; it does not replace or weaken the original `tests/abi/main.c`/`tests/abi/varargs.c` native baseline.
-Union and packed or bitfield **storage** have separate positive NieR pipeline tests; those tests do not establish their by-value calling convention support.
+Union and packed or bitfield **storage** have separate positive Sela pipeline tests; those tests do not establish their by-value calling convention support.
 
 These are qualified fixture shapes, not every ABI combination or general C coverage.
 Private i686 specialization/execution is reference evidence, not an installed i686 product claim.
@@ -84,7 +84,7 @@ Physical classification therefore depends on the complete logical signature, inc
 
 Keep native ABI lowering in target compiler code, not captured LLVM snippets or per-target executable payloads in the public artifact.
 A public logical signature needs aggregate value types, native calling-convention identity, fixed/variadic argument distinction, and admitted semantic attributes.
-Private per-target matching recipes can prove capture correspondence; they are not a second program shipped inside NieR.
+Private per-target matching recipes can prove capture correspondence; they are not a second program shipped inside Sela.
 
 1. Recover the logical signature from `DISubprogram` / `DISubroutineType`, unwrapping typedefs and qualifiers.
    Match `DILocalVariable::arg` ordinals, `dbg.declare`, and whole-address `dbg.assign` data to physical parameter stores; fragmented debug locations are not admitted by this rule.
@@ -133,7 +133,7 @@ and compare full function signatures, calling convention, parameter and call att
 Captured and regenerated ABI shims must independently satisfy the same admitted semantic templates before their normalized forms are compared.
 Incidental entry GEP spelling or proved dead spills may differ; normalization cannot silently absorb unrelated instructions or side effects.
 
-After that structural proof, run the same fixed-argument matrix with NieR-produced application code and the unchanged native bridge library, on both targets and at both optimization levels.
+After that structural proof, run the same fixed-argument matrix with Sela-produced application code and the unchanged native bridge library, on both targets and at both optimization levels.
 The positive helper/core-only execution gates and public publisher/consumer gate now exist separately; the native-only checks above do not substitute for them.
 Packed/union/bitfield by-value records, vector coercions, unusual calling conventions and ambiguous pointer flows need further integrated proofs and positive tests before claiming coverage.
 
@@ -144,7 +144,7 @@ Independent-producer IR tests exercise that public contract without Clang proven
 ```sh
 bash tests/aggregate-normalize.sh "$PWD/build/prealpha/aggregate_normalize_tests" "$PWD/.sdk"
 bash tests/aggregate-native.sh "$PWD/build/prealpha/aggregate_normalize_tests" "$PWD/.sdk"
-bash tests/aggregate-pipeline.sh "$PWD/build/prealpha/nierc" "$PWD/.sdk" "$PWD/build/prealpha/nier.cfg"
+bash tests/aggregate-pipeline.sh "$PWD/build/prealpha/selac" "$PWD/.sdk" "$PWD/build/prealpha/sela.cfg"
 ```
 
 The normalizer tests include volatile/excessively aligned piece accesses, extra uses, intervening stores, unmatched attributes and forged native/debug record layouts.
@@ -169,7 +169,7 @@ Helpers reject malformed descriptors before emitting IR and copy only the declar
 
 The classifier takes an explicit list of logically ordered non-overlapping records. This is a caller proof obligation, not a way to reinterpret arbitrary LLVM union storage as a record.
 Packed/empty/vector-containing records and source-only over-alignment or nontrivial class semantics remain outside this classifier contract.
-Each admitted producer/consumer shape must still satisfy the full inverse/body checks above; matching a signature alone does not make an entire source program a qualified NieR program.
+Each admitted producer/consumer shape must still satisfy the full inverse/body checks above; matching a signature alone does not make an entire source program a qualified Sela program.
 
 The implementation rules were checked against the pinned upstream [Clang 18.1.3 x86 ABI implementation](https://github.com/llvm/llvm-project/blob/llvmorg-18.1.3/clang/lib/CodeGen/Targets/X86.cpp),
 particularly the i686 expansion predicate and SysV64 eightbyte classification, piece selection, indirect fallback and complete-signature register accounting.
@@ -182,7 +182,7 @@ Its descriptor supplies selected-target field types, bit offsets/widths, union a
 ```sh
 build/prealpha/aggregate_layout_tests
 bash tests/aggregate-layout.sh "$PWD/build/prealpha/aggregate_layout_tests" "$PWD/.sdk"
-bash tests/abi/extended-native.sh "$PWD/build/prealpha/nier-capture.so" "$PWD/.sdk"
+bash tests/abi/extended-native.sh "$PWD/build/prealpha/sela-capture.so" "$PWD/.sdk"
 ```
 
 The gates cover integer/floating unions, a union whose integer alternative is present only on the wide target, two-eightbyte alternatives, ordinary and cross-eightbyte packed bitfields,

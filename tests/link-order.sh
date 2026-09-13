@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-nierc=$1
-export NIER_SDK_ROOT=$2
+selac=$1
+export SELA_SDK_ROOT=$2
 clang_config=$3
-build_tool="$(dirname -- "$clang_config")/nier-build"
+build_tool="$(dirname -- "$clang_config")/sela-build"
 test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-test_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-link-order-XXXXXX")
+test_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-link-order-XXXXXX")
 for system in make cmake; do
   "$build_tool" --system "$system" --source "$test_root/tests/fixtures/link-order" \
-    --target hello --output hello --artifact "$test_work/$system.nier"
+    --target hello --output hello --artifact "$test_work/$system.sela"
   for target in x86_64 i686; do
-    "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$test_work/$system.nier" --target "$target" \
+    "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower "$test_work/$system.sela" --target "$target" \
       --output-dir "$test_work/$system-$target"
   done
   grep -q 'define.*@first' "$test_work/$system-x86_64/1.ll"
@@ -25,7 +25,7 @@ for system in make cmake; do
     echo 'Native TU settings were silently made uniform' >&2
     exit 1
   fi
-  "$nierc" "$test_work/$system.nier" -o "$test_work/$system-native"
+  "$selac" "$test_work/$system.sela" -o "$test_work/$system-native"
   env -u LD_LIBRARY_PATH -u LD_PRELOAD "$test_work/$system-native"
 done
 echo 'Per-profile archive selection order and independent per-TU settings preserved.'

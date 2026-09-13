@@ -4,7 +4,7 @@
 #include "llvm/ADT/DenseMap.h"
 
 namespace llvm { class Function; class CallInst; class Value; }
-namespace nier::detail {
+namespace sela::detail {
 struct NativeAggregateDefinition {
   llvm::Function *function = nullptr;
   llvm::FunctionType *logicalType = nullptr;

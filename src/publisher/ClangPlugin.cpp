@@ -1,7 +1,7 @@
-#include "nier/Artifact/Artifact.h"
-#include "nier/IR/Compiler.h"
-#include "nier/Producer/LLVM.h"
-#include "nier/Producer/Partitions.h"
+#include "sela/Artifact/Artifact.h"
+#include "sela/IR/Compiler.h"
+#include "sela/Producer/LLVM.h"
+#include "sela/Producer/Partitions.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/Diagnostic.h"
@@ -23,12 +23,12 @@
 #include <stdexcept>
 #include <unistd.h>
 
-using namespace nier::driver;
+using namespace sela::driver;
 
 namespace {
 void diagnose(clang::CompilerInstance &compiler, llvm::Error error) {
   unsigned id = compiler.getDiagnostics().getCustomDiagID(
-      clang::DiagnosticsEngine::Error, "NieR: %0");
+      clang::DiagnosticsEngine::Error, "Sela: %0");
   compiler.getDiagnostics().Report(id) << llvm::toString(std::move(error));
 }
 
@@ -70,7 +70,7 @@ void clearFrontendPlugins(clang::CompilerInvocation &invocation) {
 }
 
 // The only language-aware component here is the stock-Clang invocation adapter.
-// It does not inspect the AST or implement a C-to-NieR lowering.
+// It does not inspect the AST or implement a C-to-Sela lowering.
 llvm::Error captureSource(const clang::CompilerInvocation &original,
                           const Sdk &sdk, llvm::StringRef profile,
                           const fs::path &capture, const fs::path &object,
@@ -121,7 +121,7 @@ llvm::Error captureSource(const clang::CompilerInvocation &original,
     llvm::StringRef path(entry.Path);
     if (path.starts_with("/usr/include") || path.starts_with("/usr/local/include") ||
         path.starts_with("/usr/lib/gcc") || path.starts_with("/include"))
-      return fail("host system include paths are not a target SDK; use the supplied nier.cfg");
+      return fail("host system include paths are not a target SDK; use the supplied sela.cfg");
     if (!oldSysroot.empty() && oldSysroot != "/" &&
         path.starts_with(oldSysroot + "/") && !standardSdkEntries.count(path.str()))
       return fail("custom profile-specific SDK include paths require the paired native-build integration");
@@ -140,20 +140,20 @@ llvm::Error captureSource(const clang::CompilerInvocation &original,
                   clang::frontend::ExternCSystem, false, true);
 
   auto &codegen = invocation.getCodeGenOpts();
-  codegen.PassPlugins = {NIER_CAPTURE_PLUGIN};
+  codegen.PassPlugins = {SELA_CAPTURE_PLUGIN};
   codegen.setDebugInfo(llvm::codegenoptions::FullDebugInfo);
   std::vector<std::string> command{sdk.tool("clang").string(), "-cc1"};
   auto flags = invocation.getCC1CommandLine();
   command.insert(command.end(), flags.begin(), flags.end());
-  if (auto error = run(command, {}, {{"NIER_CAPTURE_PATH", capture.string()},
-                                    {"NIER_BUILD_METADATA", ""}}))
+  if (auto error = run(command, {}, {{"SELA_CAPTURE_PATH", capture.string()},
+                                    {"SELA_BUILD_METADATA", ""}}))
     return error;
   if (!fs::is_regular_file(capture))
     return fail("stock Clang did not run the qualified LLVM capture hook");
   return llvm::Error::success();
 }
 
-class NierAction final : public clang::PluginASTAction {
+class SelaAction final : public clang::PluginASTAction {
   std::string mode = "source", peer, requestedOptimization, sdkArgument;
   std::vector<std::string> groupLeft, groupRight;
   bool keepWork = false;
@@ -166,14 +166,14 @@ class NierAction final : public clang::PluginASTAction {
       return fail("publication requires a file output (-o)");
     if (sameFile(frontend.OutputFile, getCurrentFile().str()) ||
         (!peer.empty() && sameFile(frontend.OutputFile, peer)))
-      return fail("the NieR output must not overwrite a compiler input");
+      return fail("the Sela output must not overwrite a compiler input");
     for (const auto *inputs : {&groupLeft, &groupRight})
       for (const auto &input : *inputs)
         if (sameFile(frontend.OutputFile, input)) return fail("grouped output aliases a native capture");
     auto scratch = Scratch::create();
     if (!scratch) return scratch.takeError();
     scratch->keep = keepWork;
-    if (keepWork) llvm::errs() << "Private NieR producer workspace: " << scratch->path.string() << '\n';
+    if (keepWork) llvm::errs() << "Private Sela producer workspace: " << scratch->path.string() << '\n';
     fs::path left, right;
     std::string dependencyText;
     std::string opt = optimization(invocation.getCodeGenOpts());
@@ -183,7 +183,7 @@ class NierAction final : public clang::PluginASTAction {
           !sameFile(getCurrentFile().str(), groupLeft.front()))
         return fail("grouped capture mode requires ordered left/right LLVM captures");
       if (!requestedOptimization.empty()) opt = requestedOptimization;
-      auto partition = nier::mergeProfilePartitions(groupLeft, groupRight, scratch->path.string());
+      auto partition = sela::mergeProfilePartitions(groupLeft, groupRight, scratch->path.string());
       if (!partition) return partition.takeError();
       std::vector<ArtifactModule> modules;
       for (const auto &path : partition->fragments) {
@@ -208,9 +208,9 @@ class NierAction final : public clang::PluginASTAction {
       if (getCurrentFileKind().getLanguage() != clang::Language::C ||
           getCurrentFileKind().isPreprocessed())
         return fail("the current source producer accepts ordinary C input, not preprocessed/other-language input");
-      const char *sdkEnvironment = std::getenv("NIER_SDK_ROOT");
+      const char *sdkEnvironment = std::getenv("SELA_SDK_ROOT");
       Sdk sdk{absolutePath(!sdkArgument.empty() ? sdkArgument :
-                       sdkEnvironment ? sdkEnvironment : NIER_DEFAULT_SDK)};
+                       sdkEnvironment ? sdkEnvironment : SELA_DEFAULT_SDK)};
       if (auto error = sdk.validate(true)) return error;
       left = scratch->path / "x86_64.bc";
       right = scratch->path / "i686.bc";
@@ -233,8 +233,8 @@ class NierAction final : public clang::PluginASTAction {
         dependencyText = *first + *second;
       }
     }
-    const fs::path common = scratch->path / "unit.nierbc";
-    if (auto error = nier::mergeProfiles(left.string(), right.string(), common.string()))
+    const fs::path common = scratch->path / "unit.selabc";
+    if (auto error = sela::mergeProfiles(left.string(), right.string(), common.string()))
       return error;
     auto bytes = read(common);
     if (!bytes) return bytes.takeError();
@@ -248,7 +248,7 @@ class NierAction final : public clang::PluginASTAction {
   }
 
 public:
-  // Explicit -plugin nier still selects this as the main frontend action.
+  // Explicit -plugin sela still selects this as the main frontend action.
   // Returning ReplaceAction would also auto-replace native compilation when
   // the DSO is merely loaded with -fplugin for the capture observer.
   ActionType getActionType() override { return CmdlineAfterMainAction; }
@@ -273,14 +273,14 @@ public:
       else if (arg == "keep-work") keepWork = true;
       else {
         unsigned id = compiler.getDiagnostics().getCustomDiagID(
-            clang::DiagnosticsEngine::Error, "unknown NieR plugin argument: %0");
+            clang::DiagnosticsEngine::Error, "unknown Sela plugin argument: %0");
         compiler.getDiagnostics().Report(id) << argument;
         return false;
       }
     }
     if (mode != "source" && mode != "pair" && mode != "group") {
       unsigned id = compiler.getDiagnostics().getCustomDiagID(
-          clang::DiagnosticsEngine::Error, "unsupported NieR producer mode: %0");
+          clang::DiagnosticsEngine::Error, "unsupported Sela producer mode: %0");
       compiler.getDiagnostics().Report(id) << mode;
       return false;
     }
@@ -372,7 +372,7 @@ public:
       throw std::runtime_error("cannot reserve native capture: " + error.message());
     close(descriptor);
     capture = reserved.str().str();
-    setenv("NIER_CAPTURE_PATH", capture.c_str(), 1);
+    setenv("SELA_CAPTURE_PATH", capture.c_str(), 1);
     dependencies->attachToPreprocessor(compiler.getPreprocessor());
   }
 
@@ -415,7 +415,7 @@ public:
       if (auto error = write(immutableJournal, contents)) {
         diagnose(compiler, std::move(error)); return;
       }
-      setenv("NIER_CAPTURE_RECORD", immutableJournal.c_str(), 1);
+      setenv("SELA_CAPTURE_RECORD", immutableJournal.c_str(), 1);
     } catch (const std::exception &error) {
       diagnose(compiler, fail(error.what()));
     }
@@ -429,9 +429,9 @@ public:
                  const std::vector<std::string> &) override { return true; }
   std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(
       clang::CompilerInstance &compiler, llvm::StringRef) override {
-    const char *metadata = std::getenv("NIER_BUILD_METADATA");
-    const char *lane = std::getenv("NIER_BUILD_LANE");
-    const char *profile = std::getenv("NIER_BUILD_PROFILE");
+    const char *metadata = std::getenv("SELA_BUILD_METADATA");
+    const char *lane = std::getenv("SELA_BUILD_LANE");
+    const char *profile = std::getenv("SELA_BUILD_PROFILE");
     if (!metadata || !*metadata || !lane || !profile ||
         compiler.getFrontendOpts().ProgramAction != clang::frontend::EmitObj ||
         compiler.getFrontendOpts().OutputFile.empty() ||
@@ -473,7 +473,7 @@ public:
       // They never supply an object to a captured publication link.
       std::error_code ec;
       if (fs::exists(output, ec) && !fs::is_regular_file(output, ec)) return;
-      const char *capture = std::getenv("NIER_CAPTURE_PATH");
+      const char *capture = std::getenv("SELA_CAPTURE_PATH");
       if (!capture || !*capture) {
         diagnose(compiler, fail("native capture completion has no capture path")); return;
       }
@@ -506,7 +506,7 @@ public:
       for (const auto &section : (*object)->sections()) {
         auto name = section.getName();
         if (!name) { diagnose(compiler, name.takeError()); return; }
-        if (*name != ".nier.capture") continue;
+        if (*name != ".sela.capture") continue;
         auto contents = section.getContents();
         if (!contents) { diagnose(compiler, contents.takeError()); return; }
         if (*contents != expected || ++markers != 1) {
@@ -535,10 +535,10 @@ public:
                  const std::vector<std::string> &) override { return true; }
   std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(
       clang::CompilerInstance &compiler, llvm::StringRef) override {
-    const char *metadata = std::getenv("NIER_BUILD_METADATA");
-    const char *lane = std::getenv("NIER_BUILD_LANE");
+    const char *metadata = std::getenv("SELA_BUILD_METADATA");
+    const char *lane = std::getenv("SELA_BUILD_LANE");
     if (!metadata || !*metadata || !lane ||
-        !std::getenv("NIER_BUILD_PROFILE") ||
+        !std::getenv("SELA_BUILD_PROFILE") ||
         compiler.getFrontendOpts().ProgramAction != clang::frontend::EmitObj ||
         compiler.getFrontendOpts().OutputFile.empty() ||
         compiler.getFrontendOpts().OutputFile == "-")
@@ -553,10 +553,10 @@ public:
   }
 };
 
-static clang::FrontendPluginRegistry::Add<NierAction> producer(
-    "nier", "emit a standalone architecture-neutral NieR object");
+static clang::FrontendPluginRegistry::Add<SelaAction> producer(
+    "sela", "emit a standalone architecture-neutral Sela object");
 static clang::FrontendPluginRegistry::Add<NativeCaptureAction> capture(
-    "niercapture", "observe private native SDK build captures");
+    "selacapture", "observe private native SDK build captures");
 static clang::FrontendPluginRegistry::Add<NativeCaptureFinishAction> finish(
-    "niercapturefinish", "bind completed native objects to private captures");
+    "selacapturefinish", "bind completed native objects to private captures");
 } // namespace

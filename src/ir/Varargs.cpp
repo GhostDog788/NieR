@@ -10,7 +10,7 @@
 #include "llvm/IR/NoFolder.h"
 #include "llvm/IR/Operator.h"
 
-namespace nier::detail {
+namespace sela::detail {
 namespace {
 bool number(const llvm::Value *value, uint64_t expected, unsigned width = 32) {
   auto *integer = llvm::dyn_cast_or_null<llvm::ConstantInt>(value);

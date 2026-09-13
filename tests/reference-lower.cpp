@@ -1,13 +1,13 @@
 // Development-only reference lowering. Never installed in a device package.
-#include "nier/Artifact/Artifact.h"
-#include "nier/IR/CompilationUnits.h"
+#include "sela/Artifact/Artifact.h"
+#include "sela/IR/CompilationUnits.h"
 #include "llvm/Support/raw_ostream.h"
 
-using namespace nier::driver;
+using namespace sela::driver;
 namespace {
 llvm::Error lower(int argc, char **argv) {
   if (argc != 7 || std::string(argv[1]) != "lower")
-    return fail("usage: nier_reference_lower lower INPUT --target PROFILE --output-dir DIR");
+    return fail("usage: sela_reference_lower lower INPUT --target PROFILE --output-dir DIR");
   fs::path input = fs::absolute(argv[2]), output;
   std::string target;
   for (int i = 3; i < argc; i += 2) {
@@ -29,7 +29,7 @@ llvm::Error lower(int argc, char **argv) {
   if (!scratch) return scratch.takeError();
   std::vector<std::string> fragments;
   for (auto &record : *object.getArray("modules")) {
-    auto path = scratch->path / (std::to_string(fragments.size()) + ".nierbc");
+    auto path = scratch->path / (std::to_string(fragments.size()) + ".selabc");
     if (auto error = write(path, files->at(record.getAsObject()->getString("path")->str()))) return error;
     fragments.push_back(path.string());
   }
@@ -37,7 +37,7 @@ llvm::Error lower(int argc, char **argv) {
   for (auto &unit : plans->at(target)) {
     llvm::SmallVector<llvm::StringRef> selected;
     for (auto ordinal : unit.modules) selected.push_back(fragments.at(ordinal));
-    if (auto error = nier::lowerCompilationUnit(selected, target,
+    if (auto error = sela::lowerCompilationUnit(selected, target,
         (scratch->path / (std::to_string(index++) + ".ll")).string())) return error;
   }
   fs::create_directories(output);

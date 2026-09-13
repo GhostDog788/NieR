@@ -1,4 +1,4 @@
-#include "nier/IR/Compiler.h"
+#include "sela/IR/Compiler.h"
 #include "../src/ir/AggregateABI.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
@@ -10,7 +10,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 
-using namespace nier::detail;
+using namespace sela::detail;
 namespace {
 bool check(bool condition, llvm::StringRef message) {
   if (!condition) llvm::errs() << "aggregate ABI test: " << message << '\n';
@@ -241,9 +241,9 @@ bool captureTests(llvm::StringRef path, bool x64, bool extra) {
 
 int main(int argc, char **argv) {
   bool passed = true;
-  for (auto target : nier::supportedNativeTargets()) passed &= descriptorTests(target == "x86_64");
+  for (auto target : sela::supportedNativeTargets()) passed &= descriptorTests(target == "x86_64");
   for (llvm::StringRef target : {"x86_64", "i686"}) {
-    if (llvm::is_contained(nier::supportedNativeTargets(), target)) continue;
+    if (llvm::is_contained(sela::supportedNativeTargets(), target)) continue;
     llvm::LLVMContext context;
     auto *logical = llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
     passed &= rejected(classifyNativeABI(logical, target == "x86_64", {}), "unavailable classifier rejects");
@@ -252,7 +252,7 @@ int main(int argc, char **argv) {
     else llvm::consumeError(layout.takeError());
   }
   if (argc == 5) {
-    if (nier::supportedNativeTargets().size() != 2) {
+    if (sela::supportedNativeTargets().size() != 2) {
       llvm::errs() << "dual native capture qualification requires both native backends\n";
       return 1;
     }

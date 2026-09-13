@@ -1,4 +1,4 @@
-# 24. Maintaining and evolving NieR
+# 24. Maintaining and evolving Sela
 
 [Series](../README.md) · [Previous: SDK and compiler distribution](23-sdk-and-compiler-distribution.md) · [Next: Series index](../README.md)
 
@@ -8,7 +8,7 @@ This final chapter turns the implementation model into a maintenance method.
 You should now be able to follow source publication, shared IR, native specialization, build selection, validation and distribution.
 The objective is to decide what evidence a change needs, which layer should own it, and what claims remain unjustified after a green test run.
 
-NieR is pre-alpha. The user explicitly permits breaking changes everywhere without backward compatibility until that policy changes.
+Sela is pre-alpha. The user explicitly permits breaking changes everywhere without backward compatibility until that policy changes.
 That freedom removes compatibility engineering from the immediate design, but it does not remove semantic contracts, reproducibility obligations, or the need to explain what was and was not validated.
 
 ## Begin with a claim, not a patch
@@ -42,12 +42,12 @@ For file operations, check that failure does not overwrite an earlier valid outp
 “It returns an error” is only part of the expected behavior.
 
 A **native differential test** uses stock Clang as a reference for actual target signatures, layouts and execution.
-Inverse checks then specialize common NieR back to both private native profiles and compare justified normalized contracts.
+Inverse checks then specialize common Sela back to both private native profiles and compare justified normalized contracts.
 This is strong evidence within the admitted rules, not a general theorem prover for arbitrary program equivalence.
 
 An **end-to-end test** crosses the public boundaries:
-stock Clang produces an independent artifact, `nierc` consumes it, and the resulting native program executes.
-A native caller of a NieR-built DSO checks an ABI boundary that two pieces of identically mistaken generated code might otherwise conceal.
+stock Clang produces an independent artifact, `selac` consumes it, and the resulting native program executes.
+A native caller of a Sela-built DSO checks an ABI boundary that two pieces of identically mistaken generated code might otherwise conceal.
 A consumer-only independent-producer test checks that the device did not quietly acquire a Clang dependency.
 
 A **corpus qualification** runs unchanged configured upstream projects, their native references and their original tests.
@@ -56,7 +56,7 @@ Corpus success does not make the earlier tests redundant, and it does not establ
 
 ## Worked case: admitting byte reversal correctly
 
-The existing `nier.bswap` work illustrates a complete maintenance path.
+The existing `sela.bswap` work illustrates a complete maintenance path.
 The native evidence included a byte-reversal idiom whose carrier width differed from the actual bit domain.
 Treating every native-word expression as “reverse all bits in this word” would be wrong for a wider carrier holding a narrower value.
 
@@ -126,11 +126,11 @@ Run from the repository root; use a whitespace-free temporary base for the zlib 
 
 ```bash
 source sdk/env.sh
-evidence_lab=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide-evidence-XXXXXX")
+evidence_lab=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide-evidence-XXXXXX")
 set -o pipefail
 TMPDIR="$evidence_lab" bash corpus/qualify.sh \
-  "$PWD/build/prealpha/nier-build" "$PWD/build/prealpha/nierc" \
-  "$NIER_SDK_ROOT" 2>&1 | tee "$evidence_lab/corpus.log"
+  "$PWD/build/prealpha/sela-build" "$PWD/build/prealpha/selac" \
+  "$SELA_SDK_ROOT" 2>&1 | tee "$evidence_lab/corpus.log"
 printf 'Evidence base: %s\n' "$evidence_lab"
 ```
 
@@ -147,8 +147,8 @@ Regenerate fixtures and rebuild dependent tools when an intentional contract cha
 Compatibility freedom is not permission for producer and consumer to disagree within one checkout.
 
 A new producer must obey the same public verification and publication rules.
-Supporting another language means mapping its semantics and required runtime behavior into admitted NieR operations and native dependencies.
-A language which needs garbage collection, exceptions or a runtime does not lose those requirements merely because it emits NieR.
+Supporting another language means mapping its semantics and required runtime behavior into admitted Sela operations and native dependencies.
+A language which needs garbage collection, exceptions or a runtime does not lose those requirements merely because it emits Sela.
 The consumer can remain language-blind while compiling runtime code or linking explicitly qualified native runtime components; the current C implementation does not claim those language integrations already exist.
 
 A new target needs more than a pointer width.
@@ -159,8 +159,8 @@ Update the admitted target domain and exercise independent lowering rather than 
 ## Keep product claims separated
 
 [01](../../01-architecture-design.md) owns requirements; [02](../../02-implementation-plan.md) owns the implementation offer and status.
-SENieR (SEN) names the separate security platform planned above NieR; it is not implemented yet.
-NieR's next steps do not silently convert SENieR into a prerequisite for compiling ordinary programs.
+SESela (SES) names the separate security platform planned above Sela; it is not implemented yet.
+Sela's next steps do not silently convert SESela into a prerequisite for compiling ordinary programs.
 The pure toolchain may produce programs which use ordinary dynamic loading.
 Future signed-code, executable-mapping, closure and revocation policies are a separate enforcement axis with their own threat model and qualification.
 
@@ -171,7 +171,7 @@ Both performance and RE remain explicit acceptance work rather than consequences
 
 ## Recap and questions
 
-Maintain NieR by making claims small enough to test, proofs strong enough to reject misleading near-matches, and status reports precise enough to survive a change of compiler, target or developer machine.
+Maintain Sela by making claims small enough to test, proofs strong enough to reject misleading near-matches, and status reports precise enough to survive a change of compiler, target or developer machine.
 
 > [!faq]- Can a negative test complete an unsupported feature?
 >
@@ -189,7 +189,7 @@ Maintain NieR by making claims small enough to test, proofs strong enough to rej
 >
 > The corpus measures configured functional behavior, not performance thresholds, RE exposure or operating-system enforcement.
 
-For daily work, start with `include/nier/IR/Compiler.h`, the producer interface (`include/nier/Producer/LLVM.h`), `tests/independent.cpp`, and the tests closest to the changed semantics.
+For daily work, start with `include/sela/IR/Compiler.h`, the producer interface (`include/sela/Producer/LLVM.h`), `tests/independent.cpp`, and the tests closest to the changed semantics.
 Use [qualification corpus reference](../../reference/qualification-corpus.md) for the larger evidence boundary, and return to [01](../../01-architecture-design.md) whenever an implementation shortcut would redefine the product instead of implementing it.
 
 [Previous: SDK and compiler distribution](23-sdk-and-compiler-distribution.md) · [Next: Series index](../README.md)

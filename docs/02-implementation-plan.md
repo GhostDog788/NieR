@@ -1,4 +1,4 @@
-# NieR: Implementation Plan
+# Sela: Implementation Plan
 
 ## 1. Authority, scope, and current status
 
@@ -7,18 +7,28 @@ requirements contract. This document specifies the selected implementation
 direction, the C MVP, and the subsequent work required to satisfy all of 01.
 It does not change those requirements.
 
-**NieR** is the standalone toolchain and portable code format.
-**SENieR**, shortened to **SEN**, is the security platform layered above NieR;
+**Sela** is the standalone toolchain and portable code format.
+**SESela**, shortened to **SES**, is the security platform layered above Sela;
 the `SE` prefix follows the naming pattern of SELinux.
-This plan delivers the independent NieR flow first, then implements SEN after standalone acceptance.
+This plan delivers the independent Sela flow first, then implements SES after standalone acceptance.
 
-**Status on 2026-09-11:** the independent NieR publication/compiler flow works,
+**Historical pre-rename status on 2026-09-11:** the independent publication/compiler flow worked,
 including stock-Clang publication, native ABI/build fixtures, and the complete
 configured cJSON/zlib corpus. The previous combined program and publication
 recipes have been removed. This is a qualified pre-alpha C implementation,
 not unrestricted C or completion of 01, general dependency management,
 performance parity, or RE parity. Section 17 records the verified shapes and
 remaining limits rather than inferring broad support from test counts.
+Recorded checkpoints at commits `63592ab` and `be63890` predate the Sela rename.
+Their sizes and qualification evidence remain historical; fresh renamed-build
+results are recorded separately in the [distribution reference](reference/compiler-distribution.md#fresh-sela-rename-checkpoint).
+Fresh Sela builds pass all 40 publisher tests, both 11-test consumer suites,
+and the new two-device matrix. All eight zlib artifacts passed the fresh
+dual-device command. cJSON's 42 fresh publications, native references, and
+x86-64 checks passed; a separate real-i686 continuation passed the same
+artifacts after a failed first VM boot. The original failed cJSON report is
+preserved, so this is staged coverage of all required outputs, not a claimed
+single-command pass or renamed historical evidence.
 
 **Pre-alpha policy:** there are no backward-compatibility obligations anywhere.
 Formats, commands, APIs, and configuration may change between commits. Remove
@@ -34,7 +44,7 @@ The next deliverable is a working C MVP, not the complete product:
    integration and the configured cJSON/zlib corpus.
 3. Complete the remaining C facilities, languages, targets, platform services,
    release lifecycle, and full standalone acceptance gates.
-4. Only after complete standalone acceptance, implement and qualify SEN.
+4. Only after complete standalone acceptance, implement and qualify SES.
 
 The first C work does **not** wait for Rust, Go, all four runtime targets, or
 full A1/A2 acceptance. Conversely, completing Hello World does **not** complete
@@ -43,7 +53,7 @@ the C MVP; completing the C MVP does **not** complete T1-T9.
 All compiler and linker infrastructure is used unmodified. Do not fork or
 patch existing compilers. Reuse supported tools, plugins, extension interfaces,
 and libraries. Writing replacement source-language compilers would defeat the
-chosen reuse strategy. SEN is not a dependency of any
+chosen reuse strategy. SES is not a dependency of any
 standalone build, publication, compilation, or execution command.
 
 ## 2. Selected architecture and boundaries
@@ -84,37 +94,37 @@ It must not dispatch to rustc, a Go compiler, or language-specific dialects to
 finish compilation. Normal language runtimes may remain native dependencies
 or linked native code; that does not make the device compiler language-specific.
 
-### 2.2 NieR as the independent public boundary
+### 2.2 Sela as the independent public boundary
 
-NieR Code is the flagship format and pre-alpha standard. It consists of defined
+Sela Code is the flagship format and pre-alpha standard. It consists of defined
 source-language-independent semantics, public construction/validation APIs,
 bytecode, artifact rules, and conformance tests. MLIR supplies infrastructure;
-arbitrary MLIR dialects are not automatically NieR.
+arbitrary MLIR dialects are not automatically Sela.
 
-Our shared LLVM-to-NieR merger is one reference producer, not a mandatory
-admission path. Independent producers may emit NieR directly without Clang,
+Our shared LLVM-to-Sela merger is one reference producer, not a mandatory
+admission path. Independent producers may emit Sela directly without Clang,
 native profile captures, or merger provenance. They must represent all required
 semantics and provision their language runtime/dependency contract. No
 language-specific importer, frontend, or extension implementation is required
-on the destination for already-supported NieR semantics.
+on the destination for already-supported Sela semantics.
 
-Producer-local extensions must lower to supported NieR before publication.
-New required generic semantics evolve NieR itself; unknown required operations
+Producer-local extensions must lower to supported Sela before publication.
+New required generic semantics evolve Sela itself; unknown required operations
 fail. Platform-specific distributions implement the same supported semantics,
 not language-specific feature subsets. They may omit publisher tools and
 irrelevant target components.
 
-For C, developers invoke actual stock Clang with a NieR configuration. A
+For C, developers invoke actual stock Clang with a Sela configuration. A
 replacement frontend action delegates source compilation to stock Clang,
 captures both native LLVM profiles, and calls the shared merger. It does not
-implement AST-to-NieR lowering. The stock driver invokes internal `nier-ld`
-to combine NieR objects into the final artifact. Clang plugins and native
+implement AST-to-Sela lowering. The stock driver invokes internal `sela-ld`
+to combine Sela objects into the final artifact. Clang plugins and native
 compiler inputs are confined to publisher-side targets.
 
-The independent `nierc` links the NieR core, artifact support, and native
+The independent `selac` links the Sela core, artifact support, and native
 lowering, never the LLVM-capture producer or Clang plugin. Producer APIs live
-separately from consumer/direct-NieR APIs. Consumer-only builds must work with
-`NIER_BUILD_PUBLISHER=OFF`.
+separately from consumer/direct-Sela APIs. Consumer-only builds must work with
+`SELA_BUILD_PUBLISHER=OFF`.
 
 ### 2.3 Why capture multiple native profiles
 
@@ -239,13 +249,13 @@ The logical components are:
 | Device compiler | Read common IR and emit target-specific LLVM IR |
 | Stock LLVM tools/libraries | Native optimization and object generation |
 | Stock LLD | Final native ELF linking |
-| Stock-Clang adapter / publication linker | Emit NieR units and standalone executable/shared-library artifacts |
-| Independent nierc | Inspect NieR and manually produce native output without the publisher |
+| Stock-Clang adapter / publication linker | Emit Sela units and standalone executable/shared-library artifacts |
+| Independent selac | Inspect Sela and manually produce native output without the publisher |
 | SDK/corpus/test support | Pinned inputs, native references, fixtures, and reproducible checks |
 
 Shared libraries are permitted, but publication and native compilation are
-independent programs and build targets from the first NieR checkpoint. Keep
-NieR core/artifact/target lowering separate from LLVM-to-NieR capture merging.
+independent programs and build targets from the first Sela checkpoint. Keep
+Sela core/artifact/target lowering separate from LLVM-to-Sela capture merging.
 Only publisher builds require Clang development libraries.
 
 ### 4.2 Prebuilt SDK supply
@@ -365,7 +375,7 @@ Do not silently pretend an arbitrary native object contains portable IR.
 ### 5.3 Make and CMake
 
 Provide an external Make integration file and CMake
-`nier_add_publication(...)` helper. Developers declare the source directory,
+`sela_add_publication(...)` helper. Developers declare the source directory,
 existing target/selected outputs, and existing configuration arguments.
 Do not require application source edits, target-by-target rewrites, a renamed
 Clang executable, or a separate developer-facing publication command.
@@ -382,8 +392,8 @@ the original native object hash after successful code generation. Private
 native lanes use `-fno-temp-file` so that output is available at this point.
 These checks establish build correspondence, not hostile-workspace security.
 
-The SDK then invokes stock Clang on selected paired LLVM inputs to emit NieR
-units, and invokes stock Clang again for the final NieR publication link.
+The SDK then invokes stock Clang on selected paired LLVM inputs to emit Sela
+units, and invokes stock Clang again for the final Sela publication link.
 Build-generated headers remain profile-specific: a pointer-width generator
 must produce 8 for x86-64 and 4 for i686. No third source build or destination
 execution of private generators is needed.
@@ -533,13 +543,13 @@ archive or JSON parsers.
 The envelope is explicitly pre-alpha, with only a current-contract discriminator
 and no historical readers. Pin the implementation's LLVM/MLIR dependency, but
 do not make Clang identity or capture provenance an artifact admission rule.
-Document the NieR encoding and canonical JSON rules for independent producers.
+Document the Sela encoding and canonical JSON rules for independent producers.
 
 A representative logical layout is:
 
 ~~~text
 manifest.json
-modules/<opaque-id>.nierbc
+modules/<opaque-id>.selabc
 resources/<declared-relative-path>
 native/<declared-payload-id>       # full-product extension where applicable
 ~~~
@@ -602,21 +612,21 @@ The first example consists of `main.c`, `hello.h`, and `hello.c`:
 `main` calls the function declared in the header and defined in `hello.c`.
 
 ~~~sh
-clang --config=/publisher-sdk/nier.cfg -O2 main.c hello.c -o hello.nier
-nierc inspect hello.nier
-nierc hello.nier --sdk /device-sdk -o hello
+clang --config=/publisher-sdk/sela.cfg -O2 main.c hello.c -o hello.sela
+selac inspect hello.sela
+selac hello.sela --sdk /device-sdk -o hello
 ./hello
 ~~~
 
 Normal separate compilation is also required: stock Clang `-c` emits
-relocatable NieR objects, and its ordinary link invocation combines them into
+relocatable Sela objects, and its ordinary link invocation combines them into
 one final archive. `-shared` selects shared-library publication. Each selected
 executable or shared library has one standalone artifact containing all its
 ordinary code and required public metadata; external native dependencies remain
 explicit rather than implicitly bundled.
 
-`nierc --print-target` reports the compiler's one native device target.
-`nierc lower INPUT.nier --output-dir DIR` provides diagnostic LLVM output for
+`selac --print-target` reports the compiler's one native device target.
+`selac lower INPUT.sela --output-dir DIR` provides diagnostic LLVM output for
 that same target. An explicit `--target i686` is accepted only by the i686
 compiler; the x86-64 compiler rejects it before output staging, just as ordinary
 native compilation does. Private publisher-only test helpers may prove both
@@ -625,11 +635,11 @@ Inspection validates the entire public schema, including inactive domains, and
 reports which declared native plans it can validate. A structurally valid
 foreign-only artifact can be inspected with an explicit unavailable-native
 validation report, but cannot be lowered or compiled on the wrong device.
-`nierc` has no
+`selac` has no
 publication/source-language mode. There is no `aot publish` compatibility path.
 
 Successful writers use validated atomic replacement. The SDK coordinator stages
-its final Clang output before replacing a valid existing artifact; nierc also
+its final Clang output before replacing a valid existing artifact; selac also
 preserves prior output on failure. Direct stock-Clang commands retain the
 upstream driver's failed-output cleanup, which can remove the requested output
 after a failed job and cannot be overridden by the frontend plugin. Do not use
@@ -727,7 +737,7 @@ resident.
 
 Hash/version checks before compilation validate inputs. They do not protect
 files against later modification, authenticate executable pages, or enforce
-application permissions. Those are SEN obligations, not implicit
+application permissions. Those are SES obligations, not implicit
 properties of the C SDK.
 
 ## 9. First implementation checkpoints
@@ -1096,7 +1106,7 @@ later security attachments materially change.
 
 ## 15. Security roadmap after standalone acceptance
 
-This section proposes the later SENieR (SEN) implementation for S1-S5, not part of the
+This section proposes the later SESela (SES) implementation for S1-S5, not part of the
 C MVP or a hidden restriction on standalone applications. Detailed mechanisms
 must be validated and reviewed when this phase begins. They do not authorize
 compiler forks, a custom application loader, or a language-specific device path.
@@ -1223,7 +1233,7 @@ revocations; that limitation does not excuse ignoring a received one.
 
 ### 15.5 Guest and supplied-OS deployment
 
-Use the same SEN security model and product in two qualified deployment scopes:
+Use the same SES security model and product in two qualified deployment scopes:
 
 - Guest integration governs managed applications on an existing OS, without
   claiming control of the whole host.
@@ -1274,7 +1284,7 @@ attack fixtures alone do not establish the product.
 | S2-stage | Supplied OS/system-wide product accepted, including update/recovery |
 | Extensions | Kotlin/Native and further languages/targets evaluated against the same contracts |
 
-Do not implement the production SEN security/store stack before P3 acceptance.
+Do not implement the production SES security/store stack before P3 acceptance.
 Security planning and identifying eventual integration boundaries are not
 permission to make C work depend on it.
 
@@ -1292,12 +1302,14 @@ container project.
 
 ## 17. Implementation-status record
 
-The NieR migration replaces the old combined program and publication recipes;
+The independent-format migration replaced the old combined program and publication recipes;
 old prototype artifact hashes and measurements are not evidence for the new
 implementation. The implementation and tests, not this roadmap, determine
-which gates have passed.
+which gates have passed. Current interface descriptions use Sela names;
+historical checkpoint measurements and retained-artifact replay below refer
+to the pre-rename tools recorded in commits `63592ab` and `be63890`.
 
-Verified checkpoints include separate core/producer targets, public NieR APIs,
+Verified checkpoints include separate core/producer targets, public Sela APIs,
 bounded artifact handling, direct stock-Clang publication, and multi-file
 Hello World. Positive tests now cover matching CFG/SSA, scalar floating point,
 native-width/fixed-width controls, record and array storage, mutable globals,
@@ -1322,7 +1334,7 @@ source files selected into corresponding object roles, genuinely unequal
 three-versus-two translation-unit inventories, ordinary/thin/group/
 whole-archive extraction, shared-library outputs and native callers, and
 static outputs with duplicate member names. Static tests check observable
-member order and lazy extraction with both stock-native and NieR-produced
+member order and lazy extraction with both stock-native and Sela-produced
 callers. Shared-link tests check SONAME, versioned exports, dynamic visibility,
 constructor-only dependencies, and failed-link output preservation. Per-target
 archive extraction order and independent per-TU optimization settings are
@@ -1330,7 +1342,7 @@ preserved through explicit compilation-unit plans. Unequal source counts
 currently require provable self-contained fragments; general cross-fragment
 private identities remain an explicit rejection, not a native-code fallback.
 The SDK configures stock Clang's `-ffile-prefix-map` for each private lane,
-giving transient source/build roots stable `/nier/source` and `/nier/build`
+giving transient source/build roots stable `/sela/source` and `/sela/build`
 identities in `__FILE__`. It does not rewrite application strings after capture
 or erase genuine source differences.
 
@@ -1338,27 +1350,27 @@ The unchanged pinned cJSON static and shared configurations each pass all 19
 native-reference tests on both private profiles. Pinned zlib's original
 `make test` and `make test64` likewise pass both native profiles. The cJSON
 static/shared libraries and demonstration program additionally publish,
-compile, and run through NieR with reference-identical stdout. A stock-native
-caller also loads the NieR-produced DSO and matches the native reference.
-The complete zlib gate now also passes through NieR: its static archive,
+compile, and run through Sela with reference-identical stdout. A stock-native
+caller also loads the Sela-produced DSO and matches the native reference.
+The complete zlib gate now also passes through Sela: its static archive,
 versioned shared library, and all six test programs are independently
 published and compiled. The original `make test` and `make test64` recipes run
 successfully in a source-free destination with build tools disabled. Loader
-diagnostics confirm the shared tests use the NieR-generated `libz.so.1`.
+diagnostics confirm the shared tests use the Sela-generated `libz.so.1`.
 The complete cJSON gate also passes: each static/shared configuration produces
-21 NieR artifacts and its source-free destination passes all 19 original
+21 Sela artifacts and its source-free destination passes all 19 original
 CTests. Unity retains its normal `setjmp`/`longjmp` assertion control. Native
-and NieR callers both load the destination `libcjson.so.1`; demonstration
+and Sela callers both load the destination `libcjson.so.1`; demonstration
 stdout matches the native reference byte-for-byte.
 The reproducible gate is `corpus/qualify.sh`; its original
 test staging has been checked separately with native reference binaries.
 
 The public aggregate pipeline passes at O0/O2: stock Clang emits a multi-TU
-artifact, `nierc` builds the native executable and a separate native DSO, and
+artifact, `selac` builds the native executable and a separate native DSO, and
 a stock-native caller/bridge verifies ordinary native calls and callbacks.
 Qualified records include integer pairs, mixed integer/double values, and
 larger native-width records, with register pressure and hidden-result storage.
-The same shared NieR units also pass private core-only native execution on
+The same shared Sela units also pass private core-only native execution on
 both widths. Classifier-only and normalization-only tests remain separately
 identified; neither is substituted for this artifact-pipeline evidence.
 
@@ -1381,21 +1393,21 @@ cmake -S . -B build/prealpha -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build/prealpha --parallel 2
 ctest --test-dir build/prealpha --output-on-failure
 mkdir -p artifacts
-clang --config="$PWD/build/prealpha/nier.cfg" -O2 examples/hello/hello/main.c examples/hello/hello/hello.c -o artifacts/hello.nier
-build/prealpha/nierc artifacts/hello.nier -o artifacts/hello
+clang --config="$PWD/build/prealpha/sela.cfg" -O2 examples/hello/hello/main.c examples/hello/hello/hello.c -o artifacts/hello.sela
+build/prealpha/selac artifacts/hello.sela -o artifacts/hello
 env -u LD_LIBRARY_PATH artifacts/hello
 ~~~
 
 The command sequence is the new interface and must be exercised after each
-integration change. A consumer-only build uses `NIER_BUILD_PUBLISHER=OFF`;
+integration change. A consumer-only build uses `SELA_BUILD_PUBLISHER=OFF`;
 its independent-producer test must work without linking the merger or Clang.
-The consolidated checkpoint passes all 39 publisher/core integration tests
+The historical consolidated checkpoint passed all 39 publisher/core integration tests
 and all nine component tests in each native consumer build. The relocated compiler-only distribution
 test also verifies source/frontend-free compilation and direct native execution.
 The complete corpus is a separate, longer qualification command; its private
 reports record the actual tool/configuration/recipe hashes and all 50 artifact
 hashes across the two projects, not just the dirty worktree's Git revision.
-After the final aggregate-call fixes, the current publisher also revalidated
+After the final aggregate-call fixes, the pre-rename publisher also revalidated
 all 50 retained native selections and reproduced all 170 unit-artifact
 occurrences and all 50 final publications byte-for-byte. This test rechecks
 immutable capture/dependency/native witnesses and both strict native inverses;
@@ -1409,7 +1421,7 @@ remain separate future gates.
 ### 17.1 Dual-device compiler acceptance
 
 The current consumer implementation supplies separate real x86-64 and i686 compiler
-distributions, each containing native `nierc`, `opt`, `llc`, `ld.lld`, and
+distributions, each containing native `selac`, `opt`, `llc`, `ld.lld`, and
 `llvm-ar` for its own device. The compiler's native target must agree with its
 host architecture; selecting the other width must reject before output staging.
 This extends the deployment product beyond the earlier x86-64 checkpoint. It
@@ -1419,7 +1431,7 @@ an ELF32 application worked under a 64-bit kernel's compatibility mode.
 The implementation separates shared structural admission from native
 specialization. `Compiler.cpp` validates the common schema and both public
 word domains, including inactive conditional operations. Each device
-`nierc` links only its own native lowering and ABI implementation; it cannot
+`selac` links only its own native lowering and ABI implementation; it cannot
 compile or diagnostically lower the opposite target. Inspection reports
 foreign native validation as unavailable rather than silently skipping it.
 The independent publisher links both native implementations for private
@@ -1427,7 +1439,7 @@ two-profile reconstruction proofs. No on-device compiler is called to publish.
 
 Each consumer SDK is built from pinned, unmodified LLVM/MLIR sources for its
 own ABI, registering the X86 backend family. LLVM linkage is a packaging
-choice, independent of per-device NieR specialization. The footprint work
+choice, independent of per-device Sela specialization. The footprint work
 below compares shared LLVM with the original static-component layout. Stock X86 backend
 internals still cover both x86 widths, and stock LLD retains its upstream
 multi-format and relocation logic; this is not a fork that removes those
@@ -1489,7 +1501,7 @@ A subsequent retained-artifact i686 corpus regression also passed: the actual
 both cJSON configurations passed all 19 original CTests, and zlib passed its
 original static/shared/64-bit-offset Make recipes. Native caller, loader,
 SONAME/version, archive-order, and checksum checks passed. The input artifacts
-matched the current publisher's byte-identical retained replay. This establishes
+matched that checkpoint's publisher replay byte-for-byte. This establishes
 i686 consumer/corpus regression evidence, not a fresh publication or rerun of
 the source/native-reference build stages.
 
@@ -1507,7 +1519,7 @@ loader, SONAME/version, archive-order, checksum, and explicit i686 serial
 receipt checks passed. This is fresh source-to-both-devices evidence, separate
 from the earlier retained regression and host component tests.
 
-The 2026-09-12 assembled bundle sizes were 244 MiB for x86-64 and 265 MiB for i686,
+The pre-rename 2026-09-12 assembled bundle sizes were 244 MiB for x86-64 and 265 MiB for i686,
 compared with the earlier 190 MiB monolithic x86-64 baseline. Static components
 are duplicated across separate tool executables. This checkpoint establishes
 native implementation isolation, not a footprint reduction or minimum size.
@@ -1516,19 +1528,19 @@ local results are not a claim that a remote GitHub Actions run has passed.
 
 ### 17.2 Balanced compiler footprint reduction
 
-Optimize complete installed file bytes before the size of `nierc` alone.
+Optimize complete installed file bytes before the size of `selac` alone.
 Keep the existing native runtime, supported output kinds, subprocess pipeline,
-and native target isolation unchanged. This work does not add SEN enforcement.
+and native target isolation unchanged. This work does not add SES enforcement.
 
 The first checkpoint statically links the pinned libarchive reader into the
 device compiler only, removing its otherwise unused XML/ICU and archive-only
 dependency chain. Publisher and test fixture writers retain full shared
 libarchive. Release assembly strips ordinary symbols from private copies of
-`nierc` and LLVM tools; unstripped source products remain available for
+`selac` and LLVM tools; unstripped source products remain available for
 debugging and backend symbol audits. Dynamic symbols, unwind information,
 native runtime archives and startup objects are retained.
 
-On 2026-09-13 that checkpoint measured 179.43 MiB for x86-64 and 201.58 MiB
+On 2026-09-13 that pre-rename checkpoint measured 179.43 MiB for x86-64 and 201.58 MiB
 for i686 in regular-file payloads, versus 242.70 and 263.15 MiB respectively
 before the changes. Both ten-test consumer suites and all 40 publisher tests
 passed. These are component/installation results, not a fresh real-kernel
@@ -1542,8 +1554,8 @@ Both complete packages must improve over the first checkpoint and pass final
 native qualification. SDK identity/completion checks and consumer tests remain
 enabled regardless of LLVM linkage.
 
-The assembled shared packages measured 91.89 MiB for x86-64 and 98.28 MiB
-for i686 on 2026-09-13. Their stripped `nierc` executables measured 1.73 MiB
+The pre-rename shared packages measured 91.89 MiB for x86-64 and 98.28 MiB
+for i686 on 2026-09-13. Their stripped compiler executables measured 1.73 MiB
 and 2.15 MiB respectively. Both eleven-test consumer suites and all 40
 publisher tests passed. The fresh publish-once matrix passed on both devices,
 including the real i686 kernel: 28 executable outputs, three shared libraries,

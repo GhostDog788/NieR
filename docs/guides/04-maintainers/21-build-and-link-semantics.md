@@ -4,7 +4,7 @@
 
 ## Objective and prerequisites
 
-This chapter follows an existing native build into a NieR publication.
+This chapter follows an existing native build into a Sela publication.
 You should understand compilation versus linking, static archives, shared libraries, the capture/merger boundary, and native specialization.
 The new maintainer question is not merely “which source files exist?” It is “which native inputs actually contributed to this selected output,
 in what order, under which settings, and with which translation-unit boundaries?”
@@ -15,21 +15,21 @@ Configure probes, generated headers, archive extraction and platform-selected so
 
 ## Inputs, outputs, and responsibilities
 
-The SDK integration receives an unchanged source directory, a build system, selected native targets, a relative native output path, and a destination NieR artifact path.
-`sdk/share/nier/Nier.mk` and `sdk/share/nier/Nier.cmake` are small coordination interfaces.
-The public CMake helper is `nier_add_publication`.
-The internal `nier-build` service runs the private builds and assembles publication commands; it is not a new C frontend or a replacement language compiler.
+The SDK integration receives an unchanged source directory, a build system, selected native targets, a relative native output path, and a destination Sela artifact path.
+`sdk/share/sela/Sela.mk` and `sdk/share/sela/Sela.cmake` are small coordination interfaces.
+The public CMake helper is `sela_add_publication`.
+The internal `sela-build` service runs the private builds and assembles publication commands; it is not a new C frontend or a replacement language compiler.
 
 Both private lanes use actual stock Clang with the appropriate SDK profile.
 Native preprocessing, configure probes and generators must still work as native operations.
-Replacing the compiler with a wrapper which emits NieR whenever it sees C would break probes that need to execute their result.
+Replacing the compiler with a wrapper which emits Sela whenever it sees C would break probes that need to execute their result.
 The native capture observer therefore accompanies normal code generation; direct publication uses the distinct Clang publication action.
 
 The selected output may be an executable, shared library, or static archive.
-The portable result is an independent NieR artifact for that output.
+The portable result is an independent Sela artifact for that output.
 Native objects and private LLVM captures remain build evidence, not alternate executable payloads hidden in the artifact.
 When paired or grouped capture units are emitted and finally assembled, the coordinator still invokes stock Clang.
-Its configured linker selects `nier-ld` for publication assembly.
+Its configured linker selects `sela-ld` for publication assembly.
 
 ## Bind capture evidence to actual object bytes
 
@@ -38,7 +38,7 @@ A build may copy an object, rename it, archive it, postprocess it, or overwrite 
 Publication must identify the object bytes that the native linker consumed.
 
 The snapshot pass (`src/capture/Snapshot.cpp`) first writes pristine LLVM bitcode.
-Only afterward does it insert a private, read-only `.nier.capture` section into the native object.
+Only afterward does it insert a private, read-only `.sela.capture` section into the native object.
 The section contains the absolute pathname of a unique immutable journal.
 Because the snapshot precedes insertion, the marker is not present in the LLVM program being merged.
 
@@ -92,7 +92,7 @@ The permutation path preserves that fact without making all translation units us
 
 Selecting a static archive as the *output* means publishing every physical member, in order, including duplicate basenames.
 There is no application link yet to decide which members will later be extracted.
-NieR's static compilation plan therefore associates each native unit with its archive-member identity.
+Sela's static compilation plan therefore associates each native unit with its archive-member identity.
 
 The consumer stages identically named members in separate ordinal directories, compiles them independently,
 and uses ordinary `llvm-ar` quick append followed by indexing.
@@ -143,7 +143,7 @@ Unsupported meaningful linker options must reject; ignoring them can change the 
 
 The coordinator also stages its final Clang output privately.
 Stock Clang may delete its `-o` path when a link fails.
-Pointing that cleanup at a user's previous valid NieR artifact would defeat an atomic writer inside `nier-ld`.
+Pointing that cleanup at a user's previous valid Sela artifact would defeat an atomic writer inside `sela-ld`.
 Only a successful, validated staged artifact replaces the requested publication.
 
 ## Optional independent lab
@@ -153,30 +153,30 @@ Run it from the repository root with the prepared build:
 
 ```bash
 source sdk/env.sh
-build_lab=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide-build-XXXXXX")
-make -f sdk/share/nier/Nier.mk \
-  NIER_BUILD_TOOL="$PWD/build/prealpha/nier-build" \
-  NIER_SOURCE_DIR="$PWD/tests/fixtures/link-order" \
-  NIER_NATIVE_OUTPUT=hello NIER_TARGETS=hello \
-  NIER_ARTIFACT="$build_lab/order.nier"
-build/prealpha/nier_reference_lower lower "$build_lab/order.nier" \
+build_lab=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide-build-XXXXXX")
+make -f sdk/share/sela/Sela.mk \
+  SELA_BUILD_TOOL="$PWD/build/prealpha/sela-build" \
+  SELA_SOURCE_DIR="$PWD/tests/fixtures/link-order" \
+  SELA_NATIVE_OUTPUT=hello SELA_TARGETS=hello \
+  SELA_ARTIFACT="$build_lab/order.sela"
+build/prealpha/sela_reference_lower lower "$build_lab/order.sela" \
   --target x86_64 --output-dir "$build_lab/wide"
-build/prealpha/nier_reference_lower lower "$build_lab/order.nier" \
+build/prealpha/sela_reference_lower lower "$build_lab/order.sela" \
   --target i686 --output-dir "$build_lab/narrow"
-build/prealpha/nierc "$build_lab/order.nier" -o "$build_lab/order"
+build/prealpha/selac "$build_lab/order.sela" -o "$build_lab/order"
 env -u LD_LIBRARY_PATH -u LD_PRELOAD "$build_lab/order"
 printf 'Lab files: %s\n' "$build_lab"
 ```
 
 Compare which helper is defined in `1.ll` and `2.ll` for each target.
-These two-target dumps use `nier_reference_lower`, a publisher-only test helper, not a foreign-target mode shipped in either device compiler.
+These two-target dumps use `sela_reference_lower`, a publisher-only test helper, not a foreign-target mode shipped in either device compiler.
 The program's successful exit and the preserved O0 caller/O2 helpers are different observations.
 Keep both when diagnosing an ordering regression.
 
 ## Recap and questions
 
 The native build is an oracle for selected inputs, not a source-file scanner.
-NieR must preserve selection, identity, physical order, per-unit settings and native dependencies while publishing only the common program.
+Sela must preserve selection, identity, physical order, per-unit settings and native dependencies while publishing only the common program.
 
 > [!faq]- Why not merge every archive member?
 >

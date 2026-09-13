@@ -32,6 +32,6 @@ int main(void) {
     m = mixed_stack_edge(1, 2, 3, 4, 5, 6,
                          0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, mixed, 7);
     if (m.amount != 34.5 || m.tag != 48) return 12;
-    puts("NieR fixed aggregate ABI matrix passed");
+    puts("Sela fixed aggregate ABI matrix passed");
     return 0;
 }

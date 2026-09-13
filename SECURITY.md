@@ -1,24 +1,26 @@
 # Security policy
 
-NieR is pre-alpha software, not a hardened production compiler or sandbox.
+Sela is pre-alpha software, not a hardened production compiler or sandbox.
 Development and fixes target the current `main` branch; older commits and pre-alpha artifacts have no maintained compatibility or security-support guarantee.
 No response deadline or supported release series is promised.
 
 Artifact validation, input bounds, digest checks, and output staging are correctness and robustness measures.
-They do not implement SENieR (SEN), the separately planned security platform for trusted publishers, signed code, and executable-memory enforcement.
+They do not implement SESela (SES), the separately planned security platform for trusted publishers, signed code, and executable-memory enforcement.
 Do not rely on the current toolchain to safely isolate hostile compiler inputs.
 
 ## Report a suspected vulnerability privately
 
 Do not put exploit details, sensitive inputs, private source, credentials, or unpublished vulnerability information in a public issue or pull request.
 
-1. Visit the repository's [Security tab](https://github.com/GhostDog788/NIER/security).
+1. Visit the repository's [Security tab](https://github.com/GhostDog788/Sela/security).
 2. If **Report a vulnerability** is available, use it to submit a private report.
-3. If private reporting is unavailable, open a [new issue](https://github.com/GhostDog788/NIER/issues/new) containing only a non-sensitive request for a private reporting channel, such as “How can I share a security report privately?”
+3. If private reporting is unavailable, open a [new issue](https://github.com/GhostDog788/Sela/issues/new) containing only a non-sensitive request for a private reporting channel, such as “How can I share a security report privately?”
    Do not include the affected component, a reproducer, logs, or other technical vulnerability details there.
    Wait until a private channel has been arranged before sharing them.
 
 Private GitHub reporting depends on repository settings; this file does not enable it or imply that it is already enabled.
+The Sela GitHub URL is the intended renamed destination, not an already completed repository-settings change.
+Until that rename is applied, use the **Security** or **Issues** tab of the existing repository you are viewing if the links above are unavailable; the same private-reporting rules apply.
 
 ## What to include once a private channel is available
 

@@ -52,14 +52,14 @@ define void @pointer_only(ptr %input) !dbg !4 { ret void }
 )", diagnostic, context);
   if (!module || llvm::verifyModule(*module, &llvm::errs())) return false;
   auto before = text(*module);
-  auto proof = nier::detail::normalizeNativeAggregates(*module, true);
+  auto proof = sela::detail::normalizeNativeAggregates(*module, true);
   if (!proof) { llvm::logAllUnhandledErrors(proof.takeError(), llvm::errs()); return false; }
   return proof->functions.empty() && proof->calls.empty() && before == text(*module);
 }
 bool scalarResultStoredInRecord(bool wide, bool indirect, bool singleField, bool integerResult) {
   llvm::LLVMContext context;
   llvm::Module module("scalar-record-store", context);
-  module.setDataLayout(llvm::cantFail(nier::detail::nativeABIDataLayout(wide)));
+  module.setDataLayout(llvm::cantFail(sela::detail::nativeABIDataLayout(wide)));
   auto *pointer = llvm::PointerType::get(context, 0);
   auto *word = llvm::IntegerType::get(context, wide ? 64 : 32);
   llvm::Type *result = integerResult ? static_cast<llvm::Type *>(word) : pointer;
@@ -79,7 +79,7 @@ bool scalarResultStoredInRecord(bool wide, bool indirect, bool singleField, bool
   builder.CreateRetVoid();
   if (llvm::verifyModule(module, &llvm::errs())) return false;
   auto before = text(module);
-  auto proof = nier::detail::proveAggregateCalls(module, wide, {record});
+  auto proof = sela::detail::proveAggregateCalls(module, wide, {record});
   if (!proof) { llvm::logAllUnhandledErrors(proof.takeError(), llvm::errs()); return false; }
   return proof->empty() && before == text(module);
 }
@@ -88,7 +88,7 @@ bool roundtrip(llvm::StringRef file, bool wide, llvm::StringRef output = {}) {
   llvm::SMDiagnostic diagnostic;
   auto module = llvm::parseIRFile(file, diagnostic, context);
   if (!module) return false;
-  auto normalized = nier::detail::normalizeNativeAggregates(*module, wide);
+  auto normalized = sela::detail::normalizeNativeAggregates(*module, wide);
   if (!normalized) { llvm::logAllUnhandledErrors(normalized.takeError(), llvm::errs(), "normalize: "); return false; }
   if (llvm::verifyModule(*module, &llvm::errs())) return false;
   auto expected = canonical(*module);
@@ -97,14 +97,14 @@ bool roundtrip(llvm::StringRef file, bool wide, llvm::StringRef output = {}) {
     for (auto *record : function.orderedRecords)
       if (!llvm::is_contained(ordered, record)) ordered.push_back(record);
   for (auto &entry : normalized->calls) {
-    auto native = nier::detail::classifyNativeABI(entry.second, wide, ordered);
+    auto native = sela::detail::classifyNativeABI(entry.second, wide, ordered);
     if (!native) { llvm::logAllUnhandledErrors(native.takeError(), llvm::errs()); return false; }
-    auto call = nier::detail::materializeNativeAggregateCall(*entry.first, entry.second, *native);
+    auto call = sela::detail::materializeNativeAggregateCall(*entry.first, entry.second, *native);
     if (!call) { llvm::logAllUnhandledErrors(call.takeError(), llvm::errs()); return false; }
   }
-  nier::detail::NativeABIInverseHints hints;
+  sela::detail::NativeABIInverseHints hints;
   for (auto &entry : normalized->functions) {
-    auto function = nier::detail::materializeNativeAggregateDefinition(*entry.function, entry.logicalType, entry.native, ordered, &hints);
+    auto function = sela::detail::materializeNativeAggregateDefinition(*entry.function, entry.logicalType, entry.native, ordered, &hints);
     if (!function) { llvm::logAllUnhandledErrors(function.takeError(), llvm::errs()); return false; }
   }
   if (llvm::verifyModule(*module, &llvm::errs())) return false;
@@ -116,7 +116,7 @@ bool roundtrip(llvm::StringRef file, bool wide, llvm::StringRef output = {}) {
     stream.flush();
     if (stream.has_error()) return false;
   }
-  auto inverse = nier::detail::normalizeNativeAggregates(*module, wide, &hints);
+  auto inverse = sela::detail::normalizeNativeAggregates(*module, wide, &hints);
   if (!inverse) { llvm::logAllUnhandledErrors(inverse.takeError(), llvm::errs(), "inverse: "); return false; }
   if (llvm::verifyModule(*module, &llvm::errs()) || canonical(*module) != expected) {
     llvm::errs() << "regenerated native ABI failed exact normalized inverse\n";
@@ -130,18 +130,18 @@ bool run(llvm::StringRef file, bool wide, bool main) {
   auto module = llvm::parseIRFile(file, diagnostic, context);
   if (!module) return false;
   auto before = text(*module);
-  auto definitions = nier::detail::discoverAggregateABIs(*module, wide);
+  auto definitions = sela::detail::discoverAggregateABIs(*module, wide);
   if (!definitions) { llvm::logAllUnhandledErrors(definitions.takeError(), llvm::errs()); return false; }
   if (definitions->size() != (main ? 0u : 9u)) { llvm::errs() << file << ": definition count " << definitions->size() << '\n'; for (const auto &entry : *definitions) llvm::errs() << entry.function->getName() << '\n'; return false; }
   for (auto &definition : *definitions) {
-    auto proof = nier::detail::proveAggregateDefinition(std::move(definition));
+    auto proof = sela::detail::proveAggregateDefinition(std::move(definition));
     if (!proof) { llvm::logAllUnhandledErrors(proof.takeError(), llvm::errs()); return false; }
   }
-  auto calls = nier::detail::proveAggregateCalls(*module, wide);
+  auto calls = sela::detail::proveAggregateCalls(*module, wide);
   if (!calls) { llvm::logAllUnhandledErrors(calls.takeError(), llvm::errs()); return false; }
   if (calls->size() != (main ? 12u : 3u) || before != text(*module)) { llvm::errs() << "call count " << calls->size() << ", mutated=" << (before != text(*module)) << '\n'; return false; }
   if (!main) {
-    auto normalized = nier::detail::normalizeAggregateDefinitions(*module, wide);
+    auto normalized = sela::detail::normalizeAggregateDefinitions(*module, wide);
     if (!normalized) { llvm::logAllUnhandledErrors(normalized.takeError(), llvm::errs()); return false; }
     llvm::StripDebugInfo(*module);
     if (llvm::verifyModule(*module, &llvm::errs())) return false;
@@ -193,7 +193,7 @@ bool definitionNegative(llvm::StringRef file, unsigned variant) {
         llvm::DITypeRefArray(llvm::MDTuple::get(context, parameters))));
   }
   auto before = text(*module);
-  auto plans = nier::detail::normalizeAggregateDefinitions(*module, true);
+  auto plans = sela::detail::normalizeAggregateDefinitions(*module, true);
   if (plans) return false;
   llvm::consumeError(plans.takeError());
   return before == text(*module);
@@ -217,7 +217,7 @@ bool callNegative(llvm::StringRef file, unsigned variant) {
   if (variant == 2) call->addParamAttr(0, llvm::Attribute::NoUndef);
   if (variant == 3) load->setAlignment(llvm::Align(32));
   auto before = text(*module);
-  auto proof = nier::detail::proveAggregateCalls(*module, true);
+  auto proof = sela::detail::proveAggregateCalls(*module, true);
   if (proof) {
     // An altered piece may remain a scalar operand instead of qualifying as a
     // record pack. It must never be removed as a record shim or retain the

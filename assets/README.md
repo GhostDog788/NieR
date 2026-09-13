@@ -1,8 +1,9 @@
-# NieR presentation assets
+# Sela presentation assets
 
-The root README uses the original `nier-logo.png`, editable `nier-flow.svg`, and real `hello-demo.gif` recording.
+The supplied Sela artwork is preserved in two separate files: `sela.png` is the stone icon and `sela-word.png` is the wordmark.
+The root README uses the wordmark, editable `sela-flow.svg`, and real `hello-demo.gif` recording.
 `social-preview.svg` is the editable source for the 1280 × 640 `social-preview.png` GitHub card.
-The wordmark is embedded unchanged in the social SVG so rendering does not depend on an external image path.
+Both supplied images are embedded in the social SVG so the rendered card is self-contained.
 
 The demo's `.cast`, `.txt`, and `.provenance.json` files preserve its terminal events, accessible transcript, and recording evidence.
 The commands were actually executed; intentional reading pauses are not compilation timings.

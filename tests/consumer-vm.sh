@@ -11,17 +11,17 @@ fixtures=$(realpath -e -- "$2")
 for command in qemu-system-i386 cpio gzip curl dpkg-deb sha256sum readelf timeout; do
     command -v "$command" >/dev/null || { printf 'Required VM host tool: %s\n' "$command" >&2; exit 1; }
 done
-readelf -h "$bundle/bin/nierc" | grep -q 'Class:.*ELF32'
-readelf -h "$bundle/bin/nierc" | grep -q 'Machine:.*Intel 80386'
+readelf -h "$bundle/bin/selac" | grep -q 'Class:.*ELF32'
+readelf -h "$bundle/bin/selac" | grep -q 'Machine:.*Intel 80386'
 readelf -h "$fixtures/exec-format" | grep -q 'Class:.*ELF32'
 readelf -h "$fixtures/elf64-negative" | grep -q 'Class:.*ELF64'
 test -f "$fixtures/fixtures.sha256"
 test -d "$bundle/sdk/sysroots/i686-linux-gnu/usr/lib/i386-linux-gnu"
 test ! -e "$bundle/sdk/sysroots/x86_64-linux-gnu"
-vm_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-consumer-vm-XXXXXX")
+vm_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-consumer-vm-XXXXXX")
 printf 'VM acceptance workspace: %s\n' "$vm_work"
 trap 'status=$?; printf "VM evidence retained: %s (status %s)\n" "$vm_work" "$status"' EXIT
-cache=${NIER_VM_CACHE:-$repository/.sdk/test-vm/downloads}
+cache=${SELA_VM_CACHE:-$repository/.sdk/test-vm/downloads}
 mkdir -p "$cache"
 while read -r role package architecture version digest url extra; do
     [[ -n $role && $role != \#* ]] || continue
@@ -64,7 +64,7 @@ readelf -h "$root/bin/busybox" | grep -q 'Class:.*ELF32'
 # The static rescue shell supplies the base VM utilities; corpus test runners
 # are staged separately below and never become compiler product dependencies.
 ln -s busybox "$root/bin/sh"
-cp -a -- "$bundle" "$root/opt/nier"
+cp -a -- "$bundle" "$root/opt/sela"
 cp -a -- "$fixtures/." "$root/fixtures/"
 cp -- "$repository/tests/vm/init.sh" "$root/init"
 cp -- "$repository/tests/consumer-fixtures.sh" "$root/consumer-fixtures.sh"
@@ -75,7 +75,7 @@ fi
 chmod 755 "$root/init"
 # Real ELF32 processes use the ordinary loader path and Noble 2.39 runtime.
 # No separate host filesystem, network mount, or publisher tree is available.
-ln -s opt/nier/sdk/sysroots/i686-linux-gnu/usr/lib "$root/lib"
+ln -s opt/sela/sdk/sysroots/i686-linux-gnu/usr/lib "$root/lib"
 ln -s ../lib "$root/usr/lib"
 token=${vm_work##*/}
 printf '%s\n' "$token" > "$root/receipt-token"
@@ -83,12 +83,14 @@ printf '%s\n' "$token" > "$root/receipt-token"
     cd "$root"
     find . -print0 | LC_ALL=C sort -z | cpio --null -o --format=newc --owner=0:0 --quiet | gzip -1
 ) > "$vm_work/initramfs.cpio.gz"
-memory=${NIER_VM_RAM_MIB:-3072}
-deadline=${NIER_VM_TIMEOUT:-900}
+# Reject a damaged boot image before launching a guest; retain it as evidence.
+gzip -t "$vm_work/initramfs.cpio.gz"
+memory=${SELA_VM_RAM_MIB:-3072}
+deadline=${SELA_VM_TIMEOUT:-900}
 [[ $memory =~ ^[0-9]+$ && $memory -ge 512 && $memory -le 4096 ]]
 [[ $deadline =~ ^[0-9]+$ && $deadline -ge 30 && $deadline -le 3600 ]]
-accelerator=${NIER_VM_ACCEL:-auto}
-case "$accelerator" in auto|kvm|tcg) ;; *) printf 'NIER_VM_ACCEL must be auto, kvm, or tcg\n' >&2; exit 2 ;; esac
+accelerator=${SELA_VM_ACCEL:-auto}
+case "$accelerator" in auto|kvm|tcg) ;; *) printf 'SELA_VM_ACCEL must be auto, kvm, or tcg\n' >&2; exit 2 ;; esac
 if [[ $accelerator == auto ]]; then
     accelerator=tcg
     if [[ -r /dev/kvm && -w /dev/kvm ]]; then
@@ -118,14 +120,14 @@ vm_status=${PIPESTATUS[0]}
 set -e
 test "$vm_status" -eq 0
 tr -d '\r' < "$vm_work/serial.log" > "$vm_work/serial-normalized.log"
-grep -Fxq "NIER_VM_PASS $token" "$vm_work/serial-normalized.log"
-grep -Fxq 'NIER_VM_KERNEL 6.1.0-50-686-pae i686' "$vm_work/serial-normalized.log"
-grep -Fxq 'NIER_VM_ELF64_ENOEXEC' "$vm_work/serial-normalized.log"
+grep -Fxq "SELA_VM_PASS $token" "$vm_work/serial-normalized.log"
+grep -Fxq 'SELA_VM_KERNEL 6.1.0-50-686-pae i686' "$vm_work/serial-normalized.log"
+grep -Fxq 'SELA_VM_ELF64_ENOEXEC' "$vm_work/serial-normalized.log"
 if [[ -f $fixtures/corpus.list ]]; then
     expected=$(<"$fixtures/corpus-count")
-    grep -Fxq "NIER_CONSUMER_CORPUS_PASS target=i686 artifacts=$expected" "$vm_work/serial-normalized.log"
+    grep -Fxq "SELA_CONSUMER_CORPUS_PASS target=i686 artifacts=$expected" "$vm_work/serial-normalized.log"
 else
-    grep -Fq 'NIER_CONSUMER_FIXTURES_PASS target=i686 ' "$vm_work/serial-normalized.log"
+    grep -Fq 'SELA_CONSUMER_FIXTURES_PASS target=i686 ' "$vm_work/serial-normalized.log"
 fi
-if grep -Eq 'NIER_VM_FAIL|Kernel panic|Out of memory:' "$vm_work/serial-normalized.log"; then exit 1; fi
+if grep -Eq 'SELA_VM_FAIL|Kernel panic|Out of memory:' "$vm_work/serial-normalized.log"; then exit 1; fi
 printf 'Real 32-bit kernel/compiler/native-output VM acceptance passed: %s\n' "$vm_work"

@@ -1,0 +1,4 @@
+#ifndef SELA_TEST_OPTIONS_H
+#define SELA_TEST_OPTIONS_H
+#define HEADER_VALUE 23
+#endif

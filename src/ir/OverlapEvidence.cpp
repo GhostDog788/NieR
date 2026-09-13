@@ -6,7 +6,7 @@
 #include "llvm/IR/InstIterator.h"
 #include <set>
 
-namespace nier::detail {
+namespace sela::detail {
 namespace {
 llvm::Error fail(llvm::StringRef message) {
   return llvm::createStringError(std::make_error_code(std::errc::invalid_argument), message);

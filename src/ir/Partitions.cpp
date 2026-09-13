@@ -1,5 +1,5 @@
-#include "nier/Producer/Partitions.h"
-#include "nier/Producer/LLVM.h"
+#include "sela/Producer/Partitions.h"
+#include "sela/Producer/LLVM.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/InstIterator.h"
@@ -15,7 +15,7 @@
 #include <map>
 #include <set>
 
-namespace nier {
+namespace sela {
 namespace {
 llvm::Error fail(const llvm::Twine &text) {
   return llvm::createStringError(std::make_error_code(std::errc::invalid_argument), text);
@@ -84,8 +84,8 @@ llvm::Expected<std::unique_ptr<llvm::Module>> slice(
 std::string evidenceText(const llvm::Module &module) {
   auto copy = llvm::CloneModule(module);
   llvm::StripDebugInfo(*copy);
-  copy->setModuleIdentifier("nier-partition-proof");
-  copy->setSourceFileName("nier-partition-proof");
+  copy->setModuleIdentifier("sela-partition-proof");
+  copy->setSourceFileName("sela-partition-proof");
   if (auto *ident = copy->getNamedMetadata("llvm.ident")) copy->eraseNamedMetadata(ident);
   std::vector<llvm::Function *> debug;
   for (auto &function : *copy)
@@ -185,7 +185,7 @@ llvm::Expected<MergedPartitions> mergeProfilePartitions(
     }
   }
   for (size_t i = 0; i < fragments.size(); ++i) {
-    auto output = directory / ("fragment-" + std::to_string(i) + ".nierbc");
+    auto output = directory / ("fragment-" + std::to_string(i) + ".selabc");
     if (auto error = mergeProfiles(leftPaths[i], rightPaths[i], output.string())) return error;
     result.fragments.push_back(output.string());
   }

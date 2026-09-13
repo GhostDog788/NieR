@@ -48,7 +48,7 @@ jobs:
         with:
           # Never cache extracted tools, build outputs, receipts, or credentials.
           path: .sdk/downloads
-          key: ${{ runner.os }}-${{ runner.arch }}-nier-sdk-debs-${{ hashFiles('sdk/packages.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-sela-sdk-debs-${{ hashFiles('sdk/packages.lock') }}
         timeout-minutes: 3
 
       - name: Bootstrap the pinned SDK
@@ -59,13 +59,13 @@ jobs:
         timeout-minutes: 5
         run: bash sdk/check-sdk.sh
 
-      - name: Configure NieR
+      - name: Configure Sela
         timeout-minutes: 3
         run: |
           source sdk/env.sh
           cmake --preset prealpha
 
-      - name: Build NieR with two jobs
+      - name: Build Sela with two jobs
         timeout-minutes: 12
         run: |
           source sdk/env.sh

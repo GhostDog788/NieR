@@ -1,27 +1,27 @@
-# 11 — Implementing the NieR contract
+# 11 — Implementing the Sela contract
 
 [Series](../README.md) · [Previous: Reading the repository](10-reading-the-repository.md) · [Next: The developer-side compiler](12-developer-side-compiler.md)
 
 ## Objective and prerequisites
 
-This chapter shows how NieR's public representation becomes an implemented, checked contract rather than just a file extension.
-You will read a small NieR function, distinguish parsing from semantic validation, and follow the public API used by an independent producer.
+This chapter shows how Sela's public representation becomes an implemented, checked contract rather than just a file extension.
+You will read a small Sela function, distinguish parsing from semantic validation, and follow the public API used by an independent producer.
 Basic C++ ownership and LLVM error handling from the preceding chapter are enough; no Clang frontend knowledge is required.
-The optional lab uses the already built independent-producer fixture and `nierc` in `build/prealpha`.
+The optional lab uses the already built independent-producer fixture and `selac` in `build/prealpha`.
 
 ## A dialect supplies vocabulary; the contract supplies meaning
 
 MLIR is infrastructure for representing and transforming intermediate code. A **dialect** is a registered family of operation and type names.
-NieR's dialect uses the `nier` namespace: examples include `nier.func`, `nier.load`, and `!nier.word`. Its registration is visible in `src/ir/Dialect.cpp`.
+Sela's dialect uses the `sela` namespace: examples include `sela.func`, `sela.load`, and `!sela.word`. Its registration is visible in `src/ir/Dialect.cpp`.
 
 An **operation** has operands, results, attributes, and possibly nested regions or successor blocks.
 Operands are values it uses; results are values it defines.
 Attributes describe information attached to the operation rather than values computed at runtime. A region contains blocks, and a block contains operations.
 This is enough vocabulary to read a tiny function without knowing MLIR's full framework.
 
-NieR deliberately uses MLIR's generic operation syntax.
+Sela deliberately uses MLIR's generic operation syntax.
 Quoted operation names are not an opaque escape hatch: they name real registered operations.
-Custom type syntax is parsed by `NIERDialect::parseType`; the operation definitions declare structural properties such as result count and whether an operation terminates a block.
+Custom type syntax is parsed by `SelaDialect::parseType`; the operation definitions declare structural properties such as result count and whether an operation terminates a block.
 
 Registration alone does not make every combination valid. The public contract also restricts allowed attributes, data types, source locations, target domains, control flow, and native semantics.
 Those checks live principally in `src/ir/Compiler.cpp` and its consumer-safe helpers.
@@ -31,10 +31,10 @@ Those checks live principally in `src/ir/Compiler.cpp` and its consumer-safe hel
 This is a minimal function returning zero in the current schema, shown as readable MLIR rather than as the binary publication payload:
 
 ```mlir
-module attributes {nier.schema = 1 : i32} {
-  "nier.func"() ({
-    %zero = "nier.constant"() {value = 0 : i64} : () -> i32
-    "nier.return"(%zero) : (i32) -> ()
+module attributes {sela.schema = 1 : i32} {
+  "sela.func"() ({
+    %zero = "sela.constant"() {value = 0 : i64} : () -> i32
+    "sela.return"(%zero) : (i32) -> ()
   }) {id = "main", type = () -> i32,
       declaration = false, variadic = false,
       internal = false, dso_local = true,
@@ -42,38 +42,38 @@ module attributes {nier.schema = 1 : i32} {
 }
 ```
 
-The module carries the current NieR schema number.
-`nier.func` has no ordinary operands or results of its own; its region holds the function body.
+The module carries the current Sela schema number.
+`sela.func` has no ordinary operands or results of its own; its region holds the function body.
 Its `type` attribute says the function accepts no arguments and returns an `i32` value. The `id` is the linkable function identity.
 
 `%zero` is an SSA value: its definition occurs once, and later operations refer to that value rather than reassigning a source-language variable.
 Its printed name is not an application variable that must be preserved.
-The constant's attribute is stored as an `i64` integer attribute here, while the operation's declared result is `i32`; the verifier and lowerer interpret that combination according to NieR's constant rules.
+The constant's attribute is stored as an `i64` integer attribute here, while the operation's declared result is `i32`; the verifier and lowerer interpret that combination according to Sela's constant rules.
 
-`nier.return` consumes that `i32` and produces no result. It ends the block.
+`sela.return` consumes that `i32` and produces no result. It ends the block.
 The function-level `attributes` array contains the supported function/return/parameter attribute slots; the zero-argument example has two empty slots.
 These are explicit fields of the current schema, not optional decorations to guess at when writing a producer.
 
 For native-width behavior, the existing independent fixture adds a function returning this pair:
 
 ```mlir
-%width = "nier.constant"() {value = "pointer_bytes"} : () -> !nier.word
-"nier.return"(%width) : (!nier.word) -> ()
+%width = "sela.constant"() {value = "pointer_bytes"} : () -> !sela.word
+"sela.return"(%width) : (!sela.word) -> ()
 ```
 
-`!nier.word` remains unresolved until a target is selected.
+`!sela.word` remains unresolved until a target is selected.
 By contrast, an `i32` constant eight remains fixed. This distinction is the representation's meaning, not a convention based on the spelling of `%width`.
 
 ## Validation happens at several levels
 
 Parsing checks whether bytes or text can form an MLIR structure. MLIR's structural verifier checks framework invariants.
-NieR's schema checks then reject unknown operation/attribute combinations, disallowed private locations, and other violations of the publication contract.
+Sela's schema checks then reject unknown operation/attribute combinations, disallowed private locations, and other violations of the publication contract.
 
-`nier::verifyModuleStructure` checks the entire public graph, including target-conditional regions that are inactive on this device.
-`nier::verifyModule` goes further: for every explicitly requested native target, it lowers and verifies the specialized LLVM result.
+`sela::verifyModuleStructure` checks the entire public graph, including target-conditional regions that are inactive on this device.
+`sela::verifyModule` goes further: for every explicitly requested native target, it lowers and verifies the specialized LLVM result.
 Unknown, duplicate, empty, or unavailable native-target requests fail; there is no fallback that calls unavailable native validation successful.
 
-Native-validation APIs require an explicit target list. `nier::supportedNativeTargets()` returns the implementations actually linked into this build, not every domain understood by the shared schema.
+Native-validation APIs require an explicit target list. `sela::supportedNativeTargets()` returns the implementations actually linked into this build, not every domain understood by the shared schema.
 The publisher has both `x86_64` and `i686` implementations and proves both profiles. A thin destination compiler has only its own native implementation.
 Its inspector can structurally admit a foreign-only artifact, but must report that the foreign native plan was not validated; compiling or lowering it rejects.
 Do not confuse selected-target native compilation with independent certification of every other target's execution.
@@ -90,19 +90,19 @@ Digests detect inconsistent bytes; they are not signatures establishing who publ
 
 ## The independent-producer API, worked through
 
-A producer does not have to generate LLVM captures. It can construct registered MLIR operations directly, or parse known NieR text into an MLIR module.
+A producer does not have to generate LLVM captures. It can construct registered MLIR operations directly, or parse known Sela text into an MLIR module.
 The public headers expose the same validation and serialization path in either case.
 
 The following function illustrates the complete packaging portion, using real current APIs. The caller supplies a constructed module and keeps its context alive.
 It should choose a fresh output path for this example.
 
 ```cpp
-#include "nier/Artifact/Artifact.h"
-#include "nier/IR/Compiler.h"
+#include "sela/Artifact/Artifact.h"
+#include "sela/IR/Compiler.h"
 
 llvm::Error emitOneModule(mlir::ModuleOp module,
-                          const nier::driver::fs::path &output) {
-  using namespace nier::driver;
+                          const sela::driver::fs::path &output) {
+  using namespace sela::driver;
 
   // Parsed text has parser locations; they are not publication metadata.
   auto *context = module.getContext();
@@ -117,11 +117,11 @@ llvm::Error emitOneModule(mlir::ModuleOp module,
   auto scratch = Scratch::create();
   if (!scratch)
     return scratch.takeError();
-  auto bytecodePath = scratch->path / "module.nierbc";
+  auto bytecodePath = scratch->path / "module.selabc";
 
-  // writeModule validates before serializing the current NieR contract.
-  if (auto error = nier::writeModule(module, bytecodePath.string(),
-                                    nier::supportedNativeTargets()))
+  // writeModule validates before serializing the current Sela contract.
+  if (auto error = sela::writeModule(module, bytecodePath.string(),
+                                    sela::supportedNativeTargets()))
     return error;
 
   auto bytes = read(bytecodePath);
@@ -157,17 +157,17 @@ Run from the repository root in Bash. The producer executable is a test fixture,
 
 ```bash
 source sdk/env.sh
-guide_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide11-XXXXXX")
+guide_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide11-XXXXXX")
 
-build/prealpha/nier_independent_producer "$guide_work/independent.nier"
-build/prealpha/nierc inspect "$guide_work/independent.nier"
-tar -tf "$guide_work/independent.nier"
-build/prealpha/nierc "$guide_work/independent.nier" \
+build/prealpha/sela_independent_producer "$guide_work/independent.sela"
+build/prealpha/selac inspect "$guide_work/independent.sela"
+tar -tf "$guide_work/independent.sela"
+build/prealpha/selac "$guide_work/independent.sela" \
   -o "$guide_work/independent"
 env -u LD_LIBRARY_PATH "$guide_work/independent"
 printf 'Native exit status: %s\n' "$?"
 
-build/prealpha/nier_reference_lower lower "$guide_work/independent.nier" \
+build/prealpha/sela_reference_lower lower "$guide_work/independent.sela" \
   --target i686 --output-dir "$guide_work/narrow"
 opt -passes=verify -disable-output "$guide_work/narrow/0.ll"
 opt -passes=verify -disable-output "$guide_work/narrow/1.ll"
@@ -175,7 +175,7 @@ printf 'Independent-producer workspace: %s\n' "$guide_work"
 ```
 
 The application prints no greeting: success is exit status zero. Its `main` checks a native-width helper and a fixed-eight helper from the other module.
-The final narrow inspection uses the publisher-only `nier_reference_lower` test helper, not a foreign-target mode of the public native-only `nierc`.
+The final narrow inspection uses the publisher-only `sela_reference_lower` test helper, not a foreign-target mode of the public native-only `selac`.
 This tests both target-dependent and fixed semantics across a public module boundary. It is not evidence that all potential language runtime semantics already fit the current dialect.
 
 ## Extending the contract is a coordinated change
@@ -189,7 +189,7 @@ A maintainer should ask: can an independent producer express this feature, can e
 
 ## Recap and check your understanding
 
-MLIR supplies representation machinery. NieR supplies the vocabulary and checked semantics.
+MLIR supplies representation machinery. Sela supplies the vocabulary and checked semantics.
 The public boundary is usable without Clang, but every producer must obey the current contract and honestly declare its supported target domain.
 
 > [!faq]- Is adding an operation name to Dialect.cpp enough to support a feature?
@@ -198,7 +198,7 @@ The public boundary is usable without Clang, but every producer must obey the cu
 
 > [!faq]- Why does the independent producer call writeModule before createArtifact?
 >
-> `writeModule` validates and serializes the NieR module.
+> `writeModule` validates and serializes the Sela module.
 > `createArtifact` packages those byte strings with public metadata.
 > Code semantics and archive structure are different layers.
 
@@ -209,8 +209,8 @@ The public boundary is usable without Clang, but every producer must obey the cu
 
 ## Guided reading
 
-Read `include/nier/IR/Dialect.h` and `src/ir/Dialect.cpp` together.
+Read `include/sela/IR/Dialect.h` and `src/ir/Dialect.cpp` together.
 Follow `verifyModule`, `writeModule`, and `readModule` in `src/ir/Compiler.cpp`.
 Native lowering is implemented separately in `src/ir/NativeLowering.cpp`; the destination build links only its selected target specialization.
-Compare `include/nier/IR/Compiler.h` and `include/nier/Artifact/Artifact.h` to the complete independent producer (`tests/independent.cpp`).
+Compare `include/sela/IR/Compiler.h` and `include/sela/Artifact/Artifact.h` to the complete independent producer (`tests/independent.cpp`).
 `tests/ir.cpp` contains valid and invalid contract examples; `tests/package.cpp` checks the archive layer independently.

@@ -1,15 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
-project(NierSDKIntegration NONE)
-include("${NIER_INTEGRATION_FILE}")
+project(SelaSDKIntegration NONE)
+include("${SELA_INTEGRATION_FILE}")
 if(NOT DEFINED APPLICATION_NATIVE_OUTPUT)
   set(APPLICATION_NATIVE_OUTPUT hello)
 endif()
 if(NOT DEFINED APPLICATION_TARGET)
   set(APPLICATION_TARGET hello)
 endif()
-nier_add_publication(published
+sela_add_publication(published
   SOURCE_DIR "${APPLICATION_SOURCE}"
   NATIVE_OUTPUT "${APPLICATION_NATIVE_OUTPUT}"
   OUTPUT "${APPLICATION_ARTIFACT}"
-  BUILD_TOOL "${NIER_BUILD_TOOL}"
+  BUILD_TOOL "${SELA_BUILD_TOOL}"
   TARGETS "${APPLICATION_TARGET}")

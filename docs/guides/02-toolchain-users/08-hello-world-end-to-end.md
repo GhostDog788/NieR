@@ -4,12 +4,12 @@
 
 ## Objective and prerequisites
 
-This chapter follows one small program across the complete implemented boundary: C source, a standalone NieR artifact, destination compilation, and ordinary native execution.
+This chapter follows one small program across the complete implemented boundary: C source, a standalone Sela artifact, destination compilation, and ordinary native execution.
 You should already know how to compile a C program and have a working SDK plus publisher build in `build/prealpha`.
 The lab is independent of every earlier lab and writes only to a newly created scratch directory.
 
 We use one machine for convenience. It performs the publisher and destination roles at different steps.
-That does not make publication and consumption the same program: `clang` and `nierc` have different inputs and responsibilities.
+That does not make publication and consumption the same program: `clang` and `selac` have different inputs and responsibilities.
 
 ## Start with a genuinely normal C program
 
@@ -23,7 +23,7 @@ void hello(void) {
 }
 ```
 
-There are no NieR application APIs, special entry points, or runtime registration calls.
+There are no Sela application APIs, special entry points, or runtime registration calls.
 The header declares a function shared between the two C files. It is not compiled independently.
 Each C file, together with the headers it includes, forms a **translation unit**: one source unit processed by the C frontend.
 
@@ -35,17 +35,17 @@ This chapter instead follows the starter's C files directly to explain what happ
 
 ## The three commands that define the workflow
 
-The publication command is actual stock `clang`, configured with the generated `nier.cfg`. The configuration loads the NieR frontend adapter and selects the internal publication linker.
+The publication command is actual stock `clang`, configured with the generated `sela.cfg`. The configuration loads the Sela frontend adapter and selects the internal publication linker.
 The developer still supplies normal C source paths and a normal `-o` output path.
 
-The output named `hello.nier` is an archive, not an executable. It contains the NieR representation and public metadata needed to compile the output.
+The output named `hello.sela` is an archive, not an executable. It contains the Sela representation and public metadata needed to compile the output.
 Its metadata declares target constraints, modules, optimization settings, and native dependencies. It does not point back to this example's source files.
 
-The second command, `nierc hello.nier -o hello`, specializes NieR Code for the destination, optimizes the resulting LLVM IR, generates native objects, and links them.
+The second command, `selac hello.sela -o hello`, specializes Sela Code for the destination, optimizes the resulting LLVM IR, generates native objects, and links them.
 **Specialization** means resolving an abstract choice—such as native word size—using the destination's supported target contract.
 It is not a second C compilation. There is no C source input at this stage.
 
-Finally, executing `hello` asks the operating system to run an ordinary native program. The NieR compiler does not remain resident.
+Finally, executing `hello` asks the operating system to run an ordinary native program. The Sela compiler does not remain resident.
 The publication artifact is not interpreted during execution. The application still uses normal native runtime components such as the supplied glibc and its stock loader.
 
 ## Optional lab: publish, inspect, compile, run
@@ -55,30 +55,30 @@ Keep the printed scratch path if you want to inspect the files afterward.
 
 ```bash
 source sdk/env.sh
-guide_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide08-XXXXXX")
-guide_config="$PWD/build/prealpha/nier.cfg"
+guide_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide08-XXXXXX")
+guide_config="$PWD/build/prealpha/sela.cfg"
 
 clang --config="$guide_config" -O2 \
   examples/hello/hello/main.c examples/hello/hello/hello.c \
-  -o "$guide_work/hello.nier"
+  -o "$guide_work/hello.sela"
 
-build/prealpha/nierc inspect "$guide_work/hello.nier"
-tar -tf "$guide_work/hello.nier"
-tar -xOf "$guide_work/hello.nier" manifest.json
+build/prealpha/selac inspect "$guide_work/hello.sela"
+tar -tf "$guide_work/hello.sela"
+tar -xOf "$guide_work/hello.sela" manifest.json
 
-build/prealpha/nierc "$guide_work/hello.nier" -o "$guide_work/hello"
+build/prealpha/selac "$guide_work/hello.sela" -o "$guide_work/hello"
 env -u LD_LIBRARY_PATH "$guide_work/hello"
 readelf -h "$guide_work/hello"
 readelf -l "$guide_work/hello"
 
-build/prealpha/nierc lower "$guide_work/hello.nier" \
+build/prealpha/selac lower "$guide_work/hello.sela" \
   --target x86_64 --output-dir "$guide_work/lowered"
 opt -passes=verify -disable-output "$guide_work/lowered/0.ll"
 
-tar -xOf "$guide_work/hello.nier" modules/0.nierbc \
+tar -xOf "$guide_work/hello.sela" modules/0.selabc \
   | mlir-opt --allow-unregistered-dialect -
 
-mv "$guide_work/hello.nier" "$guide_work/hello.offline.nier"
+mv "$guide_work/hello.sela" "$guide_work/hello.offline.sela"
 env -u LD_LIBRARY_PATH "$guide_work/hello"
 printf 'Hello World workspace: %s\n' "$guide_work"
 ```
@@ -95,11 +95,11 @@ Leaving it set could make the loader search tool-library directories before the 
 Clearing it does not make the application static or eliminate its native dependencies.
 
 The `lower` command exposes diagnostic LLVM files without running the native backend.
-`opt -passes=verify` checks LLVM's structural rules for one such file. That is a useful additional check, not a replacement for NieR's own validation.
+`opt -passes=verify` checks LLVM's structural rules for one such file. That is a useful additional check, not a replacement for Sela's own validation.
 
-The final pipeline prints the bytecode through stock MLIR tooling. Its `--allow-unregistered-dialect` option is essential because this stock `mlir-opt` does not register NieR's dialect.
-It can display the representation; it does **not** validate NieR's semantic contract.
-Use `nierc inspect` for that public validation path.
+The final pipeline prints the bytecode through stock MLIR tooling. Its `--allow-unregistered-dialect` option is essential because this stock `mlir-opt` does not register Sela's dialect.
+It can display the representation; it does **not** validate Sela's semantic contract.
+Use `selac inspect` for that public validation path.
 Being able to print an operation is not proof that its meaning is supported.
 
 Moving the artifact before the second execution demonstrates a narrow but important fact: the installed native executable does not reopen that artifact to run.
@@ -108,12 +108,12 @@ It does not prove the complete deployment requirements, performance limits, or f
 ## The same flow with separate compilation
 
 Many real Makefiles compile one source file at a time.
-NieR's stock-Clang mode supports that shape. Here is a separate, independently runnable lab:
+Sela's stock-Clang mode supports that shape. Here is a separate, independently runnable lab:
 
 ```bash
 source sdk/env.sh
-guide_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide08-separate-XXXXXX")
-guide_config="$PWD/build/prealpha/nier.cfg"
+guide_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide08-separate-XXXXXX")
+guide_config="$PWD/build/prealpha/sela.cfg"
 
 clang --config="$guide_config" -O2 -c examples/hello/hello/main.c \
   -o "$guide_work/main.o"
@@ -122,25 +122,25 @@ clang --config="$guide_config" -O2 -c examples/hello/hello/hello.c \
 tar -tf "$guide_work/main.o"
 
 clang --config="$guide_config" "$guide_work/main.o" "$guide_work/hello.o" \
-  -o "$guide_work/separate.nier"
-build/prealpha/nierc "$guide_work/separate.nier" \
+  -o "$guide_work/separate.sela"
+build/prealpha/selac "$guide_work/separate.sela" \
   -o "$guide_work/separate"
 env -u LD_LIBRARY_PATH "$guide_work/separate"
 printf 'Separate-compilation workspace: %s\n' "$guide_work"
 ```
 
-The `.o` suffix here is a build convention. These particular `.o` files contain relocatable **NieR object artifacts**, not native ELF object code.
+The `.o` suffix here is a build convention. These particular `.o` files contain relocatable **Sela object artifacts**, not native ELF object code.
 They are inputs to the publication link step.
-`nierc` deliberately rejects an object-kind artifact as a complete native output request: first finish publication linking through Clang.
+`selac` deliberately rejects an object-kind artifact as a complete native output request: first finish publication linking through Clang.
 The final archive embeds the required modules, not references to the intermediate `.o` filenames.
 
 This does not mean every existing build works by globally replacing `CC` with this configuration. A configure probe may immediately execute its compiler output.
-A NieR archive cannot serve as that native probe. The next chapter introduces the SDK integration that keeps such build-time programs native.
+A Sela archive cannot serve as that native probe. The next chapter introduces the SDK integration that keeps such build-time programs native.
 
 ## What a failure tells you
 
 A source error belongs to Clang. An unsupported neutral transformation belongs to the producer.
-A malformed artifact, unsupported target, or invalid NieR operation belongs to the consumer's validation path. A missing declared native library belongs to dependency resolution or linking.
+A malformed artifact, unsupported target, or invalid Sela operation belongs to the consumer's validation path. A missing declared native library belongs to dependency resolution or linking.
 Distinguishing these stages makes a failure actionable.
 
 Never reuse a source or input pathname as `-o`. The internal writer and consumer have alias checks, but a direct stock-Clang driver retains its own failed-job cleanup and may delete its requested output after an error.
@@ -157,13 +157,13 @@ Nothing in the C example knows it is being published. The successful experiment 
 
 > [!faq]- Can the output from clang's publication command be executed directly?
 >
-> No. It is a NieR archive.
-> The separate `nierc` step creates native output, which the OS can execute using the selected native runtime.
+> No. It is a Sela archive.
+> The separate `selac` step creates native output, which the OS can execute using the selected native runtime.
 
 > [!faq]- Why is stock mlir-opt not the artifact validator?
 >
-> It can decode generic MLIR structure with unknown dialects allowed, but it does not know NieR's allowed operations, attributes, privacy rules, or target semantics.
-> The NieR consumer performs those checks.
+> It can decode generic MLIR structure with unknown dialects allowed, but it does not know Sela's allowed operations, attributes, privacy rules, or target semantics.
+> The Sela consumer performs those checks.
 
 ## Guided reading
 

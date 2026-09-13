@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(nier_sdk_smoke LANGUAGES C CXX)
+project(sela_sdk_smoke LANGUAGES C CXX)
 find_package(LLVM 18.1.3 EXACT REQUIRED CONFIG)
 find_package(MLIR REQUIRED CONFIG)
 find_package(LibArchive REQUIRED)

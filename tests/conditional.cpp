@@ -1,24 +1,24 @@
-#include "nier/IR/Compiler.h"
-#include "nier/IR/Dialect.h"
+#include "sela/IR/Compiler.h"
+#include "sela/IR/Dialect.h"
 #include "../src/ir/ConditionalSpecialization.h"
 #include "mlir/Parser/Parser.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace {
 const char *valid = R"mlir(
-module attributes {nier.schema = 1 : i32} {
-  "nier.func"() ({
-    %selector = "nier.constant"() {value = 8 : i64} : () -> i32
-    "nier.switch"(%selector)[^small, ^wide] {cases = [8 : i64],
+module attributes {sela.schema = 1 : i32} {
+  "sela.func"() ({
+    %selector = "sela.constant"() {value = 8 : i64} : () -> i32
+    "sela.switch"(%selector)[^small, ^wide] {cases = [8 : i64],
       case_domains = [1 : i32], argument_counts = array<i32: 0, 0>} : (i32) -> ()
   ^small:
-    %four = "nier.constant"() {value = 4 : i64} : () -> i32
-    "nier.br"(%four)[^done] : (i32) -> ()
+    %four = "sela.constant"() {value = 4 : i64} : () -> i32
+    "sela.br"(%four)[^done] : (i32) -> ()
   ^wide:
-    %eight = "nier.constant"() {value = 8 : i64} : () -> i32
-    "nier.br"(%eight)[^done] : (i32) -> ()
+    %eight = "sela.constant"() {value = 8 : i64} : () -> i32
+    "sela.br"(%eight)[^done] : (i32) -> ()
   ^done(%result: i32):
-    "nier.return"(%result) : (i32) -> ()
+    "sela.return"(%result) : (i32) -> ()
   }) {id = "answer", type = () -> i32, declaration = false, variadic = false,
     internal = false, dso_local = true, attributes = [[], []],
     block_domains = [3 : i32, 3 : i32, 1 : i32, 3 : i32]} : () -> ()
@@ -37,7 +37,7 @@ std::string print(mlir::ModuleOp module) {
 }
 bool test(llvm::StringRef name, const std::string &text, bool accept) {
   mlir::MLIRContext context;
-  context.getOrLoadDialect<nier::ir::NIERDialect>();
+  context.getOrLoadDialect<sela::ir::SelaDialect>();
   auto module = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
   if (!module) return !accept;
   module->walk([&](mlir::Operation *op) {
@@ -47,13 +47,13 @@ bool test(llvm::StringRef name, const std::string &text, bool accept) {
         for (auto argument : block.getArguments()) argument.setLoc(mlir::UnknownLoc::get(&context));
   });
   auto before = print(*module);
-  auto verified = nier::verifyModule(*module, nier::supportedNativeTargets());
+  auto verified = sela::verifyModule(*module, sela::supportedNativeTargets());
   bool admitted = !verified;
   if (verified) llvm::consumeError(std::move(verified));
   bool passed = admitted == accept;
   if (admitted && accept) {
     for (bool wide : {true, false}) {
-      auto specialized = nier::detail::specializeConditionalCFG(*module, wide);
+      auto specialized = sela::detail::specializeConditionalCFG(*module, wide);
       if (!specialized) {
         llvm::logAllUnhandledErrors(specialized.takeError(), llvm::errs()); passed = false; continue;
       }

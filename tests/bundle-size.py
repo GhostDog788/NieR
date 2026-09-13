@@ -21,7 +21,7 @@ SPEC.loader.exec_module(REPORTER)
 
 class BundleSizeTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="nier-bundle-size-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="sela-bundle-size-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "bundle"
         self.root.mkdir()
@@ -42,9 +42,9 @@ class BundleSizeTests(unittest.TestCase):
         return result
 
     def test_accounting_aliases_comparison_and_no_mutation(self):
-        original = self.put("bin/nierc", b"compiler")
+        original = self.put("bin/selac", b"compiler")
         os.link(original, self.root / "bin/hard-alias")
-        (self.root / "bin/symbolic-alias").symlink_to("nierc")
+        (self.root / "bin/symbolic-alias").symlink_to("selac")
         (self.root / "external").symlink_to("/definitely/not/a/bundle/file")
         self.put("sdk/host/usr/lib/llvm-18/bin/opt", b"tool")
         self.put("sdk/sysroots/x86_64-linux-gnu/usr/lib/libc.a", b"runtime")
@@ -53,7 +53,7 @@ class BundleSizeTests(unittest.TestCase):
         report = REPORTER.measure(self.root, compressed=True)
         self.assertEqual(report["regular_file_bytes"], 26)
         self.assertEqual(sum(g["regular_file_bytes"] for g in report["groups"].values()), 26)
-        self.assertEqual(report["groups"]["nierc"]["regular_file_bytes"], 8)
+        self.assertEqual(report["groups"]["selac"]["regular_file_bytes"], 8)
         self.assertEqual(sum(g["allocated_bytes"] for g in report["groups"].values()) + report["non_file_allocated_bytes"], report["allocated_bytes"])
         self.assertEqual(report["counts"], {"unique_regular_files": 4, "hardlink_aliases": 1, "symlinks": 2})
         self.assertGreater(report["compressed_tar_gzip1_bytes"], 0)
@@ -70,16 +70,16 @@ class BundleSizeTests(unittest.TestCase):
         self.assertEqual(before, self.snapshot())
 
     def test_compression_ignores_mtime_and_location(self):
-        self.put("bin/nierc", b"compiler" * 20)
+        self.put("bin/selac", b"compiler" * 20)
         before = REPORTER.measure(self.root, compressed=True)["compressed_tar_gzip1_bytes"]
-        os.utime(self.root / "bin/nierc", (1234, 1234))
+        os.utime(self.root / "bin/selac", (1234, 1234))
         copied = Path(self.temporary.name) / "elsewhere"
         shutil.copytree(self.root, copied)
         self.assertEqual(before, REPORTER.measure(copied, compressed=True)["compressed_tar_gzip1_bytes"])
 
     def test_dependency_grouping(self):
         prefix = "sdk/host/usr/lib/llvm-18/lib/"
-        dependencies = {"bin/nierc": ["libarchive.so.13", "libz.so.1"],
+        dependencies = {"bin/selac": ["libarchive.so.13", "libz.so.1"],
                         prefix + "libarchive.so.13": ["libxml2.so.2", "libz.so.1"],
                         prefix + "libxml2.so.2": ["libicuuc.so.74"],
                         prefix + "libicuuc.so.74": ["libicudata.so.74"],
@@ -106,13 +106,13 @@ class BundleSizeTests(unittest.TestCase):
         source = Path(shutil.which("true"))
         if source.read_bytes()[:4] != b"\x7fELF":
             self.skipTest("true is not ELF")
-        executable = self.put("bin/nierc", source.read_bytes())
+        executable = self.put("bin/selac", source.read_bytes())
         executable.chmod(0o600)
         before = self.snapshot()
         report = REPORTER.measure(self.root)
         self.assertGreater(report["sections"]["code"], 0)
         self.assertGreater(report["sections"]["unwind"], 0)
-        self.assertIsInstance(report["files"]["bin/nierc"]["elf"]["needed"], list)
+        self.assertIsInstance(report["files"]["bin/selac"]["elf"]["needed"], list)
         self.assertEqual(before, self.snapshot())
 
     def test_invalid_input_fails_without_writing(self):
@@ -125,7 +125,7 @@ class BundleSizeTests(unittest.TestCase):
         self.assertEqual(result.stdout, "")
 
     def test_section_accounting_excludes_nobits_and_dynamic_symbols(self):
-        fixture = self.put("bin/nierc", b"\x7fELFfixture")
+        fixture = self.put("bin/selac", b"\x7fELFfixture")
         sections = """
   [ 1] .text PROGBITS 00000100 000100 000010 00 AX 0 0 16
   [ 2] .symtab SYMTAB 00000000 000200 000018 18 4 1 8
@@ -135,17 +135,17 @@ class BundleSizeTests(unittest.TestCase):
   [ 6] .bss NOBITS 00000600 000600 001000 00 WA 0 0 16
   [ 7] .dynsym DYNSYM 00000700 000700 000018 18 A 8 1 8
  0x0000000000000001 (NEEDED) Shared library: [libfixture.so.1]
- 0x000000000000000e (SONAME) Library soname: [nierc-fixture]
+ 0x000000000000000e (SONAME) Library soname: [selac-fixture]
 """
         with patch.object(REPORTER.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, sections, "")):
             result = REPORTER.elf_info(fixture)
         self.assertEqual(result["sections"], {"code": 16, "symbols": 31, "unwind": 8,
                                               "debug": 9, "other_file_sections": 24})
         self.assertEqual(result["needed"], ["libfixture.so.1"])
-        self.assertEqual(result["soname"], "nierc-fixture")
+        self.assertEqual(result["soname"], "selac-fixture")
 
     def test_non_dot_prefixed_elf_sections_are_counted(self):
-        fixture = self.put("bin/nierc", b"\x7fELFfixture")
+        fixture = self.put("bin/selac", b"\x7fELFfixture")
         sections = """
   [ 0]              NULL     00000000 000000 000000 00 0 0 0
   [ 1] custom_code  PROGBITS 00000100 000100 000010 00 AX 0 0 16

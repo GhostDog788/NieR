@@ -1,10 +1,10 @@
 # 10 — Reading the repository as a C developer
 
-[Series](../README.md) · [Previous: Beyond Hello World](../02-toolchain-users/09-beyond-hello-world.md) · [Next: Implementing the NieR contract](11-implementing-the-nier-contract.md)
+[Series](../README.md) · [Previous: Beyond Hello World](../02-toolchain-users/09-beyond-hello-world.md) · [Next: Implementing the Sela contract](11-implementing-the-sela-contract.md)
 
 ## Objective and prerequisites
 
-This chapter builds the bridge from ordinary C development to reading NieR's C++17 and LLVM/MLIR implementation.
+This chapter builds the bridge from ordinary C development to reading Sela's C++17 and LLVM/MLIR implementation.
 You should understand pointers, structs, functions, and separate compilation in C. You do not need to learn all of C++ before making a useful contribution.
 Focus first on ownership, checked errors, and the boundaries between components.
 
@@ -17,26 +17,26 @@ The directory layout encodes a real architectural separation:
 
 | Question | Start here |
 | --- | --- |
-| What does `nierc` accept and run? | `src/consumer/Main.cpp` |
+| What does `selac` accept and run? | `src/consumer/Main.cpp` |
 | What belongs in a standalone archive? | `src/artifact/Artifact.cpp` |
-| What does valid NieR Code mean? | `include/nier/IR` and `src/ir/Compiler.cpp` |
-| How does stock Clang emit NieR? | `src/publisher/ClangPlugin.cpp` |
+| What does valid Sela Code mean? | `include/sela/IR` and `src/ir/Compiler.cpp` |
+| How does stock Clang emit Sela? | `src/publisher/ClangPlugin.cpp` |
 | How are native LLVM profiles merged? | `src/ir/Producer.cpp` |
 | How are existing builds coordinated? | `src/cli/Build.cpp` and SDK integrations |
 | Which libraries may depend on which others? | `CMakeLists.txt` |
 
 Do not infer architecture solely from the shared `src/ir` directory.
-CMake puts consumer-safe files into `nier_ir` and the optional LLVM producer into `nier_llvm_producer`.
+CMake puts consumer-safe files into `sela_ir` and the optional LLVM producer into `sela_llvm_producer`.
 Producer files can inspect private LLVM captures; consumer files must not require those captures or Clang frontend libraries.
 The build target graph is therefore part of the design, not incidental wiring.
 
-Public headers under `include/nier/IR` and `include/nier/Artifact` expose the independent contract.
-`include/nier/Producer` exposes the optional reference producer. A new language producer may use the former without using the latter.
+Public headers under `include/sela/IR` and `include/sela/Artifact` expose the independent contract.
+`include/sela/Producer` exposes the optional reference producer. A new language producer may use the former without using the latter.
 That distinction is more important than memorizing every class name.
 
 ## C++ syntax you will repeatedly encounter
 
-`namespace nier::driver` groups names without a C-style prefix on every function. A declaration such as `llvm::Expected<Options>` uses a **template**: a type parameter creates a particular form of a reusable container or wrapper.
+`namespace sela::driver` groups names without a C-style prefix on every function. A declaration such as `llvm::Expected<Options>` uses a **template**: a type parameter creates a particular form of a reusable container or wrapper.
 Here, `Options` is the value type returned on success.
 
 `auto` asks the compiler to infer a static type from an initializer. It does not make a value dynamically typed.
@@ -62,7 +62,7 @@ Saving such a callback and invoking it after its captured variables die would be
 C often pairs allocation and cleanup explicitly: `malloc/free`, `open/close`, or an initialization function and a matching destroy function.
 C++ commonly uses **RAII**: resource acquisition is initialization. An object's destructor releases its resource when the object leaves scope, including on an early return.
 
-NieR's `Scratch` type is a small example.
+Sela's `Scratch` type is a small example.
 `Scratch::create()` returns an owned temporary workspace. Its destructor normally removes that workspace; a `keep` flag retains it for diagnostics.
 Copying is disabled, and moving transfers ownership. Otherwise two objects might both try to clean up the same directory.
 
@@ -80,7 +80,7 @@ Objects that refer to those types must not outlive the context. You will see thi
 
 ```cpp
 mlir::MLIRContext context;
-context.getOrLoadDialect<nier::ir::NIERDialect>();
+context.getOrLoadDialect<sela::ir::SelaDialect>();
 auto module = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
 ```
 
@@ -111,7 +111,7 @@ On failure, `takeError()` transfers its error to the caller instead of losing th
 An `Error` condition has the opposite everyday reading:
 
 ```cpp
-if (auto error = nier::verifyModule(module, nier::supportedNativeTargets()))
+if (auto error = sela::verifyModule(module, sela::supportedNativeTargets()))
   return error;
 return llvm::Error::success();
 ```
@@ -172,7 +172,7 @@ Finally read its CMake target: the libraries it links are evidence that this pro
 
 This is a useful first contributor exercise without changing a line of code.
 For a first patch, a focused rejection test and a better diagnostic are often more tractable than modifying graph matching.
-For maintainer work, follow the dependency boundary too: a fix that pulls Clang into `nier_ir` may solve a local test while breaking the independent-consumer product.
+For maintainer work, follow the dependency boundary too: a fix that pulls Clang into `sela_ir` may solve a local test while breaking the independent-consumer product.
 
 ## Recap and check your understanding
 
@@ -197,8 +197,8 @@ Then follow one behavior through its test and link dependencies rather than atte
 
 ## Guided reading
 
-Start with `include/nier/Support.h`, `src/consumer/Main.cpp`, and `tests/independent.cpp`.
-Then compare `include/nier/IR/Compiler.h` with the optional `include/nier/Producer/LLVM.h`.
+Start with `include/sela/Support.h`, `src/consumer/Main.cpp`, and `tests/independent.cpp`.
+Then compare `include/sela/IR/Compiler.h` with the optional `include/sela/Producer/LLVM.h`.
 `src/ir/Producer.cpp` provides real examples of casting, borrowed views,
 and semantic flags; it is a second reading, not the entry point.
 `CMakeLists.txt` shows which of these dependencies survive a consumer-only build.

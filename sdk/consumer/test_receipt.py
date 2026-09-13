@@ -13,7 +13,7 @@ from receipt import (atomic_write, claim_profile, elf_dynamic, invalidate,
 
 class TemporarySDKTestCase(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="nier-consumer-receipt-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="sela-consumer-receipt-")
         self.addCleanup(self.temporary.cleanup)
         self.sdk = Path(self.temporary.name)
 
@@ -129,8 +129,8 @@ class BuildCacheTests(TemporarySDKTestCase):
         compilers = {"CMAKE_C_COMPILER": str(compiler / "clang"),
                      "CMAKE_CXX_COMPILER": str(compiler / "clang++")}
         self.write_cache(work / "build-i686/CMakeCache.txt",
-                         dict(compilers, NIER_SDK_ROOT=str(destination),
-                              NIER_BUILD_SDK_ROOT=str(publisher), NIER_DEVICE_TARGET="i686"))
+                         dict(compilers, SELA_SDK_ROOT=str(destination),
+                              SELA_BUILD_SDK_ROOT=str(publisher), SELA_DEVICE_TARGET="i686"))
         self.write_cache(work / "build-native-generators/CMakeCache.txt",
                          dict(compilers, CMAKE_PREFIX_PATH=str(publisher / "host/usr")))
         return work, destination, publisher
@@ -148,7 +148,7 @@ class BuildCacheTests(TemporarySDKTestCase):
     def test_changed_output_root_preserves_old_readiness(self):
         work, destination, publisher = self.fixture()
         original = self.snapshot(self.sdk)
-        with self.assertRaisesRegex(ValueError, "NIER_SDK_ROOT"):
+        with self.assertRaisesRegex(ValueError, "SELA_SDK_ROOT"):
             validate_build_roots(work, destination / "different", "i686", publisher)
         self.assertEqual(self.snapshot(self.sdk), original)
 
@@ -170,16 +170,16 @@ class BuildCacheTests(TemporarySDKTestCase):
         work, destination, publisher = self.fixture()
         cache = work / "build-i686/CMakeCache.txt"
         cache.write_text("\n".join(line for line in cache.read_text().splitlines()
-                                  if not line.startswith("NIER_BUILD_SDK_ROOT:")) + "\n")
+                                  if not line.startswith("SELA_BUILD_SDK_ROOT:")) + "\n")
         original = self.snapshot(self.sdk)
-        with self.assertRaisesRegex(ValueError, "NIER_BUILD_SDK_ROOT"):
+        with self.assertRaisesRegex(ValueError, "SELA_BUILD_SDK_ROOT"):
             validate_build_roots(work, destination, "i686", publisher)
         self.assertEqual(self.snapshot(self.sdk), original)
 
     def test_duplicate_required_cache_key_is_rejected(self):
         work, destination, publisher = self.fixture()
         cache = work / "build-i686/CMakeCache.txt"
-        cache.write_text(cache.read_text() + "NIER_DEVICE_TARGET:STRING=i686\n")
+        cache.write_text(cache.read_text() + "SELA_DEVICE_TARGET:STRING=i686\n")
         with self.assertRaisesRegex(ValueError, "Duplicate source build cache key"):
             validate_build_roots(work, destination, "i686", publisher)
 

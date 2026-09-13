@@ -70,7 +70,7 @@ bool test(llvm::StringRef name, llvm::StringRef source, bool word64, unsigned ex
   if (!module || llvm::verifyModule(*module, &llvm::errs())) {
     llvm::errs() << "invalid test fixture: " << name << '\n'; return false;
   }
-  auto result = nier::detail::normalizeNativeVarargs(*module, word64);
+  auto result = sela::detail::normalizeNativeVarargs(*module, word64);
   if (!result) { llvm::logAllUnhandledErrors(result.takeError(), llvm::errs()); return false; }
   if (result->scalarExtractions != expected || llvm::verifyModule(*module, &llvm::errs())) {
     llvm::errs() << name << ": got " << result->scalarExtractions << ", expected " << expected << '\n';

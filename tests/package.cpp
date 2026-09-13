@@ -1,4 +1,4 @@
-#include "nier/Artifact/Artifact.h"
+#include "sela/Artifact/Artifact.h"
 #include "llvm/Support/raw_ostream.h"
 #include <archive.h>
 #include <archive_entry.h>
@@ -10,7 +10,7 @@
 #include <vector>
 #include <sys/stat.h>
 
-using namespace nier::driver;
+using namespace sela::driver;
 
 namespace {
 constexpr size_t MaxBytes = 64 * 1024 * 1024;
@@ -79,14 +79,14 @@ PackageFiles validFiles() {
   // and semantic validation belong to inspectArtifact/lowerArtifact tests.
   std::string module("opaque\0module-fixture", 21);
   llvm::json::Array modules;
-  modules.push_back(llvm::json::Object{{"path", "modules/0.nierbc"},
+  modules.push_back(llvm::json::Object{{"path", "modules/0.selabc"},
                                       {"sha256", digest(module)}});
   llvm::json::Object plans;
   for (const char *target : {"x86_64", "i686"})
     plans[target] = llvm::json::Array{llvm::json::Object{
         {"modules", llvm::json::Array{0}}, {"optimization", "O2"}}};
   PackageFiles result;
-  result["modules/0.nierbc"] = module;
+  result["modules/0.selabc"] = module;
   result["manifest.json"] = jsonText(llvm::json::Object{
       {"format_version", 1}, {"contract", Contract}, {"kind", "executable"},
       {"runtime", "glibc-2.39-0ubuntu8.8"},
@@ -178,13 +178,13 @@ public:
 void manifestTests(Tests &tests) {
   tests.validate("standard manifest accepted", validFiles(), true);
   auto multiple = validFiles();
-  multiple["modules/1.nierbc"] = "another opaque module";
+  multiple["modules/1.selabc"] = "another opaque module";
   auto multipleManifest = llvm::json::parse(multiple.at("manifest.json"));
   if (!multipleManifest)
     throw std::runtime_error(llvm::toString(multipleManifest.takeError()));
   multipleManifest->getAsObject()->getArray("modules")->push_back(
-      llvm::json::Object{{"path", "modules/1.nierbc"},
-                         {"sha256", digest(multiple.at("modules/1.nierbc"))}});
+      llvm::json::Object{{"path", "modules/1.selabc"},
+                         {"sha256", digest(multiple.at("modules/1.selabc"))}});
   for (const char *target : {"x86_64", "i686"})
     multipleManifest->getAsObject()->getObject("compilation_units")->getArray(target)->push_back(
         llvm::json::Object{{"modules", llvm::json::Array{1}}, {"optimization", "O0"}});
@@ -295,7 +295,7 @@ void manifestTests(Tests &tests) {
                  mutateManifest([](auto &m) { m["modules"] = llvm::json::Array{17}; }), false);
   tests.validate("wrong module path rejected",
                  mutateManifest([](auto &m) {
-                   firstModule(m)["path"] = "modules/1.nierbc";
+                   firstModule(m)["path"] = "modules/1.selabc";
                  }), false);
   tests.validate("source path in module record rejected",
                  mutateManifest([](auto &m) {
@@ -364,10 +364,10 @@ void manifestTests(Tests &tests) {
   files["manifest.json"] = std::string(1024 * 1024 + 1, ' ');
   tests.validate("oversized manifest rejected", files, false);
   files = validFiles();
-  files.erase("modules/0.nierbc");
+  files.erase("modules/0.selabc");
   tests.validate("missing module rejected", files, false);
   files = validFiles();
-  files["modules/0.nierbc"].push_back('x');
+  files["modules/0.selabc"].push_back('x');
   tests.validate("corrupt module bytes rejected", files, false);
   for (const char *name : {"source.c", "private/input.ll", "capture.bc",
                            "private.ast", "debug.json", "resources/source.tar"}) {
@@ -421,9 +421,9 @@ void versionScriptTests(Tests &tests) {
 
 void archiveTests(Tests &tests) {
   tests.archive("regular binary archive accepted",
-                {{"manifest.json", "{}"}, {"modules/0.nierbc", std::string("a\0b", 3)}}, true);
+                {{"manifest.json", "{}"}, {"modules/0.selabc", std::string("a\0b", 3)}}, true);
   for (const char *name : {"/absolute", "../escape", "modules/../escape",
-                           "./manifest.json", "modules//0.nierbc"})
+                           "./manifest.json", "modules//0.selabc"})
     tests.archive(std::string("unsafe archive path rejected: ") + name,
                   {{name, "data"}}, false);
   tests.archive("overlong archive path rejected", {{std::string(257, 'a'), "x"}}, false);

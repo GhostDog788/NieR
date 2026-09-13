@@ -1,5 +1,5 @@
-#include "nier/Artifact/Artifact.h"
-#include "nier/IR/Compiler.h"
+#include "sela/Artifact/Artifact.h"
+#include "sela/IR/Compiler.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/CommandLine.h"
@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <optional>
 
-using namespace nier::driver;
+using namespace sela::driver;
 namespace {
 llvm::Error rejectInputAlias(const fs::path &input, const fs::path &output) {
   auto source = fs::weakly_canonical(fs::absolute(input));
@@ -67,9 +67,9 @@ llvm::Error link(int argc, char **argv) {
         if (!contents) return contents.takeError();
         versionScript = std::move(*contents);
       }
-    } else if (arg.starts_with("--nier-unit-order-i686=")) {
+    } else if (arg.starts_with("--sela-unit-order-i686=")) {
       if (narrowUnitOrder) return fail("multiple i686 native-unit permutations are not qualified");
-      auto order = arg.drop_front(llvm::StringRef("--nier-unit-order-i686=").size());
+      auto order = arg.drop_front(llvm::StringRef("--sela-unit-order-i686=").size());
       if (order.empty() || order.size() > 4096) return fail("invalid i686 native-unit permutation");
       llvm::SmallVector<llvm::StringRef> indices;
       order.split(indices, ',');
@@ -80,8 +80,8 @@ llvm::Error link(int argc, char **argv) {
         if (index.empty() || index.getAsInteger(10, number)) return fail("invalid i686 native-unit permutation index");
         narrowUnitOrder->push_back(number);
       }
-    } else if (arg == "--nier-static") kind = "static";
-    else if (arg.starts_with("--nier-member-name=")) {
+    } else if (arg == "--sela-static") kind = "static";
+    else if (arg.starts_with("--sela-member-name=")) {
       auto name = arg.drop_front(19);
       if (!validArchiveMember(name)) return fail("invalid static archive member name");
       archiveNames.push_back(name.str());
@@ -93,7 +93,7 @@ llvm::Error link(int argc, char **argv) {
       bothHashStyles = arg == "--hash-style=both";
     else if (arg == "--undefined-version") linkOptions.push_back(arg.str());
     else if (arg == "--as-needed")
-      return fail("direct NieR linking cannot yet resolve --as-needed; use the paired native SDK build integration");
+      return fail("direct Sela linking cannot yet resolve --as-needed; use the paired native SDK build integration");
     else if (arg == "-pie" || arg == "--eh-frame-hdr" || arg == "--build-id" ||
              arg == "--no-as-needed") {
       // Clang's host linker defaults are not the destination's runtime paths.
@@ -123,7 +123,7 @@ llvm::Error link(int argc, char **argv) {
         ? "/lib/ld-linux.so.2" : "/lib64/ld-linux-x86-64.so.2"))
     return fail("unqualified native dynamic interpreter " + interpreter);
   if (bothHashStyles) linkOptions.push_back("--hash-style=both");
-  if (inputs.empty() && kind != "static") return fail("publication link has no NieR object inputs");
+  if (inputs.empty() && kind != "static") return fail("publication link has no Sela object inputs");
   // Check the entire inventory before creating or writing private work files.
   for (const auto &input : inputs)
     if (auto error = rejectInputAlias(input, output)) return error;
@@ -135,11 +135,11 @@ llvm::Error link(int argc, char **argv) {
   if (!scratch) return scratch.takeError();
   for (auto &input : inputs) {
     auto files = readPackage(input);
-    if (!files) return fail("expected a NieR object at " + input.string() + ": " + llvm::toString(files.takeError()));
+    if (!files) return fail("expected a Sela object at " + input.string() + ": " + llvm::toString(files.takeError()));
     auto manifest = validatePackage(*files);
     if (!manifest) return manifest.takeError();
     auto &object = *manifest->getAsObject();
-    if (object.getString("kind") != "object") return fail("publication link requires relocatable NieR inputs: " + input.string());
+    if (object.getString("kind") != "object") return fail("publication link requires relocatable Sela inputs: " + input.string());
     std::vector<std::string> admitted;
     for (auto &entry : *object.getArray("targets")) admitted.push_back(entry.getAsString()->str());
     llvm::SmallVector<llvm::StringRef> domain;
@@ -163,12 +163,12 @@ llvm::Error link(int argc, char **argv) {
       auto &record = *entry.getAsObject();
       auto &bytes = files->at(record.getString("path")->str());
       if (modules.size() >= 510 || bytes.size() > 64 * 1024 * 1024 - aggregateBytes)
-        return fail("linked NieR artifact exceeds module or byte limits");
+        return fail("linked Sela artifact exceeds module or byte limits");
       aggregateBytes += bytes.size();
-      auto staged = scratch->path / "unit.nierbc";
+      auto staged = scratch->path / "unit.selabc";
       if (auto error = write(staged, bytes)) return error;
-      nier::ArtifactSummary summary;
-      if (auto error = nier::inspectArtifact(staged.string(), summary, domain)) return error;
+      sela::ArtifactSummary summary;
+      if (auto error = sela::inspectArtifact(staged.string(), summary, domain)) return error;
       modules.push_back({bytes});
     }
   }
@@ -184,7 +184,7 @@ llvm::Error link(int argc, char **argv) {
       for (size_t i = 0; i < units.size(); ++i)
         units[i].archiveMember = archiveNames.empty() ? "m" + std::to_string(i) + ".o" : archiveNames[i];
     }
-  } else if (!archiveNames.empty()) return fail("archive member names require --nier-static");
+  } else if (!archiveNames.empty()) return fail("archive member names require --sela-static");
   if (narrowUnitOrder) {
     auto plan = compilationPlan.find("i686");
     if (plan == compilationPlan.end() || narrowUnitOrder->size() != plan->second.size())
@@ -207,10 +207,10 @@ llvm::Error link(int argc, char **argv) {
 }
 int main(int argc, char **argv) {
   try {
-    if (auto error = link(argc, argv)) { llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "nier-ld: "); return 1; }
+    if (auto error = link(argc, argv)) { llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "sela-ld: "); return 1; }
     return 0;
   } catch (const std::exception &error) {
-    llvm::errs() << "nier-ld: " << error.what() << '\n';
+    llvm::errs() << "sela-ld: " << error.what() << '\n';
     return 1;
   }
 }

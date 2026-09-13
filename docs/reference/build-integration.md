@@ -1,25 +1,25 @@
 # Existing-build publication
 
 These publisher SDK integrations run each project's normal native configure and build twice privately, with the actual stock Clang executable.
-Native probes and generators run in their respective x86-64/i686 trees. The selected application link is then published by stock Clang into one independent `.nier` artifact.
+Native probes and generators run in their respective x86-64/i686 trees. The selected application link is then published by stock Clang into one independent `.sela` artifact.
 No application source edits, compiler wrapper, public publisher CLI, or JSON publication recipe is required.
 
 Source `sdk/env.sh` and build the publisher tools first.
-In this development tree, set `NIER_BUILD_TOOL` to the absolute path of the built `nier-build` executable; the installed SDK will locate that internal helper on `PATH`.
+In this development tree, set `SELA_BUILD_TOOL` to the absolute path of the built `sela-build` executable; the installed SDK will locate that internal helper on `PATH`.
 
 ## Make
 
 For a project whose ordinary `make hello` creates `hello`:
 
 ```sh
-make -f /path/to/nier/sdk/share/nier/Nier.mk \
-  NIER_BUILD_TOOL=/path/to/nier/build/prealpha/nier-build \
-  NIER_SOURCE_DIR=/path/to/application \
-  NIER_TARGETS=hello NIER_NATIVE_OUTPUT=hello \
-  NIER_ARTIFACT=/path/to/output/hello.nier
+make -f /path/to/sela/sdk/share/sela/Sela.mk \
+  SELA_BUILD_TOOL=/path/to/sela/build/prealpha/sela-build \
+  SELA_SOURCE_DIR=/path/to/application \
+  SELA_TARGETS=hello SELA_NATIVE_OUTPUT=hello \
+  SELA_ARTIFACT=/path/to/output/hello.sela
 ```
 
-`NIER_TARGETS`, `NIER_CONFIGURE_ARGS`, and `NIER_CFLAGS` accept whitespace-separated target/argument lists. The source, native-output, artifact, and helper paths each support spaces.
+`SELA_TARGETS`, `SELA_CONFIGURE_ARGS`, and `SELA_CFLAGS` accept whitespace-separated target/argument lists. The source, native-output, artifact, and helper paths each support spaces.
 Complex individual arguments containing spaces should use the CMake integration's quoted argument lists; this Make adapter does not guess how to split them.
 The selected native output is relative to the project's private source/build directory. A project's `configure` script, when present, runs before its Makefile.
 The destination artifact's parent directory must exist.
@@ -31,12 +31,12 @@ Create a small separate publication configuration; leave the application's exist
 ```cmake
 cmake_minimum_required(VERSION 3.20)
 project(ApplicationPublication NONE)
-include("/path/to/nier/sdk/share/nier/Nier.cmake")
-nier_add_publication(hello
+include("/path/to/sela/sdk/share/sela/Sela.cmake")
+sela_add_publication(hello
   SOURCE_DIR "/path/to/application"
   NATIVE_OUTPUT hello
-  OUTPUT hello.nier
-  BUILD_TOOL "/path/to/nier/build/prealpha/nier-build"
+  OUTPUT hello.sela
+  BUILD_TOOL "/path/to/sela/build/prealpha/sela-build"
   TARGETS hello
   CONFIGURE_ARGS "-DENABLE_FEATURE=ON")
 ```
@@ -47,18 +47,18 @@ The selected output is relative to the private CMake build directory. `OUTPUT` i
 
 ## Rebuild and execution
 
-Requesting publication again runs fresh private builds and atomically replaces a valid existing NieR output only after success.
+Requesting publication again runs fresh private builds and atomically replaces a valid existing Sela output only after success.
 Failed builds leave the previous artifact intact. The integrations do not yet cache private build trees between requests.
 Original source directories are not modified.
 
-Both native reference builds use the stock Clang option `-ffile-prefix-map=<private-lane>=/nier`.
-Source locations such as `__FILE__` therefore have stable `/nier/source/...` or `/nier/build/...` identities instead of random, profile-specific temporary paths.
+Both native reference builds use the stock Clang option `-ffile-prefix-map=<private-lane>=/sela`.
+Source locations such as `__FILE__` therefore have stable `/sela/source/...` or `/sela/build/...` identities instead of random, profile-specific temporary paths.
 Relative names, case, and genuine application string differences are unchanged.
 Private dependency and object provenance checks still use their original physical paths. This is an observable SDK compilation setting, not runtime string redaction.
 
-Run `nierc hello.nier -o hello`, then execute `./hello` directly.
+Run `selac hello.sela -o hello`, then execute `./hello` directly.
 Selected ordinary shared-library links likewise produce their own artifacts and compile to native DSOs.
-Selecting a native static archive output produces its own static NieR artifact; `nierc library.nier -o library.a` restores the ordered native members, including duplicate basenames, without eagerly linking them.
+Selecting a native static archive output produces its own static Sela artifact; `selac library.sela -o library.a` restores the ordered native members, including duplicate basenames, without eagerly linking them.
 Native runtime and dependency provisioning is separate from publication.
 
 Private native objects carry a non-executable capture reference.

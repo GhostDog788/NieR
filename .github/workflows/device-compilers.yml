@@ -21,7 +21,7 @@ jobs:
     env:
       SDK_UBUNTU_MIRROR: https://snapshot.ubuntu.com/ubuntu/20260910T000000Z
       CMAKE_BUILD_PARALLEL_LEVEL: "2"
-      NIER_VM_TIMEOUT: "3600"
+      SELA_VM_TIMEOUT: "3600"
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -47,7 +47,7 @@ jobs:
             .sdk/downloads
             .sdk/consumer/downloads
             .sdk/test-vm/downloads
-          key: nier-device-inputs-${{ hashFiles('sdk/packages.lock', 'sdk/consumer/*.lock', 'tests/vm/*.lock') }}
+          key: sela-device-inputs-${{ hashFiles('sdk/packages.lock', 'sdk/consumer/*.lock', 'tests/vm/*.lock') }}
         timeout-minutes: 5
 
       - name: Bootstrap publisher SDK
@@ -83,21 +83,21 @@ jobs:
           mkdir -p artifacts
           for target in x86_64 i686; do
             bash scripts/package-consumer.sh "build/consumer-$target" \
-              "artifacts/nierc-$target" ".sdk/consumer/$target"
+              "artifacts/selac-$target" ".sdk/consumer/$target"
           done
 
       - name: Same-artifact matrix and genuine 32-bit Linux VM
         timeout-minutes: 65
         run: |
-          bash tests/dual-consumer.sh build/prealpha/nier.cfg .sdk \
-            artifacts/nierc-x86_64 artifacts/nierc-i686
+          bash tests/dual-consumer.sh build/prealpha/sela.cfg .sdk \
+            artifacts/selac-x86_64 artifacts/selac-i686
 
       - name: Complete cJSON and zlib qualification on both devices
         timeout-minutes: 120
         run: |
           timeout --kill-after=30 7100 bash corpus/qualify.sh \
-            build/prealpha/nier-build artifacts/nierc-x86_64/bin/nierc .sdk \
-            --i686-bundle artifacts/nierc-i686
+            build/prealpha/sela-build artifacts/selac-x86_64/bin/selac .sdk \
+            --i686-bundle artifacts/selac-i686
 
       - name: Save verified input archives on main
         if: github.ref == 'refs/heads/main' && steps.archives.outputs.cache-hit != 'true'
@@ -107,5 +107,5 @@ jobs:
             .sdk/downloads
             .sdk/consumer/downloads
             .sdk/test-vm/downloads
-          key: nier-device-inputs-${{ hashFiles('sdk/packages.lock', 'sdk/consumer/*.lock', 'tests/vm/*.lock') }}
+          key: sela-device-inputs-${{ hashFiles('sdk/packages.lock', 'sdk/consumer/*.lock', 'tests/vm/*.lock') }}
         timeout-minutes: 5

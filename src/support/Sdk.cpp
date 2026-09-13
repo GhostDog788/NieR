@@ -1,18 +1,18 @@
-#include "nier/Support.h"
+#include "sela/Support.h"
 #include <cstdint>
 
-namespace nier::driver {
+namespace sela::driver {
 namespace {
 bool supportsProfile(llvm::StringRef profile) {
-#ifdef NIER_DEVICE_TARGET
-  return profile == NIER_DEVICE_TARGET;
+#ifdef SELA_DEVICE_TARGET
+  return profile == SELA_DEVICE_TARGET;
 #else
   return profile == "x86_64" || profile == "i686";
 #endif
 }
 bool is64(llvm::StringRef profile) {
-#ifdef NIER_DEVICE_WORD_BITS
-  return NIER_DEVICE_WORD_BITS == 64;
+#ifdef SELA_DEVICE_WORD_BITS
+  return SELA_DEVICE_WORD_BITS == 64;
 #else
   return profile == "x86_64";
 #endif
@@ -32,19 +32,19 @@ std::map<std::string, std::string> Sdk::toolEnvironment() const {
 llvm::Error Sdk::validate(bool publisher) const {
   auto receipt = read(root / "sdk-lock.sha256", 128);
   if (!receipt) return fail("SDK bootstrap receipt missing: " + llvm::toString(receipt.takeError()));
-  if (llvm::StringRef(*receipt).trim() != NIER_SDK_LOCK_SHA256)
+  if (llvm::StringRef(*receipt).trim() != SELA_SDK_LOCK_SHA256)
     return fail("SDK package lock does not match this experimental compiler contract");
-#ifdef NIER_REQUIRE_CONSUMER_RECEIPT
+#ifdef SELA_REQUIRE_CONSUMER_RECEIPT
   auto completion = readJson(root / "consumer-sdk.json");
   if (!completion) return fail("consumer SDK build is incomplete: " + llvm::toString(completion.takeError()));
   auto *record = completion->getAsObject();
-  if (!record || record->getString("sdk_identity") != NIER_SDK_LOCK_SHA256 ||
-      record->getString("profile") != NIER_DEVICE_TARGET)
+  if (!record || record->getString("sdk_identity") != SELA_SDK_LOCK_SHA256 ||
+      record->getString("profile") != SELA_DEVICE_TARGET)
     return fail("consumer SDK completion receipt does not match this compiler");
 #endif
   for (const char *toolName : {"opt", "llc", "ld.lld", "llvm-ar"}) {
     if (fs::is_regular_file(tool(toolName))) continue;
-#ifdef NIER_REQUIRE_CONSUMER_RECEIPT
+#ifdef SELA_REQUIRE_CONSUMER_RECEIPT
     return fail("consumer SDK tool missing: " + tool(toolName).string() +
                 "; rebuild this target's SDK or reinstall its complete compiler bundle");
 #else
@@ -52,7 +52,7 @@ llvm::Error Sdk::validate(bool publisher) const {
 #endif
   }
   if (publisher) {
-#ifdef NIER_DEVICE_TARGET
+#ifdef SELA_DEVICE_TARGET
     return fail("this device SDK does not provide publication tools");
 #else
     if (!fs::is_regular_file(tool("clang"))) return fail("publisher SDK is missing stock Clang");

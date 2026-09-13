@@ -144,8 +144,8 @@ def validate_build_roots(work, destination, profile, publisher):
     compiler = publisher / "host/usr/lib/llvm-18/bin"
     expected_compilers = {"CMAKE_C_COMPILER": str(compiler / "clang"),
                           "CMAKE_CXX_COMPILER": str(compiler / "clang++")}
-    target = dict(expected_compilers, NIER_SDK_ROOT=str(destination),
-                  NIER_BUILD_SDK_ROOT=str(publisher), NIER_DEVICE_TARGET=profile)
+    target = dict(expected_compilers, SELA_SDK_ROOT=str(destination),
+                  SELA_BUILD_SDK_ROOT=str(publisher), SELA_DEVICE_TARGET=profile)
     native = dict(expected_compilers, CMAKE_PREFIX_PATH=str(publisher / "host/usr"))
     for build, expected in ((work / ("build-" + profile), target),
                             (work / "build-native-generators", native)):
@@ -194,7 +194,7 @@ def main():
         atomic_write(destination / "sdk-lock.sha256", (identity_hash + "\n").encode())
         cache = (f'set(LLVM_DIR "{build}/lib/cmake/llvm" CACHE PATH "Consumer LLVM build" FORCE)\n'
                  f'set(MLIR_DIR "{build}/lib/cmake/mlir" CACHE PATH "Consumer MLIR build" FORCE)\n'
-                 f'set(NIER_BUILD_SDK_ROOT "{publisher}" CACHE PATH "Pinned build-host SDK")\n')
+                 f'set(SELA_BUILD_SDK_ROOT "{publisher}" CACHE PATH "Pinned build-host SDK")\n')
         atomic_write(destination / "development.cmake", cache.encode())
         print(f"Consumer development libraries ready ({profile}, {linkage}); complete SDK receipt is still pending.")
     else:

@@ -1,4 +1,4 @@
-#include "nier/Artifact/Artifact.h"
+#include "sela/Artifact/Artifact.h"
 #include <archive.h>
 #include <archive_entry.h>
 #include <fcntl.h>
@@ -6,7 +6,7 @@
 #include <set>
 #include <unistd.h>
 
-namespace nier::driver {
+namespace sela::driver {
 namespace {
 constexpr size_t MaxBytes = 64 * 1024 * 1024;
 constexpr size_t MaxFiles = 512;
@@ -75,7 +75,7 @@ llvm::Error writePackage(const fs::path &output, const PackageFiles &files) {
   if (!checked) return checked.takeError();
   auto scratch = Scratch::create();
   if (!scratch) return scratch.takeError();
-  auto staged = scratch->path / "artifact.nier";
+  auto staged = scratch->path / "artifact.sela";
   int fd = open(staged.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
   if (fd < 0) return fail("cannot create staged artifact: " + staged.string());
   std::unique_ptr<archive, decltype(&archive_write_free)> writer(archive_write_new(), archive_write_free);
@@ -148,7 +148,7 @@ llvm::Expected<llvm::json::Value> validatePackage(const PackageFiles &files) {
   if (!parsed) return parsed.takeError();
   // LLVM's JSON reader retains only one value for duplicate keys. Require the
   // deterministic public encoding so discarded values cannot hide inputs.
-  if (jsonText(*parsed) != manifest->second) return fail("manifest must use canonical NieR JSON encoding (no duplicate keys)");
+  if (jsonText(*parsed) != manifest->second) return fail("manifest must use canonical Sela JSON encoding (no duplicate keys)");
   auto *object = parsed->getAsObject();
   if (!object || object->getInteger("format_version") != 1 || object->getString("contract") != Contract)
     return fail("unsupported experimental format/compiler contract");
@@ -205,7 +205,7 @@ llvm::Expected<llvm::json::Value> validatePackage(const PackageFiles &files) {
     for (auto &entry : *module)
       if (entry.first != "path" && entry.first != "sha256")
         return fail("unknown public module field: " + entry.first.str());
-    std::string path = "modules/" + std::to_string(index) + ".nierbc";
+    std::string path = "modules/" + std::to_string(index) + ".selabc";
     if (module->getString("path") != path) return fail("invalid module path");
     auto found = files.find(path);
     if (found == files.end() || module->getString("sha256") != digest(found->second)) return fail("missing module or digest mismatch: " + path);
@@ -273,7 +273,7 @@ llvm::Expected<PackageFiles> createArtifact(
   PackageFiles files;
   llvm::json::Array records, targetList, libraryList, options;
   for (size_t i = 0; i < modules.size(); ++i) {
-    auto path = "modules/" + std::to_string(i) + ".nierbc";
+    auto path = "modules/" + std::to_string(i) + ".selabc";
     files.emplace(path, modules[i].bytecode);
     llvm::json::Object record{{"path", path}, {"sha256", digest(modules[i].bytecode)}};
     records.push_back(std::move(record));

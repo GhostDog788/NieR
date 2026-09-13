@@ -8,7 +8,7 @@ fi
 repository=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir=$(realpath -e -- "$1")
 output_dir=$(realpath -m -- "$2")
-sdk_root=$(realpath -e -- "${3:-${NIER_SDK_ROOT:-$repository/.sdk}}")
+sdk_root=$(realpath -e -- "${3:-${SELA_SDK_ROOT:-$repository/.sdk}}")
 if [[ -e $output_dir || -L $output_dir ]]; then
     printf 'Consumer bundle output must not already exist: %s\n' "$output_dir" >&2
     exit 1
@@ -68,15 +68,15 @@ case "$profile" in
     i686) multiarch=i386-linux-gnu; foreign_multiarch=x86_64-linux-gnu; runtime_arch=i386; elf_class=ELF32; elf_machine='Intel 80386' ;;
     *) printf 'Unsupported consumer SDK target: %s\n' "$profile" >&2; exit 1 ;;
 esac
-built_target=$(sed -n 's/^NIER_DEVICE_TARGET:STRING=//p' "$build_dir/CMakeCache.txt")
+built_target=$(sed -n 's/^SELA_DEVICE_TARGET:STRING=//p' "$build_dir/CMakeCache.txt")
 if [[ $built_target != "$profile" ]]; then
     printf 'Compiler target %s does not match SDK target %s\n' "$built_target" "$profile" >&2; exit 1
 fi
-component_linking=$(sed -n 's/^NIER_LLVM_COMPONENT_LINKING:BOOL=//p' "$build_dir/CMakeCache.txt")
-consumer_sdk=$(sed -n 's/^NIER_USE_CONSUMER_SDK:BOOL=//p' "$build_dir/CMakeCache.txt")
+component_linking=$(sed -n 's/^SELA_LLVM_COMPONENT_LINKING:BOOL=//p' "$build_dir/CMakeCache.txt")
+consumer_sdk=$(sed -n 's/^SELA_USE_CONSUMER_SDK:BOOL=//p' "$build_dir/CMakeCache.txt")
 case "${consumer_sdk^^}" in
     ON|TRUE|YES|Y|1) ;;
-    *) printf 'Compiler must be configured with NIER_USE_CONSUMER_SDK enabled\n' >&2; exit 1 ;;
+    *) printf 'Compiler must be configured with SELA_USE_CONSUMER_SDK enabled\n' >&2; exit 1 ;;
 esac
 case "$linkage:${component_linking^^}" in
     static-components:ON|shared:OFF) ;;
@@ -85,23 +85,23 @@ esac
 cmake_program=$(sed -n 's/^CMAKE_COMMAND:INTERNAL=//p' "$build_dir/CMakeCache.txt")
 test -x "$cmake_program"
 cmake_prefix=$(dirname -- "$(dirname -- "$cmake_program")")
-build_sdk=$(sed -n 's/^NIER_BUILD_SDK_ROOT:PATH=//p' "$build_dir/CMakeCache.txt")
+build_sdk=$(sed -n 's/^SELA_BUILD_SDK_ROOT:PATH=//p' "$build_dir/CMakeCache.txt")
 strip_tool="$build_sdk/host/usr/lib/llvm-18/bin/llvm-strip"
 test -x "$strip_tool" || { printf 'Missing pinned build-host llvm-strip: %s\n' "$strip_tool" >&2; exit 1; }
-stage=$(mktemp -d "$output_parent/.nier-consumer-stage-XXXXXX")
+stage=$(mktemp -d "$output_parent/.sela-consumer-stage-XXXXXX")
 trap 'status=$?; if (( status )); then printf "Incomplete private bundle retained at: %s\n" "$stage" >&2; fi' EXIT
 env LD_LIBRARY_PATH="$cmake_prefix/lib/llvm-18/lib:$cmake_prefix/lib/x86_64-linux-gnu" \
     "$cmake_program" --install "$build_dir" --prefix "$stage" --component Consumer
-test -x "$stage/bin/nierc"
-readelf -d "$stage/bin/nierc" | rg -Fq '(RPATH)'
-readelf -d "$stage/bin/nierc" | rg -Fq '$ORIGIN/../sdk/host/usr/lib/llvm-18/lib'
+test -x "$stage/bin/selac"
+readelf -d "$stage/bin/selac" | rg -Fq '(RPATH)'
+readelf -d "$stage/bin/selac" | rg -Fq '$ORIGIN/../sdk/host/usr/lib/llvm-18/lib'
 
 llvm_relative=host/usr/lib/llvm-18
 bundle_bin="$stage/sdk/$llvm_relative/bin"
 bundle_lib="$stage/sdk/$llvm_relative/lib"
 mkdir -p "$bundle_bin" "$bundle_lib" "$stage/licenses"
-queue=("$stage/bin/nierc")
-strip_files=("$stage/bin/nierc")
+queue=("$stage/bin/selac")
+strip_files=("$stage/bin/selac")
 for tool in opt llc ld.lld llvm-ar; do
     original="$sdk_root/$llvm_relative/bin/$tool"
     cp -Lp -- "$original" "$bundle_bin/$tool"
@@ -217,15 +217,15 @@ cp -- "$repository/sdk/consumer/packages.lock" "$stage/sdk/packages.lock"
 cp -- "$repository/sdk/consumer/source.lock" "$stage/sdk/source.lock"
 cp -- "$repository/LICENSE" "$stage/LICENSE"
 cp -- "$repository/docs/reference/compiler-distribution.md" "$stage/README.md"
-test "$(env -u LD_PRELOAD LD_LIBRARY_PATH="$bundle_lib" "$stage/bin/nierc" --print-target)" = "$profile"
-env -u NIER_SDK_ROOT -u LD_PRELOAD LD_LIBRARY_PATH="$bundle_lib" "$stage/bin/nierc" --check-sdk
+test "$(env -u LD_PRELOAD LD_LIBRARY_PATH="$bundle_lib" "$stage/bin/selac" --print-target)" = "$profile"
+env -u SELA_SDK_ROOT -u LD_PRELOAD LD_LIBRARY_PATH="$bundle_lib" "$stage/bin/selac" --check-sdk
 registered=$(env -u LD_PRELOAD LD_LIBRARY_PATH="$bundle_lib" "$bundle_bin/llc" --version)
 if ! rg -q 'Registered Targets:' <<< "$registered" || \
     sed -n '/Registered Targets:/,$p' <<< "$registered" | sed '1d' | \
       rg -v '^\s*(x86|x86-64)\s+-|^\s*$'; then
     printf 'Unexpected LLVM backend inventory in device package\n' >&2; exit 1
 fi
-if rg --files --hidden --no-ignore "$stage" | rg '/include/|/cmake/|/bin/(clang|clang-[0-9]+|nier-build|nier-ld|nier-native-ld)$|libclang-cpp|libnier-clang|nier-capture'; then
+if rg --files --hidden --no-ignore "$stage" | rg '/include/|/cmake/|/bin/(clang|clang-[0-9]+|sela-build|sela-ld|sela-native-ld)$|libclang-cpp|libsela-clang|sela-capture'; then
     printf 'Publisher/development files leaked into device package\n' >&2; exit 1
 fi
 du -sb -- "$stage/bin" "$stage/sdk/host" "$stage/sdk/sysroots" "$stage/licenses"

@@ -1,11 +1,11 @@
-#include "nier/Producer/LLVM.h"
+#include "sela/Producer/LLVM.h"
 #include "Internal.h"
 #include "Varargs.h"
 #include "ByteSwap.h"
 #include "OverlapEvidence.h"
 #include "ConditionalCFG.h"
 #include "AggregateNormalize.h"
-#include "nier/IR/Dialect.h"
+#include "sela/IR/Dialect.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -37,7 +37,7 @@
 #include <system_error>
 #include <vector>
 
-namespace nier {
+namespace sela {
 namespace {
 
 using mlir::Attribute;
@@ -130,8 +130,8 @@ bool permittedMetadata(const llvm::Instruction &instruction) {
 }
 
 void configureModule(llvm::Module &module, bool x64) {
-  module.setModuleIdentifier("nier");
-  module.setSourceFileName("nier");
+  module.setModuleIdentifier("sela");
+  module.setSourceFileName("sela");
   module.setTargetTriple(x64 ? "x86_64-unknown-linux-gnu"
                             : "i686-unknown-linux-gnu");
   module.setDataLayout(x64 ? X64Layout : I686Layout);
@@ -313,9 +313,9 @@ public:
          const detail::NormalizedAggregateModule &leftABI, const detail::NormalizedAggregateModule &rightABI)
       : builder(&context), leftVarargs(leftVA), rightVarargs(rightVA),
         leftOverlaps(leftOverlap), rightOverlaps(rightOverlap), leftAggregates(leftABI), rightAggregates(rightABI) {
-    context.getOrLoadDialect<ir::NIERDialect>();
+    context.getOrLoadDialect<ir::SelaDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
-    (*module)->setAttr("nier.schema", builder.getI32IntegerAttr(1));
+    (*module)->setAttr("sela.schema", builder.getI32IntegerAttr(1));
     builder.setInsertionPointToEnd(module->getBody());
     for (const auto &function : leftABI.functions) leftNativeABIs[function.function] = function.logicalType;
     for (const auto &function : rightABI.functions) rightNativeABIs[function.function] = function.logicalType;
@@ -659,23 +659,23 @@ public:
         value = expression(av.getZExtValue(), bv.getZExtValue());
       if (!value)
         return {};
-      return op("nier.constant", mergedType, {}, {attr("value", value)})->getResult(0);
+      return op("sela.constant", mergedType, {}, {attr("value", value)})->getResult(0);
     }
     if (const auto *a = llvm::dyn_cast<llvm::ConstantFP>(left)) {
       const auto *b = llvm::dyn_cast<llvm::ConstantFP>(right);
       if (!b || !a->getValueAPF().bitwiseIsEqual(b->getValueAPF())) {
         fail("floating constants differ between profiles"); return {};
       }
-      return op("nier.constant", mergedType, {},
+      return op("sela.constant", mergedType, {},
           {attr("value", builder.getFloatAttr(mergedType, a->getValueAPF()))})->getResult(0);
     }
     if (llvm::isa<llvm::ConstantPointerNull>(left) &&
         llvm::isa<llvm::ConstantPointerNull>(right))
-      return op("nier.constant", mergedType, {},
+      return op("sela.constant", mergedType, {},
                 {attr("value", builder.getStringAttr("null"))})->getResult(0);
     const auto *global = llvm::dyn_cast<llvm::GlobalValue>(left);
     if (global && symbols.count(global) && (singleDomain || pairs.lookup(left) == right)) {
-      return op("nier.address", mergedType, {},
+      return op("sela.address", mergedType, {},
                 {attr("global", builder.getStringAttr(symbols.lookup(global)))})
           ->getResult(0);
     }
@@ -683,7 +683,7 @@ public:
       auto *other = llvm::dyn_cast<llvm::Constant>(right);
       auto value = other ? initializer(constant, other) : Attribute();
       if (!value) return {};
-      return op("nier.constant", mergedType, {}, {attr("value", value)})->getResult(0);
+      return op("sela.constant", mergedType, {}, {attr("value", value)})->getResult(0);
     }
     fail("unsupported constant, forward SSA reference or function address");
     return {};
@@ -731,7 +731,7 @@ public:
     auto input = operand(leftSource, rightSource);
     auto resultType = type(leftResult->getType(), rightResult->getType());
     if (!input || !resultType) return false;
-    auto *result = op("nier.cast", resultType, input,
+    auto *result = op("sela.cast", resultType, input,
         {attr("opcode", builder.getStringAttr("native_" + std::string(cast->getOpcodeName())))});
     conditionalValues[{leftResult, rightResult}] = result->getResult(0);
     domainValues[cast] = result->getResult(0);
@@ -779,7 +779,7 @@ public:
         other = candidate;
       }
     if (!other || !values.count(other)) return false;
-    auto *forward = op("nier.va_forward", ir::PointerType::get(&context), values.lookup(other));
+    auto *forward = op("sela.va_forward", ir::PointerType::get(&context), values.lookup(other));
     conditionalValues[{other, load}] = forward->getResult(0);
     domainValues[load] = forward->getResult(0);
     return true;
@@ -826,7 +826,7 @@ public:
       auto alignment = expression(a->getAlign().value(), b->getAlign().value());
       if (!element || !alignment)
         return;
-      result = op("nier.alloca", ir::PointerType::get(&context), {},
+      result = op("sela.alloca", ir::PointerType::get(&context), {},
                   {attr("element", mlir::TypeAttr::get(element)),
                    attr("alignment", alignment)});
     } else if (auto *a = llvm::dyn_cast<llvm::VAArgInst>(&left)) {
@@ -834,7 +834,7 @@ public:
       auto state = operand(a->getPointerOperand(), b->getPointerOperand());
       auto element = type(a->getType(), b->getType());
       if (!state || !element) return;
-      result = op("nier.va_arg", element, state);
+      result = op("sela.va_arg", element, state);
     } else if (auto *a = llvm::dyn_cast<llvm::GetElementPtrInst>(&left)) {
       auto *b = llvm::cast<llvm::GetElementPtrInst>(&right);
       if (a->getNumIndices() != b->getNumIndices() || a->isInBounds() != b->isInBounds()) {
@@ -848,7 +848,7 @@ public:
         operands.push_back(value);
       }
       if (!element) return;
-      result = op("nier.gep", ir::PointerType::get(&context), operands,
+      result = op("sela.gep", ir::PointerType::get(&context), operands,
           {attr("element", mlir::TypeAttr::get(element)),
            attr("inbounds", builder.getBoolAttr(a->isInBounds()))});
     } else if (auto *a = llvm::dyn_cast<llvm::LoadInst>(&left)) {
@@ -862,7 +862,7 @@ public:
       auto alignment = expression(a->getAlign().value(), b->getAlign().value());
       if (!valueType || !pointer || !alignment)
         return;
-      result = op("nier.load", valueType, pointer, {attr("alignment", alignment),
+      result = op("sela.load", valueType, pointer, {attr("alignment", alignment),
           attr("volatile", builder.getBoolAttr(a->isVolatile()))});
     } else if (auto *a = llvm::dyn_cast<llvm::StoreInst>(&left)) {
       auto *b = llvm::cast<llvm::StoreInst>(&right);
@@ -875,7 +875,7 @@ public:
       auto alignment = expression(a->getAlign().value(), b->getAlign().value());
       if (!value || !pointer || !alignment)
         return;
-      result = op("nier.store", {}, {value, pointer}, {attr("alignment", alignment),
+      result = op("sela.store", {}, {value, pointer}, {attr("alignment", alignment),
           attr("volatile", builder.getBoolAttr(a->isVolatile()))});
     } else if (auto *a = llvm::dyn_cast<llvm::CallInst>(&left)) {
       auto *b = llvm::cast<llvm::CallInst>(&right);
@@ -890,7 +890,7 @@ public:
         auto resultType = type(a->getType(), b->getType());
         auto value = operand(a->getArgOperand(0), b->getArgOperand(0));
         if (!resultType || !value) return;
-        result = op("nier.bswap", resultType, value);
+        result = op("sela.bswap", resultType, value);
       } else {
       if (llvm::isa<llvm::FPMathOperator>(a) &&
           (a->getFastMathFlags().any() || b->getFastMathFlags().any())) {
@@ -926,7 +926,7 @@ public:
         resultTypes.push_back(returns);
       if (direct) {
         if (!symbols.count(a->getCalledFunction())) { fail("conditional call has no shared native symbol contract"); return; }
-        result = op("nier.call", resultTypes, arguments,
+        result = op("sela.call", resultTypes, arguments,
                     {attr("callee", builder.getStringAttr(symbols.lookup(a->getCalledFunction()))),
                      attr("attributes", attributes), attr("tail", builder.getI32IntegerAttr(a->getTailCallKind()))});
       } else {
@@ -940,7 +940,7 @@ public:
           if (!parameter) return;
           parameters.push_back(parameter);
         }
-        result = op("nier.call_indirect", resultTypes, arguments,
+        result = op("sela.call_indirect", resultTypes, arguments,
             {attr("type", mlir::TypeAttr::get(builder.getFunctionType(parameters, resultTypes))),
              attr("variadic", builder.getBoolAttr(leftType->isVarArg())), attr("attributes", attributes),
              attr("tail", builder.getI32IntegerAttr(a->getTailCallKind()))});
@@ -977,7 +977,7 @@ public:
           counts.push_back(0);
           successors.push_back(successor(entry.successor));
         }
-        mlir::OperationState state(builder.getUnknownLoc(), "nier.switch");
+        mlir::OperationState state(builder.getUnknownLoc(), "sela.switch");
         state.addOperands(condition);
         state.addSuccessors(successors);
         state.addAttribute("cases", builder.getArrayAttr(cases));
@@ -1012,7 +1012,7 @@ public:
         if (!value) return;
         cases.push_back(value);
       }
-      mlir::OperationState state(builder.getUnknownLoc(), "nier.switch");
+      mlir::OperationState state(builder.getUnknownLoc(), "sela.switch");
       state.addOperands(arguments);
       for (unsigned i = 0; i < a->getNumSuccessors(); ++i)
         state.addSuccessors(blocks.lookup(a->getSuccessor(i)));
@@ -1038,7 +1038,7 @@ public:
           !edgeArguments(a->getSuccessor(1), b->getSuccessor(1),
                          a->getParent(), b->getParent(), arguments)) return;
       mlir::OperationState state(builder.getUnknownLoc(),
-          a->isConditional() ? "nier.cond_br" : "nier.br");
+          a->isConditional() ? "sela.cond_br" : "sela.br");
       state.addOperands(arguments);
       for (unsigned i = 0; i < a->getNumSuccessors(); ++i)
         state.addSuccessors(blocks.lookup(a->getSuccessor(i)));
@@ -1046,7 +1046,7 @@ public:
         state.addAttribute("true_count", builder.getI32IntegerAttr(trueCount));
       result = builder.create(state);
     } else if (llvm::isa<llvm::UnreachableInst>(&left)) {
-      result = op("nier.unreachable");
+      result = op("sela.unreachable");
     } else if (auto *a = llvm::dyn_cast<llvm::ReturnInst>(&left)) {
       auto *b = llvm::cast<llvm::ReturnInst>(&right);
       if (bool(a->getReturnValue()) != bool(b->getReturnValue())) {
@@ -1060,12 +1060,12 @@ public:
           return;
         returns.push_back(value);
       }
-      result = op("nier.return", {}, returns);
+      result = op("sela.return", {}, returns);
     } else if (auto *a = llvm::dyn_cast<llvm::BinaryOperator>(&left)) {
       auto *b = llvm::cast<llvm::BinaryOperator>(&right);
       if (llvm::isa<llvm::FPMathOperator>(a) &&
           (a->getFastMathFlags().any() || b->getFastMathFlags().any())) {
-        fail("fast-math flags require an explicitly supported NieR representation"); return;
+        fail("fast-math flags require an explicitly supported Sela representation"); return;
       }
       auto valueType = type(a->getType(), b->getType());
       auto x = operand(a->getOperand(0), b->getOperand(0));
@@ -1077,7 +1077,7 @@ public:
         fail("arithmetic flags are not valid for this operation");
         return;
       }
-      result = op("nier.binary", valueType, {x, y},
+      result = op("sela.binary", valueType, {x, y},
                   {attr("opcode", builder.getStringAttr(a->getOpcodeName())),
                    attr("flags", expression(af, bf))});
     } else if (auto *a = llvm::dyn_cast<llvm::SelectInst>(&left)) {
@@ -1091,7 +1091,7 @@ public:
       auto yes = operand(a->getTrueValue(), b->getTrueValue());
       auto no = operand(a->getFalseValue(), b->getFalseValue());
       if (!resultType || !condition || !yes || !no) return;
-      result = op("nier.select", resultType, {condition, yes, no});
+      result = op("sela.select", resultType, {condition, yes, no});
     } else if (auto *a = llvm::dyn_cast<llvm::UnaryOperator>(&left)) {
       auto *b = llvm::cast<llvm::UnaryOperator>(&right);
       if (a->getOpcode() != llvm::Instruction::FNeg ||
@@ -1101,14 +1101,14 @@ public:
       auto resultType = type(a->getType(), b->getType());
       auto value = operand(a->getOperand(0), b->getOperand(0));
       if (!resultType || !value) return;
-      result = op("nier.fneg", resultType, value);
+      result = op("sela.fneg", resultType, value);
     } else if (auto *a = llvm::dyn_cast<llvm::CastInst>(&left)) {
       auto *b = llvm::cast<llvm::CastInst>(&right);
       auto valueType = type(a->getType(), b->getType());
       auto value = operand(a->getOperand(0), b->getOperand(0));
       if (!valueType || !value)
         return;
-      result = op("nier.cast", valueType, value,
+      result = op("sela.cast", valueType, value,
                   {attr("opcode", builder.getStringAttr(a->getOpcodeName()))});
     } else if (auto *a = llvm::dyn_cast<llvm::CmpInst>(&left)) {
       auto *b = llvm::cast<llvm::CmpInst>(&right);
@@ -1124,7 +1124,7 @@ public:
       auto y = operand(a->getOperand(1), b->getOperand(1));
       if (!x || !y)
         return;
-      result = op("nier.compare", builder.getI1Type(), {x, y},
+      result = op("sela.compare", builder.getI1Type(), {x, y},
                   {attr("predicate", builder.getI32IntegerAttr(a->getPredicate()))});
     } else {
       fail("unsupported first-checkpoint instruction: " + StringRef(left.getOpcodeName()));
@@ -1198,7 +1198,7 @@ public:
     };
     for (const auto &[name, value] : lf) flag(name, value, "both");
     if (hasNumReg) flag("NumRegisterParameters", numRegValue, "i686");
-    (*module)->setAttr("nier.module_flags", builder.getArrayAttr(flags));
+    (*module)->setAttr("sela.module_flags", builder.getArrayAttr(flags));
     unsigned globalIndex = 0;
     std::vector<std::pair<llvm::GlobalVariable *, llvm::GlobalVariable *>> globals;
     for (auto &a : left.globals()) {
@@ -1292,7 +1292,7 @@ public:
                                   b->getAlign() ? b->getAlign()->value() : 0);
       if (ad && bd && ad->isString() && bd->isString() && ad->getAsString() == bd->getAsString() &&
           a->isConstant() && a->hasPrivateLinkage() && a->getAlign() && b->getAlign()) {
-        op("nier.global", {}, {}, {
+        op("sela.global", {}, {}, {
             attr("id", builder.getStringAttr(symbols.lookup(a))),
             attr("bytes", builder.getStringAttr(ad->getAsString())),
             attr("alignment", alignment),
@@ -1305,7 +1305,7 @@ public:
       if (!value) return;
       StringRef linkage = a->hasPrivateLinkage() ? "private" : a->hasInternalLinkage() ? "internal" :
           a->hasCommonLinkage() ? "common" : a->hasWeakAnyLinkage() ? "weak" : "external";
-      op("nier.global", {}, {}, {
+      op("sela.global", {}, {}, {
           attr("id", builder.getStringAttr(symbols.lookup(a))), attr("element", mlir::TypeAttr::get(element)),
           attr("initializer", value), attr("constant", builder.getBoolAttr(a->isConstant())),
           attr("declaration", builder.getBoolAttr(a->isDeclaration())),
@@ -1331,7 +1331,7 @@ public:
       auto attrs = attributeList(a->getAttributes(), b->getAttributes(), a->arg_size());
       if (!error.empty())
         return;
-      auto *function = op("nier.func", {}, {},
+      auto *function = op("sela.func", {}, {},
           {attr("id", builder.getStringAttr(symbols.lookup(a))),
            attr("type", mlir::TypeAttr::get(builder.getFunctionType(parameters, returns))),
            attr("declaration", builder.getBoolAttr(a->isDeclaration())),
@@ -1535,4 +1535,4 @@ llvm::Error mergeProfiles(StringRef x86_64Capture, StringRef i686Capture,
   return llvm::Error::success();
 }
 
-} // namespace nier
+} // namespace sela

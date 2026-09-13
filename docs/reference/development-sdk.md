@@ -8,12 +8,13 @@ The matching GCC runtime base package is also pinned so the extracted `libstdc++
 Distributable device compilers use separate target-specific source SDKs, not this publisher SDK; see the [compiler distribution reference](compiler-distribution.md).
 
 The footprint work keeps this publisher SDK's archive linkage and frontend behavior unchanged.
-Only the independent device `nierc` selects objects from pinned static libarchive; publisher tools and fixture writers retain shared libarchive.
-The consumer bootstrap defaults to stock X86-only shared LLVM and also supports `NIER_CONSUMER_LLVM_LINKAGE=static-components` for comparison.
-Both shared packages have measured sizes of 91.89 MiB for x86-64 and 98.28 MiB for i686 in regular-file payloads, with all 11 consumer CTests per device and the fresh two-device matrix passing.
-The final packages also passed the full 50-artifact dual-device corpus through complete fresh cJSON and zlib project runs on 2026-09-13, establishing shared LLVM as the adopted default layout.
-The distribution reference records the exact checkpoints, results, and test-only harness provenance correction; the publisher SDK and compiler packages were not changed for that correction.
-Its two architecture SDKs can be built concurrently with the opt-in [parallel source-build procedure](building-nier.md#parallel-sdk-source-builds); compilation job limits apply per target, not to the combined machine workload.
+Only the independent device `selac` selects objects from pinned static libarchive; publisher tools and fixture writers retain shared libarchive.
+The consumer bootstrap defaults to stock X86-only shared LLVM and also supports `SELA_CONSUMER_LLVM_LINKAGE=static-components` for comparison.
+The pre-rename shared checkpoint recorded in commit `be63890` measured 91.89 MiB for x86-64 and 98.28 MiB for i686 and passed the full 50-artifact dual-device corpus on 2026-09-13, establishing the shared default.
+Fresh Sela packages separately measure approximately 91.9 MiB and 98.3 MiB and have passed all 11 consumer CTests per device, all 40 publisher tests, the fresh two-device matrix, and the complete dual-device zlib corpus.
+cJSON's fresh publication/native/x86-64 stages and its separate unchanged-fixture real-i686 continuation cover all 42 artifacts; the first command's failed VM boot remains recorded as a failure, not a single-command pass.
+The distribution reference separates historical evidence from these renamed builds and records the earlier test-only harness provenance correction; the historical publisher SDK and compiler packages were not changed for that correction.
+Its two architecture SDKs can be built concurrently with the opt-in [parallel source-build procedure](building-sela.md#parallel-sdk-source-builds); compilation job limits apply per target, not to the combined machine workload.
 
 ## Bootstrap and check
 
@@ -36,7 +37,7 @@ SDK publisher programs use the host Ubuntu glibc/loader, and CMake uses the host
 This is **not a fully hermetic publisher image**. The SDK pins the extracted package inputs; it does not claim to pin every publisher-host dependency or prove reproducible application builds.
 Optional CMake notices about missing CURL/LibEdit development files do not prevent the tested MLIR/LLVM/libarchive build.
 
-`NIER_SDK_ROOT` can select another dedicated directory. Set it before both the bootstrap and `source sdk/env.sh`.
+`SELA_SDK_ROOT` can select another dedicated directory. Set it before both the bootstrap and `source sdk/env.sh`.
 During pre-alpha the package lock may change without compatibility support: bootstrap extracts the newly pinned packages and developer tools must be rebuilt.
 Use a fresh directory when removing SDK packages or changing toolchain families; bootstrap does not delete unrelated files.
 The default download source is Ubuntu's dated snapshot at `https://snapshot.ubuntu.com/ubuntu/20260910T000000Z`, which retains the locked package versions after the live archive rotates them out.
@@ -52,7 +53,7 @@ Measured bundles retain the README snapshot copied at assembly and remain unchan
 The live distribution reference records subsequent qualification without changing those measured payloads.
 
 Sharing LLVM does not change the ahead-of-time compilation model or add LLVM to generated applications' runtime dependencies.
-Removing unused stock-library capabilities and enforcing SENieR execution policy are separate work; shared linkage is not a claim that those goals have been completed.
+Removing unused stock-library capabilities and enforcing SESela execution policy are separate work; shared linkage is not a claim that those goals have been completed.
 
 ## Paths and target compilation
 
@@ -60,27 +61,27 @@ After sourcing `sdk/env.sh`:
 
 | Variable | Default location |
 | --- | --- |
-| `NIER_SDK_ROOT` | `<repository>/.sdk` |
-| `NIER_LLVM_ROOT` | `.sdk/host/usr/lib/llvm-18` |
-| `LLVM_DIR` | `$NIER_LLVM_ROOT/lib/cmake/llvm` |
-| `MLIR_DIR` | `$NIER_LLVM_ROOT/lib/cmake/mlir` |
-| `Clang_DIR` | `$NIER_LLVM_ROOT/lib/cmake/clang` |
-| `NIER_SYSROOT_X86_64` | `.sdk/sysroots/x86_64-linux-gnu` |
-| `NIER_SYSROOT_I686` | `.sdk/sysroots/i686-linux-gnu` |
+| `SELA_SDK_ROOT` | `<repository>/.sdk` |
+| `SELA_LLVM_ROOT` | `.sdk/host/usr/lib/llvm-18` |
+| `LLVM_DIR` | `$SELA_LLVM_ROOT/lib/cmake/llvm` |
+| `MLIR_DIR` | `$SELA_LLVM_ROOT/lib/cmake/mlir` |
+| `Clang_DIR` | `$SELA_LLVM_ROOT/lib/cmake/clang` |
+| `SELA_SYSROOT_X86_64` | `.sdk/sysroots/x86_64-linux-gnu` |
+| `SELA_SYSROOT_I686` | `.sdk/sysroots/i686-linux-gnu` |
 
 `PATH`, `LD_LIBRARY_PATH`, and `CMAKE_PREFIX_PATH` select the extracted host tools/libraries.
 CMake and Ninja live in `.sdk/host/usr/bin`.
-Compiler-rt libraries for both x86 widths are under `$NIER_LLVM_ROOT/lib/clang/18/lib/linux`.
+Compiler-rt libraries for both x86 widths are under `$SELA_LLVM_ROOT/lib/clang/18/lib/linux`.
 
 Example private native-profile capture (this is **not** portable publication IR and is not the product's LLVM capture plugin):
 
 ```sh
-clang --target=i686-linux-gnu --sysroot="$NIER_SYSROOT_I686" \
+clang --target=i686-linux-gnu --sysroot="$SELA_SYSROOT_I686" \
   -std=c11 -O2 -Xclang -disable-llvm-passes -emit-llvm -c \
-  sdk/smoke/stdio.c -o "$NIER_SDK_ROOT/check/stdio-i686.bc"
+  sdk/smoke/stdio.c -o "$SELA_SDK_ROOT/check/stdio-i686.bc"
 ```
 
-The x86-64 equivalent uses `--target=x86_64-linux-gnu` and `--sysroot="$NIER_SYSROOT_X86_64"`.
+The x86-64 equivalent uses `--target=x86_64-linux-gnu` and `--sysroot="$SELA_SYSROOT_X86_64"`.
 Neither profile's raw LLVM IR is assumed to be architecture-neutral. The smoke check verifies distinct native pointer widths (8 and 4 bytes).
 
 The exact native x86-64 link recipe is in `sdk/check-sdk.sh`: LLD receives the SDK's `Scrt1.o`, `crti.o`, compiler-rt CRT/builtins, libc, and `crtn.o`, with an explicit SDK glibc interpreter and runtime library path.
@@ -121,7 +122,7 @@ this option makes the finished object available at its requested path at that po
 The observer then binds the original object hash to its pristine LLVM capture.
 Native compiler errors never finalize that hash, and publication additionally requires the complete native build to succeed.
 
-Private objects carry a readonly `.nier.capture` reference added **after** the LLVM snapshot.
+Private objects carry a readonly `.sela.capture` reference added **after** the LLVM snapshot.
 Copying, moving and ordinary archiving preserve provenance; postprocessing that changes object bytes is rejected when selecting build inputs.
-The marker never enters public NieR Code or the on-device executable.
+The marker never enters public Sela Code or the on-device executable.
 These checks protect build correspondence, not against a hostile process able to rewrite the entire private build workspace; they are not security signing.

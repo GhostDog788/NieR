@@ -1,7 +1,7 @@
 #pragma once
-#include "nier/Support.h"
+#include "sela/Support.h"
 
-namespace nier::driver {
+namespace sela::driver {
 struct CapturedUnit {
   std::vector<fs::path> x64Paths, i686Paths;
   std::string optimization;

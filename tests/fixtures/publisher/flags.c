@@ -1,9 +1,9 @@
 #include <stdio.h>
-#include <nier_options.h>
+#include <sela_options.h>
 #if __SIZEOF_POINTER__ == 8
-#include <nier_width64.h>
+#include <sela_width64.h>
 #else
-#include <nier_width32.h>
+#include <sela_width32.h>
 #endif
 #ifndef PUBLISHED_VALUE
 #error PUBLISHED_VALUE must be provided through ordinary Clang -D

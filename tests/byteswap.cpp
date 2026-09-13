@@ -123,7 +123,7 @@ bool test(llvm::StringRef name, const std::string &source, unsigned expected, bo
   auto samples = inputs(function->getReturnType()->getIntegerBitWidth());
   std::vector<llvm::APInt> outputs;
   if (expected) for (auto input : samples) outputs.push_back(evaluate(*function, input));
-  auto result = nier::detail::normalizeNativeByteSwaps(*module);
+  auto result = sela::detail::normalizeNativeByteSwaps(*module);
   if (!result) { llvm::logAllUnhandledErrors(result.takeError(), llvm::errs()); return false; }
   bool passed = check(*result == expected, name);
   passed &= check(!llvm::verifyModule(*module, &llvm::errs()), "normalized module verifies");
@@ -146,7 +146,7 @@ bool test(llvm::StringRef name, const std::string &source, unsigned expected, bo
       passed &= check(stores == 1 && allocations == 1, "argument storage and initialization remain intact");
   }
   before = text(*module);
-  auto repeated = nier::detail::normalizeNativeByteSwaps(*module);
+  auto repeated = sela::detail::normalizeNativeByteSwaps(*module);
   if (!repeated) { llvm::consumeError(repeated.takeError()); return false; }
   passed &= check(*repeated == 0 && text(*module) == before, "normalization is idempotent");
   return passed;
@@ -165,7 +165,7 @@ bool capture(llvm::StringRef path, llvm::StringRef output) {
   auto samples = inputs(function->getReturnType()->getIntegerBitWidth());
   std::vector<llvm::APInt> before;
   for (auto input : samples) before.push_back(evaluate(*function, input));
-  auto result = nier::detail::normalizeNativeByteSwaps(*module);
+  auto result = sela::detail::normalizeNativeByteSwaps(*module);
   if (!result) { llvm::logAllUnhandledErrors(result.takeError(), llvm::errs()); return false; }
   bool passed = check(*result >= 1, "real CRC contains a proved byte swap") &&
                 check(!llvm::verifyModule(*module, &llvm::errs()), "real normalized CRC module verifies");

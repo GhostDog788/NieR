@@ -17,7 +17,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-namespace nier::driver {
+namespace sela::driver {
 namespace {
 fs::path absolutePath(const fs::path &path) {
   return fs::weakly_canonical(fs::absolute(path));
@@ -118,7 +118,7 @@ llvm::Expected<std::vector<std::string>> captureMarkers(
   for (const auto &section : object.sections()) {
     auto sectionName = section.getName();
     if (!sectionName) return sectionName.takeError();
-    if (*sectionName != ".nier.capture") continue;
+    if (*sectionName != ".sela.capture") continue;
     if (seen) return fail("multiple private capture sections in " + name.str());
     seen = true;
     auto contents = section.getContents();
@@ -359,7 +359,7 @@ llvm::Error recordNativeLink(const std::vector<std::string> &args, const Sdk &sd
   if (!inside(output, lane)) return fail("native link output escaped private build lane");
   if (hashStyle == "both") linkOptions.push_back("--hash-style=both");
   if (kind == "executable") {
-    const char *profile = std::getenv("NIER_BUILD_PROFILE");
+    const char *profile = std::getenv("SELA_BUILD_PROFILE");
     if (!profile || (std::string(profile) != "x86_64" && std::string(profile) != "i686"))
       return fail("native linker lacks a qualified profile");
     const bool x64 = std::string(profile) == "x86_64";
@@ -702,11 +702,11 @@ llvm::Expected<CapturedBuild> pairSelected(const std::vector<SelectedBuild> &sel
 
 int nativeLinkMain(int argc, char **argv) {
   try {
-    const char *sdkRoot = std::getenv("NIER_BUILD_SDK");
-    const char *laneName = std::getenv("NIER_BUILD_LANE");
-    const char *metadataName = std::getenv("NIER_BUILD_METADATA");
+    const char *sdkRoot = std::getenv("SELA_BUILD_SDK");
+    const char *laneName = std::getenv("SELA_BUILD_LANE");
+    const char *metadataName = std::getenv("SELA_BUILD_METADATA");
     if (!sdkRoot || !laneName || !metadataName) {
-      llvm::errs() << "nier-native-ld: missing private publisher build environment\n"; return 1;
+      llvm::errs() << "sela-native-ld: missing private publisher build environment\n"; return 1;
     }
     Sdk sdk{sdkRoot};
     auto args = expandResponses(std::vector<std::string>(argv + 1, argv + argc));
@@ -720,7 +720,7 @@ int nativeLinkMain(int argc, char **argv) {
     const bool query = std::find(args->begin(), args->end(), "--version") != args->end() ||
                        std::find(args->begin(), args->end(), "--help") != args->end();
     if (!query && absolutePath(output) != "/dev/null" && !inside(absolutePath(output), absolutePath(laneName))) {
-      llvm::errs() << "nier-native-ld: output escaped private build lane\n"; return 1;
+      llvm::errs() << "sela-native-ld: output escaped private build lane\n"; return 1;
     }
     auto command = *args; command.insert(command.begin(), sdk.tool("ld.lld").string());
     if (query) {
@@ -733,14 +733,14 @@ int nativeLinkMain(int argc, char **argv) {
     if (auto error = llvm::sys::fs::createUniqueFile(
           (metadata / (digest(absolutePath(output).string()) + ".%%%%%%.trace")).string(),
           traceDescriptor, traceName, llvm::sys::fs::OF_None, 0600)) {
-      llvm::errs() << "nier-native-ld: cannot reserve trace: " << error.message() << '\n'; return 1;
+      llvm::errs() << "sela-native-ld: cannot reserve trace: " << error.message() << '\n'; return 1;
     }
     const fs::path trace(traceName.str().str());
     const auto whyExtract = trace.string() + ".extract.tsv";
     command.push_back("--trace");
     command.push_back("--why-extract=" + whyExtract);
     if (auto error = runTracedLink(command, traceDescriptor)) {
-      llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "nier-native-ld: "); return 1;
+      llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "sela-native-ld: "); return 1;
     }
     if (std::find(args->begin(), args->end(), "--trace") != args->end() ||
         std::find(args->begin(), args->end(), "-t") != args->end()) {
@@ -749,10 +749,10 @@ int nativeLinkMain(int argc, char **argv) {
       llvm::outs() << *log;
     }
     if (auto error = recordNativeLink(*args, sdk, absolutePath(laneName), metadata, trace, whyExtract)) {
-      llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "nier-native-ld: "); return 1;
+      llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "sela-native-ld: "); return 1;
     }
     return 0;
-  } catch (const std::exception &error) { llvm::errs() << "nier-native-ld: " << error.what() << '\n'; return 1; }
+  } catch (const std::exception &error) { llvm::errs() << "sela-native-ld: " << error.what() << '\n'; return 1; }
 }
 
 llvm::Expected<CapturedBuild> selectRetainedBuild(const fs::path &scratch,
@@ -789,8 +789,8 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
   if (inside(absolutePath(scratch), source)) return fail("scratch cannot be inside copied sources");
   for (const auto &target : request.targets)
     if (target.empty() || target.front() == '-') return fail("build target must be a name, not an option");
-  const auto recorder = fs::read_symlink("/proc/self/exe").parent_path() / "nier-native-ld";
-  if (!fs::is_regular_file(recorder)) return fail("publisher SDK lacks nier-native-ld");
+  const auto recorder = fs::read_symlink("/proc/self/exe").parent_path() / "sela-native-ld";
+  if (!fs::is_regular_file(recorder)) return fail("publisher SDK lacks sela-native-ld");
   std::vector<SelectedBuild> selected;
   for (const char *profile : {"x86_64", "i686"}) {
     const bool x64 = std::string(profile) == "x86_64";
@@ -803,9 +803,9 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
     config.insert(config.end(), {"--rtlib=compiler-rt", "--unwindlib=none", "-fPIC", "-g", "-fno-temp-file",
       // Native references and captures share the same virtual source identity.
       // Only our transient lane prefix changes; physical provenance paths do not.
-      "-ffile-prefix-map=" + lane.string() + "=/nier",
-      "-fstandalone-debug", std::string("-fplugin=") + NIER_CLANG_PLUGIN,
-      std::string("-fpass-plugin=") + NIER_CAPTURE_PLUGIN, "--ld-path=" + recorder.string(),
+      "-ffile-prefix-map=" + lane.string() + "=/sela",
+      "-fstandalone-debug", std::string("-fplugin=") + SELA_CLANG_PLUGIN,
+      std::string("-fpass-plugin=") + SELA_CAPTURE_PLUGIN, "--ld-path=" + recorder.string(),
       // GNU-ld-compatible version scripts may name symbols absent from a
       // particular link (including configure probes). Preserve that declared
       // native SDK default in the artifact; never patch the project script.
@@ -822,8 +822,8 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
     const std::string inheritedPath = std::getenv("PATH") ? std::getenv("PATH") : "/usr/bin:/bin";
     const std::string inheritedLibraries = std::getenv("LD_LIBRARY_PATH") ? std::getenv("LD_LIBRARY_PATH") : "";
     std::map<std::string, std::string> environment{
-      {"NIER_BUILD_SDK", sdk.root.string()}, {"NIER_BUILD_PROFILE", profile},
-      {"NIER_BUILD_LANE", lane.string()}, {"NIER_BUILD_METADATA", (lane / "metadata").string()},
+      {"SELA_BUILD_SDK", sdk.root.string()}, {"SELA_BUILD_PROFILE", profile},
+      {"SELA_BUILD_LANE", lane.string()}, {"SELA_BUILD_METADATA", (lane / "metadata").string()},
       {"CC", compilerCommand}, {"AR", sdk.tool("llvm-ar").string()},
       {"RANLIB", sdk.tool("llvm-ranlib").string()}, {"LD", recorder.string()},
       {"CCACHE_DISABLE", "1"}, {"TMPDIR", (lane / "tmp").string()},
@@ -883,4 +883,4 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
   }
   return pairSelected(selected);
 }
-} // namespace nier::driver
+} // namespace sela::driver

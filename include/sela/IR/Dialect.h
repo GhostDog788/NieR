@@ -1,6 +1,6 @@
 #pragma once
 
-#include "nier/IR/Overlap.h"
+#include "sela/IR/Overlap.h"
 
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
@@ -8,7 +8,7 @@
 #include "llvm/ADT/Hashing.h"
 #include <tuple>
 
-namespace nier::ir {
+namespace sela::ir {
 
 namespace detail {
 struct ArrayTypeStorage : public mlir::TypeStorage {
@@ -47,7 +47,7 @@ struct RecordTypeStorage : public mlir::TypeStorage {
 class ArrayType : public mlir::Type::TypeBase<ArrayType, mlir::Type, detail::ArrayTypeStorage> {
 public:
   using Base::Base;
-  static constexpr llvm::StringLiteral name = "nier.array";
+  static constexpr llvm::StringLiteral name = "sela.array";
   static ArrayType get(mlir::MLIRContext *context, mlir::Type element, uint64_t count) {
     return Base::get(context, element, count, count);
   }
@@ -62,7 +62,7 @@ public:
 class RecordType : public mlir::Type::TypeBase<RecordType, mlir::Type, detail::RecordTypeStorage> {
 public:
   using Base::Base;
-  static constexpr llvm::StringLiteral name = "nier.record";
+  static constexpr llvm::StringLiteral name = "sela.record";
   static RecordType get(mlir::MLIRContext *context, llvm::StringRef identity,
                         bool packed, llvm::ArrayRef<mlir::Type> fields) {
     return Base::get(context, identity, packed, fields);
@@ -76,14 +76,14 @@ class WordType : public mlir::Type::TypeBase<WordType, mlir::Type,
                                              mlir::TypeStorage> {
 public:
   using Base::Base;
-  static constexpr llvm::StringLiteral name = "nier.word";
+  static constexpr llvm::StringLiteral name = "sela.word";
 };
 
 class PointerType : public mlir::Type::TypeBase<PointerType, mlir::Type,
                                                 mlir::TypeStorage> {
 public:
   using Base::Base;
-  static constexpr llvm::StringLiteral name = "nier.ptr";
+  static constexpr llvm::StringLiteral name = "sela.ptr";
 };
 
 // Storage for the target native variadic argument cursor. Its layout is owned
@@ -91,12 +91,12 @@ public:
 class VaListType : public mlir::Type::TypeBase<VaListType, mlir::Type, mlir::TypeStorage> {
 public:
   using Base::Base;
-  static constexpr llvm::StringLiteral name = "nier.va_list";
+  static constexpr llvm::StringLiteral name = "sela.va_list";
 };
 
 // These are real registered dialect operations. They deliberately use MLIR's
 // generic assembly format; no private parser or opaque payload is involved.
-#define NIER_SIMPLE_OP(CLASS, NAME, ...)                                         \
+#define SELA_SIMPLE_OP(CLASS, NAME, ...)                                         \
   class CLASS : public mlir::Op<CLASS, __VA_ARGS__> {                            \
   public:                                                                     \
     using Op::Op;                                                             \
@@ -104,67 +104,67 @@ public:
     static llvm::ArrayRef<llvm::StringRef> getAttributeNames() { return {}; }    \
   }
 
-NIER_SIMPLE_OP(FunctionOp, "nier.func", mlir::OpTrait::ZeroOperands,
+SELA_SIMPLE_OP(FunctionOp, "sela.func", mlir::OpTrait::ZeroOperands,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::OneRegion);
-NIER_SIMPLE_OP(GlobalOp, "nier.global", mlir::OpTrait::ZeroOperands,
+SELA_SIMPLE_OP(GlobalOp, "sela.global", mlir::OpTrait::ZeroOperands,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(ConstantOp, "nier.constant", mlir::OpTrait::ZeroOperands,
+SELA_SIMPLE_OP(ConstantOp, "sela.constant", mlir::OpTrait::ZeroOperands,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(AddressOp, "nier.address", mlir::OpTrait::ZeroOperands,
+SELA_SIMPLE_OP(AddressOp, "sela.address", mlir::OpTrait::ZeroOperands,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(AllocaOp, "nier.alloca", mlir::OpTrait::ZeroOperands,
+SELA_SIMPLE_OP(AllocaOp, "sela.alloca", mlir::OpTrait::ZeroOperands,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(LoadOp, "nier.load", mlir::OpTrait::OneOperand,
+SELA_SIMPLE_OP(LoadOp, "sela.load", mlir::OpTrait::OneOperand,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(VaArgOp, "nier.va_arg", mlir::OpTrait::OneOperand,
+SELA_SIMPLE_OP(VaArgOp, "sela.va_arg", mlir::OpTrait::OneOperand,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(VaForwardOp, "nier.va_forward", mlir::OpTrait::OneOperand,
+SELA_SIMPLE_OP(VaForwardOp, "sela.va_forward", mlir::OpTrait::OneOperand,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(StoreOp, "nier.store", mlir::OpTrait::NOperands<2>::Impl,
+SELA_SIMPLE_OP(StoreOp, "sela.store", mlir::OpTrait::NOperands<2>::Impl,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(CallOp, "nier.call", mlir::OpTrait::VariadicOperands,
+SELA_SIMPLE_OP(CallOp, "sela.call", mlir::OpTrait::VariadicOperands,
               mlir::OpTrait::VariadicResults, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(IndirectCallOp, "nier.call_indirect", mlir::OpTrait::VariadicOperands,
+SELA_SIMPLE_OP(IndirectCallOp, "sela.call_indirect", mlir::OpTrait::VariadicOperands,
               mlir::OpTrait::VariadicResults, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(BinaryOp, "nier.binary", mlir::OpTrait::NOperands<2>::Impl,
+SELA_SIMPLE_OP(BinaryOp, "sela.binary", mlir::OpTrait::NOperands<2>::Impl,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(CastOp, "nier.cast", mlir::OpTrait::OneOperand,
+SELA_SIMPLE_OP(CastOp, "sela.cast", mlir::OpTrait::OneOperand,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(CompareOp, "nier.compare", mlir::OpTrait::NOperands<2>::Impl,
+SELA_SIMPLE_OP(CompareOp, "sela.compare", mlir::OpTrait::NOperands<2>::Impl,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(AddressIndexOp, "nier.gep", mlir::OpTrait::VariadicOperands,
+SELA_SIMPLE_OP(AddressIndexOp, "sela.gep", mlir::OpTrait::VariadicOperands,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(SelectOp, "nier.select", mlir::OpTrait::NOperands<3>::Impl,
+SELA_SIMPLE_OP(SelectOp, "sela.select", mlir::OpTrait::NOperands<3>::Impl,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(NegateOp, "nier.fneg", mlir::OpTrait::OneOperand,
+SELA_SIMPLE_OP(NegateOp, "sela.fneg", mlir::OpTrait::OneOperand,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(ByteSwapOp, "nier.bswap", mlir::OpTrait::OneOperand,
+SELA_SIMPLE_OP(ByteSwapOp, "sela.bswap", mlir::OpTrait::OneOperand,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
-NIER_SIMPLE_OP(ReturnOp, "nier.return", mlir::OpTrait::VariadicOperands,
+SELA_SIMPLE_OP(ReturnOp, "sela.return", mlir::OpTrait::VariadicOperands,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::ZeroRegions,
               mlir::OpTrait::IsTerminator);
-NIER_SIMPLE_OP(BranchOp, "nier.br", mlir::OpTrait::VariadicOperands,
+SELA_SIMPLE_OP(BranchOp, "sela.br", mlir::OpTrait::VariadicOperands,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::ZeroRegions,
               mlir::OpTrait::OneSuccessor, mlir::OpTrait::IsTerminator);
-NIER_SIMPLE_OP(CondBranchOp, "nier.cond_br", mlir::OpTrait::VariadicOperands,
+SELA_SIMPLE_OP(CondBranchOp, "sela.cond_br", mlir::OpTrait::VariadicOperands,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::ZeroRegions,
               mlir::OpTrait::NSuccessors<2>::Impl, mlir::OpTrait::IsTerminator);
-NIER_SIMPLE_OP(SwitchOp, "nier.switch", mlir::OpTrait::VariadicOperands,
+SELA_SIMPLE_OP(SwitchOp, "sela.switch", mlir::OpTrait::VariadicOperands,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::ZeroRegions,
               mlir::OpTrait::VariadicSuccessors, mlir::OpTrait::IsTerminator);
-NIER_SIMPLE_OP(UnreachableOp, "nier.unreachable", mlir::OpTrait::ZeroOperands,
+SELA_SIMPLE_OP(UnreachableOp, "sela.unreachable", mlir::OpTrait::ZeroOperands,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::ZeroRegions,
               mlir::OpTrait::IsTerminator);
 
-#undef NIER_SIMPLE_OP
+#undef SELA_SIMPLE_OP
 
-class NIERDialect : public mlir::Dialect {
+class SelaDialect : public mlir::Dialect {
 public:
-  explicit NIERDialect(mlir::MLIRContext *context);
-  static llvm::StringRef getDialectNamespace() { return "nier"; }
+  explicit SelaDialect(mlir::MLIRContext *context);
+  static llvm::StringRef getDialectNamespace() { return "sela"; }
   mlir::Type parseType(mlir::DialectAsmParser &parser) const override;
   void printType(mlir::Type type,
                  mlir::DialectAsmPrinter &printer) const override;
 };
 
-} // namespace nier::ir
+} // namespace sela::ir

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Exercise archive admission through the actual (possibly packaged) nierc.
+"""Exercise archive admission through the actual (possibly packaged) selac.
 
-Usage: python3 tests/consumer-package-boundary.py NIER_COMPILER VALID_ARTIFACT
+Usage: python3 tests/consumer-package-boundary.py SELA_COMPILER VALID_ARTIFACT
 The caller supplies an independent producer's valid artifact and any SDK
 environment needed by the compiler. Only private temporary fixtures are written.
 This complements package_tests, whose full libarchive also creates gzip fixtures;
@@ -11,6 +11,7 @@ it specifically covers the shipped compiler's separately linked archive reader.
 import argparse
 import gzip
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -79,7 +80,7 @@ class BoundaryChecks:
         else:
             # A crash, loader failure, or later manifest rejection must not
             # masquerade as successful rejection by the archive reader.
-            passed = (result.returncode == 1 and "nierc: " in result.stderr and
+            passed = (result.returncode == 1 and "selac: " in result.stderr and
                       any(message.lower() in result.stderr.lower()
                           for message in expected))
         if not passed:
@@ -89,7 +90,7 @@ class BoundaryChecks:
         print(f"PASS: {label}", flush=True)
 
     def bad_archive(self, label, entries, expected):
-        path = self.work / f"case-{self.count}.nier"
+        path = self.work / f"case-{self.count}.sela"
         self.inspect(label, archive(path, entries), expected)
 
 
@@ -98,8 +99,38 @@ def run(compiler, valid_artifact, work):
     original_digest = digest(valid_artifact)
     tests.inspect("valid artifact", valid_artifact)
 
+    # Check the actual producer/consumer wire boundary, not only renamed CLIs.
+    # The preceding successful inspection admits this bounded regular-file tar.
+    with tarfile.open(valid_artifact, mode="r:") as source:
+        files = {entry.name: source.extractfile(entry).read() for entry in source}
+    manifest = files["manifest.json"]
+    record = json.loads(manifest)
+    if record["contract"] != "sela-prealpha-1" or not record["modules"]:
+        raise AssertionError("producer did not emit the Sela artifact contract")
+    for index, module in enumerate(record["modules"]):
+        if module["path"] != f"modules/{index}.selabc" or module["path"] not in files:
+            raise AssertionError("producer did not emit canonical Sela bytecode members")
+
+    # Historical wire bytes are fixtures, never accepted compatibility aliases.
+    predecessor = bytes((0x6E, 0x69, 0x65, 0x72))
+    old_contract = dict(files)
+    old_contract["manifest.json"] = manifest.replace(
+        b'"sela-prealpha-1"', b'"' + predecessor + b'-prealpha-1"', 1)
+    tests.bad_archive("predecessor artifact contract rejected",
+                      [(header(name, len(body)), body) for name, body in old_contract.items()],
+                      ("unsupported experimental format/compiler contract",))
+    old_member = dict(files)
+    current_path = record["modules"][0]["path"]
+    previous_path = "modules/0." + predecessor.decode("ascii") + "bc"
+    old_member[previous_path] = old_member.pop(current_path)
+    old_member["manifest.json"] = manifest.replace(
+        current_path.encode("ascii"), previous_path.encode("ascii"), 1)
+    tests.bad_archive("predecessor bytecode member naming rejected",
+                      [(header(name, len(body)), body) for name, body in old_member.items()],
+                      ("invalid module path",))
+
     for name in ("/absolute", "../escape", "modules/../escape",
-                 "./manifest.json", "modules//0.nierbc", "x" * 257):
+                 "./manifest.json", "modules//0.selabc", "x" * 257):
         tests.bad_archive(f"invalid path {name[:40]!r}", [(header(name), b"")],
                           ("invalid archive entry:",))
     for label, kind, linkname in (
@@ -129,27 +160,27 @@ def run(compiler, valid_artifact, work):
                        (header("second", MAX_BYTES), b"")],
                       ("archive size/count limit or duplicate entry:",))
 
-    short_body = work / "truncated-body.nier"
+    short_body = work / "truncated-body.sela"
     short_body.write_bytes(header("payload", 4096) + b"x" * 17)
     tests.inspect("truncated body", short_body, ("truncated archive entry:",))
-    short_header = work / "truncated-header.nier"
+    short_header = work / "truncated-header.sela"
     short_header.write_bytes(header("payload", 4096)[:100])
     tests.inspect("truncated header", short_header,
                   ("unrecognized archive format", "truncated archive"))
-    bad_checksum = work / "bad-checksum.nier"
+    bad_checksum = work / "bad-checksum.sela"
     damaged = bytearray(header("payload"))
     damaged[0] ^= 1
     bad_checksum.write_bytes(damaged + b"\0" * (2 * BLOCK_BYTES))
     tests.inspect("invalid tar checksum", bad_checksum,
                   ("unrecognized archive format", "damaged tar archive"))
 
-    oversized = work / "oversized-outer.nier"
+    oversized = work / "oversized-outer.sela"
     # Sparse file: no 65 MiB fixture allocation or write, and rejection must
     # happen during the bounded regular-file check before the compiler reads it.
     with oversized.open("wb") as output:
         output.truncate(MAX_BYTES + 1024 * 1024 + 1)
     tests.inspect("outer file size overflow", oversized, ("size limit exceeded",))
-    compressed = work / "compressed.nier"
+    compressed = work / "compressed.sela"
     with valid_artifact.open("rb") as source, compressed.open("wb") as output:
         with gzip.GzipFile(fileobj=output, mode="wb", mtime=0) as writer:
             shutil.copyfileobj(source, writer, length=64 * 1024)
@@ -170,7 +201,7 @@ def main():
     args = parser.parse_args()
     compiler = args.compiler.resolve(strict=True)
     valid_artifact = args.valid_artifact.resolve(strict=True)
-    with tempfile.TemporaryDirectory(prefix="nier-package-boundary-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="sela-package-boundary-") as temporary:
         run(compiler, valid_artifact, Path(temporary))
 
 

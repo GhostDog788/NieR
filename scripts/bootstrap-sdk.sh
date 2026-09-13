@@ -2,7 +2,7 @@
 # Extract unmodified, SHA256-pinned Ubuntu packages into a user-owned SDK.
 set -euo pipefail
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-sdk_root=${NIER_SDK_ROOT:-$repo_root/.sdk}
+sdk_root=${SELA_SDK_ROOT:-$repo_root/.sdk}
 # The rolling archive removes superseded packages. This official snapshot
 # retains every exact package in sdk/packages.lock; hashes remain authoritative.
 mirror=${SDK_UBUNTU_MIRROR:-https://snapshot.ubuntu.com/ubuntu/20260910T000000Z}
@@ -15,7 +15,7 @@ done
 sdk_root=$(realpath -m -- "$sdk_root")
 case "$sdk_root" in
   /|/usr|/usr/local|"$repo_root"|"${HOME:-/nonexistent}")
-    echo 'NIER_SDK_ROOT must identify a dedicated SDK directory.' >&2; exit 1 ;;
+    echo 'SELA_SDK_ROOT must identify a dedicated SDK directory.' >&2; exit 1 ;;
 esac
 mkdir -p -- "$sdk_root/downloads" "$sdk_root/receipts" "$sdk_root/host" "$sdk_root/sysroots"
 sdk_root=$(cd -- "$sdk_root" && pwd -P)
@@ -23,7 +23,7 @@ exec 9>"$sdk_root/bootstrap.lock"
 flock 9
 lock_digest=$(sha256sum "$lock" | cut -d ' ' -f 1)
 if [[ -f $sdk_root/sdk-lock.sha256 ]] && [[ $(< "$sdk_root/sdk-lock.sha256") != "$lock_digest" ]]; then
-  echo 'Pre-alpha SDK lock changed: extracting current pinned packages; rebuild NieR tools afterward.' >&2
+  echo 'Pre-alpha SDK lock changed: extracting current pinned packages; rebuild Sela tools afterward.' >&2
 fi
 while read -r lane package arch version digest filename extra; do
   [[ -z ${lane:-} || $lane == \#* ]] && continue

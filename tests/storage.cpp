@@ -1,4 +1,4 @@
-#include "nier/Producer/LLVM.h"
+#include "sela/Producer/LLVM.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
@@ -128,15 +128,15 @@ bool write(const std::string &path, const std::string &text) {
 
 int main() {
   llvm::SmallString<256> directory;
-  if (auto error = llvm::sys::fs::createUniqueDirectory("nier-storage-tests", directory)) {
+  if (auto error = llvm::sys::fs::createUniqueDirectory("sela-storage-tests", directory)) {
     llvm::errs() << error.message() << '\n'; return 1;
   }
   std::string base = directory.str().str();
   std::string left = base + "/wide.ll", right = base + "/narrow.ll", artifact = base + "/module.mlirbc";
   bool passed = write(left, native(true)) && write(right, native(false));
   if (passed) {
-    nier::ArtifactSummary summary;
-    if (auto error = nier::mergeProfiles(left, right, artifact, &summary)) {
+    sela::ArtifactSummary summary;
+    if (auto error = sela::mergeProfiles(left, right, artifact, &summary)) {
       llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "storage producer: ");
       passed = false;
     }
