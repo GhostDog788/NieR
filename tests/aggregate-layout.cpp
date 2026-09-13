@@ -1,3 +1,4 @@
+#include "nier/IR/Compiler.h"
 #include "../src/ir/AggregateABI.h"
 
 #include "llvm/IR/Function.h"
@@ -148,7 +149,7 @@ bool unit(bool x64) {
   }
 
   llvm::Module module("layout-pieces", context);
-  module.setDataLayout(nativeABIDataLayout(x64));
+  module.setDataLayout(llvm::cantFail(nativeABIDataLayout(x64)));
   auto *pointer = llvm::PointerType::get(context, 0);
   auto *function = llvm::Function::Create(llvm::FunctionType::get(llvm::Type::getVoidTy(context), {pointer, pointer}, false),
       llvm::GlobalValue::ExternalLinkage, "pieces", module);
@@ -197,7 +198,7 @@ bool capture(llvm::StringRef path, bool x64, bool bridge) {
   auto module = llvm::parseIRFile(path, diagnostic, context);
   if (!module) { diagnostic.print("semantic ABI fixture", llvm::errs()); return false; }
   Fixtures fixture(context, x64);
-  bool passed = check(module->getDataLayout() == nativeABIDataLayout(x64), "pinned native layout");
+  bool passed = check(module->getDataLayout() == llvm::cantFail(nativeABIDataLayout(x64)), "pinned native layout");
   llvm::SmallVector<std::pair<llvm::StringRef, llvm::StructType *>, 8> entries{
       {"float_bits", fixture.floatBits}, {"double_bits", fixture.doubleBits},
       {"wide_union", fixture.wideUnion}, {"float_union", fixture.floatUnion},
@@ -241,8 +242,19 @@ bool capture(llvm::StringRef path, bool x64, bool bridge) {
 } // namespace
 
 int main(int argc, char **argv) {
-  bool passed = unit(true) && unit(false);
+  bool passed = true;
+  for (auto target : nier::supportedNativeTargets()) passed &= unit(target == "x86_64");
+  for (llvm::StringRef target : {"x86_64", "i686"}) {
+    if (llvm::is_contained(nier::supportedNativeTargets(), target)) continue;
+    llvm::LLVMContext context;
+    auto *logical = llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
+    passed &= rejected(classifyNativeLayoutABI(logical, target == "x86_64", {}), "unavailable layout classifier rejects");
+  }
   if (argc == 5) {
+    if (nier::supportedNativeTargets().size() != 2) {
+      llvm::errs() << "dual native capture qualification requires both native backends\n";
+      return 1;
+    }
     passed &= capture(argv[1], true, false); passed &= capture(argv[2], false, false);
     passed &= capture(argv[3], true, true); passed &= capture(argv[4], false, true);
   } else if (argc != 1) return 2;

@@ -25,7 +25,7 @@ test "$(env -u LD_LIBRARY_PATH "$test_work/separate")" = 'Hello world'
 "$clang" --config="$config" -O2 "$test_root/tests/fixtures/width.c" -o "$test_work/width.nier"
 "$nierc" "$test_work/width.nier" -o "$test_work/width"
 test "$(env -u LD_LIBRARY_PATH "$test_work/width")" = 'pointer=8 word=8 fixed=4,8'
-"$nierc" lower "$test_work/width.nier" --target i686 --output-dir "$test_work/width-i686"
+"${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$test_work/width.nier" --target i686 --output-dir "$test_work/width-i686"
 "$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/opt" -passes=verify -disable-output "$test_work/width-i686/0.ll"
 if "$clang" --config="$config" "$test_root/tests/fixtures/unsupported.c" -o "$test_work/unsupported.nier"; then
     printf 'ERROR: accepted unqualified inline assembly\n' >&2; exit 1

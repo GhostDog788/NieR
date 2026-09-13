@@ -16,7 +16,7 @@ for system in make cmake; do
   # Same common program bodies are stored once, with different TU ownership.
   test "$(tar -tf "$test_work/$system.nier" | grep -c '^modules/')" -eq 3
   for target in x86_64 i686; do
-    "$nierc" lower "$test_work/$system.nier" --target "$target" \
+    "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$test_work/$system.nier" --target "$target" \
       --output-dir "$test_work/$system-$target"
   done
   test "$(find "$test_work/$system-x86_64" -maxdepth 1 -name '*.ll' | wc -l)" -eq 3

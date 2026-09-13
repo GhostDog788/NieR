@@ -123,7 +123,8 @@ Throughout the course, distinguish:
 - **Planned capability:** an objective that still requires implementation and acceptance evidence.
 
 For example, language-independent input is implemented, but supporting every source language is not.
-The current semantic target domain is x86-64/i686; initial product native execution is x86-64.
+The current semantic target domain is x86-64/i686, and separate native compiler bundles exist for both devices.
+The [distribution reference](../reference/compiler-distribution.md) records their real-device and full-corpus qualification separately from private producer tests.
 The C producer's two private profiles do not establish ARM support.
 Native program execution needs no NieR interpreter, but ordinary native dependencies still exist.
 

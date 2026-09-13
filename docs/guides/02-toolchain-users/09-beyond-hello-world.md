@@ -30,7 +30,8 @@ There is no automatic inference that the same artifact works on ARM because ARM 
 ## Optional lab: inspect both width specializations
 
 The existing width fixture prints pointer size, native word size, and fixed controls.
-Run this in Bash from the repository root:
+Run this in Bash from the repository root.
+This optional developer inspection uses `nier_reference_lower`, a publisher-only test helper that can examine both private validation targets; it is not a public on-device cross-compilation command:
 
 ```bash
 source sdk/env.sh
@@ -41,9 +42,9 @@ clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
 build/prealpha/nierc "$guide_work/width.nier" -o "$guide_work/width"
 env -u LD_LIBRARY_PATH "$guide_work/width"
 
-build/prealpha/nierc lower "$guide_work/width.nier" \
+build/prealpha/nier_reference_lower lower "$guide_work/width.nier" \
   --target x86_64 --output-dir "$guide_work/wide"
-build/prealpha/nierc lower "$guide_work/width.nier" \
+build/prealpha/nier_reference_lower lower "$guide_work/width.nier" \
   --target i686 --output-dir "$guide_work/narrow"
 opt -passes=verify -disable-output "$guide_work/wide/0.ll"
 opt -passes=verify -disable-output "$guide_work/narrow/0.ll"
@@ -54,7 +55,7 @@ printf 'Width workspace: %s\n' "$guide_work"
 The x86-64 executable prints `pointer=8 word=8 fixed=4,8`. The diff is expected to report differences, hence the explicit acceptance of `diff` status 1.
 Read the constants and function signatures rather than treating every textual change as a bug. The generated LLVM files have target-specific layouts because specialization has now happened.
 
-This lab verifies the narrow LLVM file but does not deploy an i686 application. The normal native-output command is presently qualified only for x86-64.
+This lab verifies the narrow LLVM file but does not deploy an i686 application. Each public `nierc` compiles and lowers only its own device target; real i686 bundle qualification is separate from this publisher-only inspection.
 Private test scripts can perform more elaborate 32-bit reference checks; those checks and a supported end-user target are separate claims.
 
 ## A build can execute programs before your application exists

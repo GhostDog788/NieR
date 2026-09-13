@@ -102,13 +102,13 @@ bool directNegative(const std::string &artifact, llvm::StringRef label,
                     llvm::StringRef expected,
                     const std::function<void(std::vector<mlir::Operation *> &, mlir::Builder &)> &change) {
   mlir::MLIRContext context;
-  auto module = nier::readModule(artifact, context);
+  auto module = nier::readModule(artifact, context, nier::supportedNativeTargets());
   if (!module) { llvm::logAllUnhandledErrors(module.takeError(), llvm::errs()); return false; }
   auto branches = loopBranches(**module);
   if (branches.size() != 2) return false;
   mlir::Builder builder(&context);
   change(branches, builder);
-  return rejected(nier::verifyModule(**module), expected, label);
+  return rejected(nier::verifyModule(**module, nier::supportedNativeTargets()), expected, label);
 }
 }
 
@@ -137,7 +137,7 @@ int main(int argc, char **argv) {
       passed = false; break;
     }
     mlir::MLIRContext context;
-    auto module = nier::readModule(artifact, context);
+    auto module = nier::readModule(artifact, context, nier::supportedNativeTargets());
     if (!module) { llvm::logAllUnhandledErrors(module.takeError(), llvm::errs()); passed = false; break; }
     auto branches = loopBranches(**module);
     if (branches.size() != 2 ||

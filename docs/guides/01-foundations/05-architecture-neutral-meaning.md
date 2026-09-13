@@ -92,8 +92,9 @@ This distinction permits useful bounded transformations without claiming a gener
 A future target may differ in a way that neither existing profile exposes.
 Adding it requires native rules, producer/consumer reasoning, and new tests—not simply adding a string to the manifest.
 
-The product native-output path is initially x86-64.
-The i686 lowering and private reference evidence are valuable, but they do not by themselves mean the complete on-device i686 product is qualified.
+The first product native-output path was x86-64; separate x86-64 and i686 compiler bundles now exist and have passed a fresh publish-once two-device matrix.
+The i686 consumer ran under a real 32-bit kernel, rather than relying on private lowering or the development host's compatibility mode.
+The [distribution reference](../../reference/compiler-distribution.md) records the separate full-corpus gate and current qualification boundaries.
 Keep target semantics and deployment support separate when reading test results.
 
 ## Data models explain more than pointer size
@@ -186,7 +187,7 @@ Layouts, calls, and dependencies cannot be reduced to one pointer-width substitu
 
 - Width fixture (`tests/fixtures/width.c`) deliberately combines native properties and fixed literals.
 - Hello/width pipeline test (`tests/hello.sh`) checks native x86-64 execution and diagnostic i686 lowering without conflating their qualification levels.
-- Core target definitions (`src/ir/Compiler.cpp`): `configureModule` and `Lowerer` reveal the actual target domain, data layouts, and symbolic-expression handling.
+- Core target definitions (`src/ir/NativeLowering.cpp`): `configureModule` and `Lowerer` reveal the linked native target, data layout, and symbolic-expression handling.
 - Record/layout types (`include/nier/IR/Dialect.h`) describe relationships rather than embedding only one host's byte offsets.
 
 [Next: From NieR Code to a Publication Artifact](06-publication-artifacts.md)

@@ -1,3 +1,4 @@
+#include "nier/IR/Compiler.h"
 #include "../src/ir/AggregateABI.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
@@ -91,7 +92,7 @@ bool descriptorTests(bool x64) {
                      "oversized array rejects before target size multiplication can overflow");
 
   llvm::Module module("pieces", context);
-  module.setDataLayout(nativeABIDataLayout(x64));
+  module.setDataLayout(llvm::cantFail(nativeABIDataLayout(x64)));
   auto *pointer = llvm::PointerType::get(context, 0);
   auto *function = llvm::Function::Create(llvm::FunctionType::get(llvm::Type::getVoidTy(context), {pointer, pointer}, false),
       llvm::GlobalValue::ExternalLinkage, "copy_pieces", module);
@@ -151,7 +152,7 @@ bool captureTests(llvm::StringRef path, bool x64, bool extra) {
     if (record) records.push_back(record);
   if (!pair || !mixed || !large || (extra && (!floats || !words || !bytes || !nested)))
     return check(false, "fixture logical record inventory");
-  bool passed = check(module->getDataLayout() == nativeABIDataLayout(x64), "capture uses pinned target layout");
+  bool passed = check(module->getDataLayout() == llvm::cantFail(nativeABIDataLayout(x64)), "capture uses pinned target layout");
   auto compare = [&](llvm::StringRef name, llvm::Type *resultType, llvm::ArrayRef<llvm::Type *> arguments) {
     auto *function = module->getFunction(name);
     if (!function) { passed &= check(false, "fixture function inventory"); return; }
@@ -239,8 +240,22 @@ bool captureTests(llvm::StringRef path, bool x64, bool extra) {
 } // namespace
 
 int main(int argc, char **argv) {
-  bool passed = descriptorTests(true) && descriptorTests(false);
+  bool passed = true;
+  for (auto target : nier::supportedNativeTargets()) passed &= descriptorTests(target == "x86_64");
+  for (llvm::StringRef target : {"x86_64", "i686"}) {
+    if (llvm::is_contained(nier::supportedNativeTargets(), target)) continue;
+    llvm::LLVMContext context;
+    auto *logical = llvm::FunctionType::get(llvm::Type::getVoidTy(context), false);
+    passed &= rejected(classifyNativeABI(logical, target == "x86_64", {}), "unavailable classifier rejects");
+    auto layout = nativeABIDataLayout(target == "x86_64");
+    if (layout) passed &= check(false, "unavailable native layout rejects");
+    else llvm::consumeError(layout.takeError());
+  }
   if (argc == 5) {
+    if (nier::supportedNativeTargets().size() != 2) {
+      llvm::errs() << "dual native capture qualification requires both native backends\n";
+      return 1;
+    }
     passed &= captureTests(argv[1], true, false);
     passed &= captureTests(argv[2], false, false);
     passed &= captureTests(argv[3], true, true);

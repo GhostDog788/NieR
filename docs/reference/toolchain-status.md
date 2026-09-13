@@ -15,9 +15,12 @@ The current C producer is a plugin for stock Clang, not a replacement compiler e
 Other producers can construct NieR through the public APIs without LLVM captures.
 That producer API is implemented; complete Rust, Go, and Kotlin integrations are not.
 
-The current qualified development and compiler-distribution baseline is x86-64 Ubuntu 24.04 with the pinned LLVM 18.1.3 SDK.
-Native product output is currently x86-64.
-The C publisher's private x86-64 and i686 reference builds, and diagnostic i686 lowering, do not establish an i686 deployment product or portability to arbitrary CPUs and ABIs.
+The development baseline is x86-64 Ubuntu 24.04 with the pinned LLVM 18.1.3 SDK.
+Separate genuinely native x86-64 and i686 compilers use unmodified, source-built LLVM/MLIR SDKs with the X86 backend family registered.
+Both final bundles passed the fresh publish-once matrix and the complete fresh dual-destination corpus at the recorded 2026-09-12 checkpoint; i686 ran under a real 32-bit Linux kernel.
+Each public `nierc` compiles and lowers only its own native target. Shared structural inspection can report foreign domains, but must explicitly mark their native validation unavailable.
+The C publisher's private two-profile reference builds and publisher-only diagnostic helper are separate evidence; by themselves they establish neither a deployment product nor portability to arbitrary CPUs and ABIs.
+See the [compiler distribution reference](compiler-distribution.md) for current source-SDK, packaging, VM, corpus commands, and qualification boundaries.
 
 The archive carries a manifest and NieR bytecode for separate translation units.
 It does not contain application source, original LLVM modules, native application objects, or whole per-target program copies.
@@ -65,8 +68,9 @@ Regression coverage includes artifact validation, independent producers, CFG/SSA
 Qualified aggregate calls include integer, mixed floating/integer, and larger native-width records across translation units and native shared-library boundaries.
 Union, packed, and bitfield records by value, aggregate `va_arg`, and general divergent function inventories remain qualification limits.
 
-The [locked qualification corpus](qualification-corpus.md) records a complete passing checkpoint for cJSON and zlib:
-cJSON's static and shared configurations each produced 21 artifacts and passed all 19 original destination CTests; zlib's eight outputs passed the original static, shared, and 64-bit recipes.
+The [locked qualification corpus](qualification-corpus.md) records a complete fresh passing checkpoint for cJSON and zlib on both independent native device compilers:
+cJSON's static and shared configurations each produced 21 artifacts and passed all 19 original CTests on each destination; zlib's eight outputs passed the original static, shared, and 64-bit-offset recipes on both.
+Each selected artifact was published once and supplied unchanged to both consumers, after rebuilding and testing the original native references.
 That is recorded configured functional evidence, not a fresh qualification claim for every later commit.
 The complete corpus must be rerun when qualifying compiler changes.
 The shorter CI smoke suite is a regression signal, not a substitute for corpus, performance, or reverse-engineering qualification.

@@ -161,7 +161,7 @@ guide17_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide17-XXXXXX")
 clang --config="$PWD/build/prealpha/nier.cfg" -O0 \
   tests/fixtures/conditional-switch.c -o "$guide17_work/switch.nier"
 for guide17_target in x86_64 i686; do
-  build/prealpha/nierc lower "$guide17_work/switch.nier" \
+  build/prealpha/nier_reference_lower lower "$guide17_work/switch.nier" \
     --target "$guide17_target" --output-dir "$guide17_work/$guide17_target"
 done
 rg -n -A10 'switch i32' "$guide17_work/x86_64" "$guide17_work/i686"
@@ -172,6 +172,7 @@ printf 'Lab files: %s\n' "$guide17_work"
 ```
 
 Compare the case lists, then follow an arm's effects to the join. This lab does not claim that any pair of differing CFGs can be published.
+The two-target inspection uses the publisher-only `nier_reference_lower` test helper, not a public cross-target device compiler.
 The negative fixtures are as important as the positive switch example.
 Check the test command's exit status rather than treating log output as a success signal.
 
@@ -199,7 +200,7 @@ Domain annotations do not waive any of those obligations.
 ## Guided source and evidence
 
 Start with the private CFG contract (`src/ir/ConditionalCFG.h`) and pairing implementation (`src/ir/ConditionalCFG.cpp`).
-Then read public specialization (`src/ir/ConditionalSpecialization.cpp`) and its integration in the core (`src/ir/Compiler.cpp`).
+Then read public specialization (`src/ir/ConditionalSpecialization.cpp`), its shared structural checks (`src/ir/Compiler.cpp`), and its native lowering integration (`src/ir/NativeLowering.cpp`).
 Compare the positive source fixture (`tests/fixtures/conditional-switch.c`), an escaping-value rejection fixture (`tests/fixtures/conditional-escape-rejected.c`),
 public conditional tests (`tests/conditional.cpp`), and loop-identity tests (`tests/loop-identity.cpp`).
 The producer's main translation and inverse steps remain in `src/ir/Producer.cpp`.

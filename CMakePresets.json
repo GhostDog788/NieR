@@ -23,10 +23,53 @@
         "NIER_BUILD_PUBLISHER": true,
         "NIER_BUILD_TESTS": true
       }
+    },
+    {
+      "name": "consumer-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "environment": {
+        "LD_LIBRARY_PATH": "${sourceDir}/.sdk/host/usr/lib/llvm-18/lib:${sourceDir}/.sdk/host/usr/lib/x86_64-linux-gnu"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/sdk/consumer/toolchain.cmake",
+        "CMAKE_MAKE_PROGRAM": "${sourceDir}/.sdk/host/usr/bin/ninja",
+        "NIER_BUILD_SDK_ROOT": "${sourceDir}/.sdk",
+        "NIER_BUILD_PUBLISHER": false,
+        "NIER_BUILD_TESTS": true,
+        "NIER_LLVM_COMPONENT_LINKING": true
+      }
+    },
+    {
+      "name": "consumer-x86_64",
+      "displayName": "NieR native x86-64 device compiler",
+      "inherits": "consumer-base",
+      "cacheVariables": {
+        "NIER_DEVICE_TARGET": "x86_64",
+        "NIER_SDK_ROOT": "${sourceDir}/.sdk/consumer/x86_64",
+        "LLVM_DIR": "${sourceDir}/.sdk/consumer/build-x86_64/lib/cmake/llvm",
+        "MLIR_DIR": "${sourceDir}/.sdk/consumer/build-x86_64/lib/cmake/mlir"
+      }
+    },
+    {
+      "name": "consumer-i686",
+      "displayName": "NieR native i686 device compiler",
+      "inherits": "consumer-base",
+      "cacheVariables": {
+        "NIER_DEVICE_TARGET": "i686",
+        "NIER_SDK_ROOT": "${sourceDir}/.sdk/consumer/i686",
+        "LLVM_DIR": "${sourceDir}/.sdk/consumer/build-i686/lib/cmake/llvm",
+        "MLIR_DIR": "${sourceDir}/.sdk/consumer/build-i686/lib/cmake/mlir"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "prealpha", "configurePreset": "prealpha", "jobs": 2 }
+    { "name": "prealpha", "configurePreset": "prealpha", "jobs": 2 },
+    { "name": "consumer-x86_64", "configurePreset": "consumer-x86_64", "jobs": 2 },
+    { "name": "consumer-i686", "configurePreset": "consumer-i686", "jobs": 2 }
   ],
   "testPresets": [
     {
@@ -34,6 +77,18 @@
       "configurePreset": "prealpha",
       "output": { "outputOnFailure": true },
       "execution": { "jobs": 2 }
+    },
+    {
+      "name": "consumer-x86_64",
+      "configurePreset": "consumer-x86_64",
+      "output": { "outputOnFailure": true },
+      "execution": { "jobs": 2, "timeout": 180 }
+    },
+    {
+      "name": "consumer-i686",
+      "configurePreset": "consumer-i686",
+      "output": { "outputOnFailure": true },
+      "execution": { "jobs": 2, "timeout": 180 }
     }
   ]
 }

@@ -47,7 +47,7 @@ bool test(llvm::StringRef name, const std::string &text, bool accept) {
         for (auto argument : block.getArguments()) argument.setLoc(mlir::UnknownLoc::get(&context));
   });
   auto before = print(*module);
-  auto verified = nier::verifyModule(*module);
+  auto verified = nier::verifyModule(*module, nier::supportedNativeTargets());
   bool admitted = !verified;
   if (verified) llvm::consumeError(std::move(verified));
   bool passed = admitted == accept;

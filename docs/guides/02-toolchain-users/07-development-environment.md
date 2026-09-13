@@ -30,8 +30,10 @@ For example, a 64-bit Clang process can compile an i686 application.
 Clang still runs as a 64-bit host program, but it uses the 32-bit target's headers and layout rules.
 The application has four-byte pointers even though the compiler process has eight-byte pointers. That is cross-compilation, not emulation.
 
-NieR currently uses both x86-64 and i686 target environments as private evidence when publishing C. Its normal native-output command is qualified for x86-64.
+NieR uses both x86-64 and i686 target environments as private evidence when publishing C.
+Independent device compilers also exist for both targets; each public `nierc` compiles only for its own native device.
 Having an i686 sysroot in the SDK does not by itself establish a complete 32-bit product deployment.
+The [distribution reference](../../reference/compiler-distribution.md) records the separate real-device and full-corpus checks.
 
 ## What the local SDK supplies
 

@@ -192,7 +192,8 @@ std::string replace(std::string source, const std::string &from,
 bool check(llvm::StringRef directory, llvm::StringRef label,
            const std::string &text, bool expectSuccess, bool bytecode = true,
            bool retainLocations = false,
-           llvm::ArrayRef<llvm::StringRef> targets = {"x86_64", "i686"}) {
+           llvm::ArrayRef<llvm::StringRef> targets = nier::supportedNativeTargets(),
+           bool structuralOnly = false) {
   llvm::SmallString<256> path(directory);
   llvm::sys::path::append(path, label);
   std::error_code ec;
@@ -220,7 +221,8 @@ bool check(llvm::StringRef directory, llvm::StringRef label,
     }
   }
   nier::ArtifactSummary summary;
-  auto error = nier::inspectArtifact(path, summary, targets);
+  auto error = structuralOnly ? nier::inspectArtifactStructure(path, summary)
+                              : nier::inspectArtifact(path, summary, targets);
   bool success = !error;
   if (error) {
     std::string message = llvm::toString(std::move(error));
@@ -242,6 +244,36 @@ int main() {
     return 1;
   }
   bool passed = true;
+  passed &= !nier::supportedNativeTargets().empty();
+  for (llvm::StringRef target : {"x86_64", "i686"}) {
+    bool available = llvm::is_contained(nier::supportedNativeTargets(), target);
+    passed &= check(directory, ("native-capability-" + target + ".nierbc").str(),
+                    valid, available, true, false, {target});
+  }
+  // Structural inspection has no implicit native target: this remains
+  // inspectable even in the i686-only library, where its sext is not legal.
+  passed &= check(directory, "structural-width-specific.nierbc", widthSpecific,
+                  true, true, false, {}, true);
+  passed &= check(directory, "structural-invalid-word-flags.nierbc",
+                  replace(valid, "flags = 0 : i32", "flags = {word64 = 9 : i64, word32 = 0 : i64}"),
+                  false, true, false, {}, true);
+  passed &= check(directory, "structural-missing-word-domain.nierbc",
+                  replace(valid, "flags = 0 : i32", "flags = {word32 = 0 : i64}"),
+                  false, true, false, {}, true);
+  passed &= check(directory, "structural-foreign-array-bound.nierbc",
+                  replace(validIndexDomain, "word_array<3, 2, i32>", "word_array<4294967296, 2, i32>"),
+                  false, true, false, {}, true);
+  passed &= check(directory, "structural-foreign-initializer-extent.nierbc",
+                  replace(validIndexDomain, "word_array<3, 2", "word_array<3, 1"),
+                  false, true, false, {}, true);
+  passed &= check(directory, "typed-global-unspecified-alignment.nierbc",
+                  replace(validIndexDomain, "alignment = 4", "alignment = 0"), true);
+  passed &= check(directory, "structural-unknown-constant.nierbc",
+                  replace(valid, "value = 1 : i64", "value = \"unknown_semantics\""),
+                  false, true, false, {}, true);
+  passed &= check(directory, "structural-unknown-loop-option.nierbc",
+                  replace(validLoop, "true_count = 1", "loop = [\"llvm.loop.unknown\"], loop_id = \"l0\", true_count = 1"),
+                  false, true, false, {}, true);
   passed &= check(directory, "valid.mlirbc", valid, true);
   passed &= check(directory, "independent-native-aggregate-abi.mlirbc", validAggregateABI, true);
   passed &= check(directory, "invalid-native-aggregate-body.mlirbc",
@@ -304,7 +336,7 @@ int main() {
                   replace(widthSpecific, "opcode = \"sext\"", "opcode = \"native_bitcast\""), false);
   passed &= check(directory, "invalid-array-extent.mlirbc",
                   replace(validArray, "array<4, i32>", "array<4294967296, i32>"), false);
-  passed &= check(directory, "declared-x64-domain.mlirbc", widthSpecific, true, true, false, {"x86_64"});
+  passed &= check(directory, "declared-x64-domain.mlirbc", widthSpecific, llvm::is_contained(nier::supportedNativeTargets(), llvm::StringRef("x86_64")), true, false, {"x86_64"});
   passed &= check(directory, "invalid-declared-i686-domain.mlirbc", widthSpecific, false, true, false, {"i686"});
   passed &= check(directory, "unknown-semantic-target.mlirbc", valid, false, true, false, {"unknown"});
   passed &= check(directory, "empty-semantic-domain.mlirbc", valid, false, true, false, {});
@@ -353,14 +385,14 @@ int main() {
   if (::mkfifo(fifo.c_str(), 0600)) passed = false;
   else {
     nier::ArtifactSummary summary;
-    auto error = nier::inspectArtifact(fifo, summary);
+    auto error = nier::inspectArtifactStructure(fifo, summary);
     if (!error) { llvm::errs() << "FIFO input was accepted\n"; passed = false; }
     else llvm::consumeError(std::move(error));
     llvm::sys::fs::remove(fifo);
   }
   for (llvm::StringRef input : {llvm::StringRef("/dev/zero"), llvm::StringRef(directory)}) {
     nier::ArtifactSummary summary;
-    auto error = nier::inspectArtifact(input, summary);
+    auto error = nier::inspectArtifactStructure(input, summary);
     if (!error) { llvm::errs() << "non-regular input was accepted\n"; passed = false; }
     else llvm::consumeError(std::move(error));
   }

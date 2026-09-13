@@ -23,7 +23,7 @@ llvm::Error inspect(const fs::path &input, const fs::path &dump) {
   if (auto error = write(bytecode, files->at(path->str()))) return error;
   mlir::MLIRContext context;
   context.getOrLoadDialect<nier::ir::NIERDialect>();
-  auto module = nier::readModule(bytecode.string(), context);
+  auto module = nier::readModule(bytecode.string(), context, nier::supportedNativeTargets());
   if (!module) return module.takeError();
   unsigned definitions = 0, chosenBodies = 0, dispatches = 0;
   bool validNamespaces = true, wideBlock = false, narrowBlock = false;

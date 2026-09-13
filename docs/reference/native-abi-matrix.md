@@ -35,6 +35,7 @@ Aggregate `va_arg` extraction remains a separate, future qualification; these na
 | Native callback execution | Regenerated application boundaries linked to an unchanged native shared library, both widths at O0/O2 |
 | Shared NieR artifact and core-only consumer | Fixed-argument main, boundary and bridge units merge with both strict inverses; the same NieR units execute on both widths at O0/O2 |
 | Public stock-Clang publication | `aggregate_pipeline` passes Clang to standalone `.nier` to `nierc`, plus a stock-native caller of a NieR-produced DSO, on x86-64 at O0/O2 |
+| Independent native device compilers | The fresh `dual-consumer.sh` matrix publishes the fixed-argument aggregate fixtures once and runs native executable/DSO callers on both devices at O0/O2; i686 uses a real 32-bit kernel |
 | Aggregate variadic extraction | Native-only baseline; not qualified by the aggregate importer |
 | Union/packed/bitfield fixed by-value boundaries | Explicit classifier and native baselines pass; producer/core boundary integration is not yet qualified |
 
@@ -43,6 +44,7 @@ Union and packed or bitfield **storage** have separate positive NieR pipeline te
 
 These are qualified fixture shapes, not every ABI combination or general C coverage.
 Private i686 specialization/execution is reference evidence, not an installed i686 product claim.
+The independent native-device matrix is separate positive evidence; the [distribution reference](compiler-distribution.md) records its scope and the distinct full-corpus gate.
 No gate here establishes the complete 01 product, native-performance parity, RE/privacy parity, or security enforcement.
 
 ## Matrix
@@ -174,7 +176,7 @@ particularly the i686 expansion predicate and SysV64 eightbyte classification, p
 
 ## Explicit overlapping and packed layout classifier
 
-`src/ir/AggregateLayoutABI.cpp` adds a separate semantic-layout API without changing the ordered-record contract.
+`src/ir/NativeAggregateLayoutABI.cpp` implements the target-specific semantic-layout API without changing the ordered-record contract.
 Its descriptor supplies selected-target field types, bit offsets/widths, union alternatives, source size and alignment; an LLVM storage surrogate alone is never sufficient evidence of these facts.
 
 ```sh

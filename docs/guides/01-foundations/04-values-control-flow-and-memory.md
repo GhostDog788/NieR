@@ -202,7 +202,7 @@ None of this removes mutable memory or licenses a compiler to ignore its effects
 ## Source and evidence trail
 
 - IR tests (`tests/ir.cpp`): read `validCFG`, `validLoop`, and storage examples before the associated implementation.
-- Core lowering (`src/ir/Compiler.cpp`): the value/block maps translate graph relationships, not just printed opcode names.
+- Core lowering (`src/ir/NativeLowering.cpp`): the value/block maps translate graph relationships, not just printed opcode names.
 - Conditional specialization (`src/ir/ConditionalSpecialization.cpp`) is the later worked example of removing target-inactive control flow while preserving the graph.
 
 [Next: Architecture-Neutral Meaning](05-architecture-neutral-meaning.md)

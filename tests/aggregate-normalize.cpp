@@ -59,7 +59,7 @@ define void @pointer_only(ptr %input) !dbg !4 { ret void }
 bool scalarResultStoredInRecord(bool wide, bool indirect, bool singleField, bool integerResult) {
   llvm::LLVMContext context;
   llvm::Module module("scalar-record-store", context);
-  module.setDataLayout(nier::detail::nativeABIDataLayout(wide));
+  module.setDataLayout(llvm::cantFail(nier::detail::nativeABIDataLayout(wide)));
   auto *pointer = llvm::PointerType::get(context, 0);
   auto *word = llvm::IntegerType::get(context, wide ? 64 : 32);
   llvm::Type *result = integerResult ? static_cast<llvm::Type *>(word) : pointer;

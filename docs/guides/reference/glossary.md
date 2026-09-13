@@ -279,7 +279,7 @@ An external symbol is different from the temporary printed name of an SSA value.
 See [chapter 03](../01-foundations/03-reading-a-nier-program.md).
 
 **Target domain.** The set of native targets an artifact claims to represent.
-The current admitted semantic domain uses `x86_64` and `i686`, while the current product native-output path is x86-64.
+The current admitted semantic domain uses `x86_64` and `i686`; separate device compilers each produce only their own native target.
 See [chapter 05](../01-foundations/05-architecture-neutral-meaning.md).
 
 **Terminator.** The operation ending a block, such as a branch or return.

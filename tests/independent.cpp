@@ -63,7 +63,7 @@ llvm::Error produce(const fs::path &output) {
           for (auto argument : block.getArguments()) argument.setLoc(mlir::UnknownLoc::get(&context));
     });
     auto path = scratch->path / "module.nierbc";
-    if (auto error = nier::writeModule(*module, path.string())) return error;
+    if (auto error = nier::writeModule(*module, path.string(), nier::supportedNativeTargets())) return error;
     auto bytes = read(path);
     if (!bytes) return bytes.takeError();
     modules.push_back({std::move(*bytes), "O2"});

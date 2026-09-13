@@ -1,11 +1,12 @@
 #include "AggregateABI.h"
+#include "NativeTargetConfig.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/MathExtras.h"
 #include <algorithm>
 
-namespace nier::detail {
+namespace nier::detail::NIER_NATIVE_NAMESPACE {
 namespace {
 constexpr uint64_t SizeLimit = 1ULL << 30;
 llvm::Error failure(const llvm::Twine &message) {
@@ -22,14 +23,13 @@ struct Span { llvm::Type *type; uint64_t begin, end; bool bitfield; };
 
 class LayoutClassifier {
 public:
-  bool x64;
   llvm::DataLayout layout;
   llvm::DenseMap<llvm::StructType *, const NativeABIRecordLayout *> records;
   llvm::DenseMap<llvm::Type *, TypeInfo> semanticInfo;
   llvm::SmallPtrSet<llvm::Type *, 32> active;
   llvm::SmallPtrSet<llvm::Type *, 32> checkedStorage;
 
-  explicit LayoutClassifier(bool wide) : x64(wide), layout(nativeABIDataLayout(wide)) {}
+  explicit LayoutClassifier() : layout(TargetLayout) {}
 
   llvm::Error storage(llvm::Type *type, unsigned depth = 0) {
     if (!type || depth > 32 || !type->isSized()) return failure("unsized or deep native storage carrier");
@@ -202,7 +202,9 @@ public:
     auto information = semanticInfo.at(type);
     auto &record = *records.at(recordType);
     auto result = value(type, information);
-    if (!x64) {
+
+#if NIER_NATIVE_WORD_BITS == 32
+    {
       if (returns || information.size > 16) return memory(type, information, returns, freeGP);
       uint64_t bytes = 0;
       for (auto &field : record.fields) {
@@ -215,6 +217,8 @@ public:
       result.kind = NativeABIKind::Expand; result.nativeCount = result.pieces.size();
       return result;
     }
+
+#else
     if (information.size > 16) return memory(type, information, returns, freeGP);
     llvm::SmallVector<Span, 16> spans;
     bool unaligned = false;
@@ -262,14 +266,15 @@ public:
     result.kind = result.pieces.size() == 1 ? NativeABIKind::Coerce : NativeABIKind::Expand;
     result.nativeCount = result.pieces.size();
     return result;
+#endif
   }
 };
 } // namespace
 
 llvm::Expected<NativeABISignature> classifyNativeLayoutABI(
-    llvm::FunctionType *logical, bool x64, llvm::ArrayRef<NativeABIRecordLayout> records) {
+    llvm::FunctionType *logical, llvm::ArrayRef<NativeABIRecordLayout> records) {
   if (!logical) return failure("missing logical signature");
-  LayoutClassifier classifier(x64);
+  LayoutClassifier classifier;
   if (auto error = classifier.initialize(records)) return std::move(error);
   NativeABISignature signature;
   unsigned freeGP = x64 ? 6 : 0, freeSSE = x64 ? 8 : 0;
@@ -281,7 +286,7 @@ llvm::Expected<NativeABISignature> classifyNativeLayoutABI(
   if (signature.result.sRet) {
     signature.sretIndex = 0;
     parameters.push_back(llvm::PointerType::get(logical->getContext(), 0));
-    if (x64) --freeGP;
+    if constexpr (x64) --freeGP;
   } else if (signature.result.pieces.size() == 1) resultType = signature.result.pieces[0].type;
   else if (!signature.result.pieces.empty()) {
     llvm::SmallVector<llvm::Type *, 2> pieces;

@@ -159,9 +159,9 @@ make -f sdk/share/nier/Nier.mk \
   NIER_SOURCE_DIR="$PWD/tests/fixtures/link-order" \
   NIER_NATIVE_OUTPUT=hello NIER_TARGETS=hello \
   NIER_ARTIFACT="$build_lab/order.nier"
-build/prealpha/nierc lower "$build_lab/order.nier" \
+build/prealpha/nier_reference_lower lower "$build_lab/order.nier" \
   --target x86_64 --output-dir "$build_lab/wide"
-build/prealpha/nierc lower "$build_lab/order.nier" \
+build/prealpha/nier_reference_lower lower "$build_lab/order.nier" \
   --target i686 --output-dir "$build_lab/narrow"
 build/prealpha/nierc "$build_lab/order.nier" -o "$build_lab/order"
 env -u LD_LIBRARY_PATH -u LD_PRELOAD "$build_lab/order"
@@ -169,6 +169,7 @@ printf 'Lab files: %s\n' "$build_lab"
 ```
 
 Compare which helper is defined in `1.ll` and `2.ll` for each target.
+These two-target dumps use `nier_reference_lower`, a publisher-only test helper, not a foreign-target mode shipped in either device compiler.
 The program's successful exit and the preserved O0 caller/O2 helpers are different observations.
 Keep both when diagnosing an ordering regression.
 

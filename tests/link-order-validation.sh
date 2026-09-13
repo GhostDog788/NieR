@@ -23,7 +23,7 @@ done
 "$llvm/clang" --config="$config" "${inputs[@]}" \
   -Xlinker --nier-unit-order-i686=0,2,1 -o "$work/valid.nier"
 for target in x86_64 i686; do
-  "$nierc" lower "$work/valid.nier" --target "$target" --output-dir "$work/$target"
+  "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$work/valid.nier" --target "$target" --output-dir "$work/$target"
   rg -q 'define.*@main' "$work/$target/0.ll"
   rg -q 'optnone' "$work/$target/0.ll"
 done
@@ -86,7 +86,7 @@ reject 'invalid i686 native-unit permutation' "--nier-unit-order-i686=$oversized
 # Leading zeroes are still decimal, and an explicit identity order is valid.
 # Neither changes the x64 sequence or drops any narrow unit.
 "$linker" "${inputs[@]}" --nier-unit-order-i686=00,01,02 -o "$work/identity.nier"
-"$nierc" lower "$work/identity.nier" --target i686 --output-dir "$work/identity"
+"${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$work/identity.nier" --target i686 --output-dir "$work/identity"
 rg -q 'define.*@first' "$work/identity/1.ll"
 rg -q 'define.*@second' "$work/identity/2.ll"
 

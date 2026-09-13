@@ -8,9 +8,20 @@ test_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-independent-XXXXXX")
 "$nierc" inspect "$test_work/independent.nier"
 "$nierc" "$test_work/independent.nier" -o "$test_work/independent"
 env -u LD_LIBRARY_PATH "$test_work/independent"
-"$nierc" lower "$test_work/independent.nier" --target i686 --output-dir "$test_work/i686"
-rg -q 'ret i32 4' "$test_work/i686/1.ll"
-rg -q 'ret i32 8' "$test_work/i686/1.ll"
+target=$("$nierc" --print-target)
+case "$target" in
+    x86_64) foreign=i686; width=8; word=i64 ;;
+    i686) foreign=x86_64; width=4; word=i32 ;;
+    *) exit 1 ;;
+esac
+"$nierc" lower "$test_work/independent.nier" --target "$target" --output-dir "$test_work/native-ir"
+rg -q "ret $word $width" "$test_work/native-ir/1.ll"
+rg -q 'ret i32 8' "$test_work/native-ir/1.ll"
+if "$nierc" lower "$test_work/independent.nier" --target "$foreign" --output-dir "$test_work/foreign-ir" > "$test_work/foreign.log" 2>&1; then
+    printf 'ERROR: target-specific compiler accepted a foreign native target\n' >&2; exit 1
+fi
+rg -q 'native target unavailable' "$test_work/foreign.log"
+test ! -e "$test_work/foreign-ir"
 if tar -xOf "$test_work/independent.nier" manifest.json | rg 'profiles|clang|capture'; then
     printf 'ERROR: independent artifact requires producer provenance\n' >&2; exit 1
 fi
@@ -36,7 +47,7 @@ for alias in direct input-link output-link input-parent output-parent hardlink p
         if [[ $action == compile ]]; then
             command=("$nierc" "$input" -o "$output")
         else
-            command=("$nierc" lower "$input" --target i686 --output-dir "$output")
+            command=("$nierc" lower "$input" --target "$target" --output-dir "$output")
         fi
         if "${command[@]}" >"$lane/$action.log" 2>&1; then
             printf 'ERROR: consumer accepted %s input/output alias for %s\n' "$alias" "$action" >&2

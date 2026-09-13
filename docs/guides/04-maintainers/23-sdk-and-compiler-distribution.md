@@ -22,6 +22,7 @@ The compiler-only distribution needs a different set:
 their host runtime libraries, and the selected target's native link/runtime files.
 It does not need Clang, the producer merger, C source headers or the publication capture plugins.
 The absence of those components is a functional boundary, not just a reduction in archive size.
+There are separate x86-64 and i686 products, each with native compiler executables, one matching sysroot, and only that device's NieR native lowering/ABI implementation.
 
 The application needs a third set. It is an ordinary native executable or library.
 A dynamically linked executable still needs its ELF interpreter, libc, declared native dependencies and any application resources.
@@ -56,13 +57,21 @@ An extraction receipt records completion.
 Neither prevents a user-writable SDK file from being changed afterward.
 Lock validation is a consistency check between the compiler's expected SDK contract and the selected SDK, not runtime tamper protection.
 
+The device SDK has a separate bootstrap: `scripts/bootstrap-consumer-sdk.sh x86_64` or `i686`.
+It verifies the upstream LLVM/MLIR 18.1.3 source archive in `sdk/consumer/source.lock`, extracts matching dependencies from `sdk/consumer/packages.lock`, and builds unmodified sources for the chosen host ABI.
+TableGen runs on the build host; generated device tools do not acquire a frontend dependency because a host compiler built them.
+Only the X86 backend family is registered, and required LLVM/MLIR components are statically linked instead of using a monolithic multi-backend `libLLVM`.
+The source build is substantial and remains dependent on the documented build host; pinned inputs are not a proof of fully hermetic or reproducible output.
+The `consumer-x86_64` and `consumer-i686` CMake presets select the corresponding source SDK and native NieR implementation.
+
 ## Worked case: constructing the compiler-only closure
 
 Follow `scripts/package-consumer.sh` as a dependency closure algorithm rather than a long copy command.
 
 First, it installs the project's Consumer component into a new staging directory.
 The requested final bundle must not already exist, and its parent must be a directory.
-The script checks the matching SDK lock and verifies the installed `nierc` has the expected origin-relative runtime search path.
+The script requires a complete target-specific SDK receipt and matching component-linked build, checks the SDK/tool identities, and verifies the installed `nierc` has the expected origin-relative runtime search path.
+Its read-only `nierc --check-sdk` step also compares the staged SDK with the identity embedded in that actual compiler; matching target names alone would not detect a stale binary beside a newer same-architecture SDK.
 It is assembling an already-built compiler, not rebuilding one with a smaller language subset.
 
 Second, it copies the unmodified `opt`, `llc`, `ld.lld`, and `llvm-ar` tools and checks the copied bytes against their originals.
@@ -75,9 +84,9 @@ it resolves the library from the pinned extracted SDK, copies its bytes, and add
 It does not use whatever an opportunistic host `ldd` resolution happens to find.
 Symlinks are resolved while copying so a flattened library directory cannot accidentally point outside the bundle.
 
-Fourth, it retains the current x86-64 native link/runtime library set, including glibc linker scripts, startup objects, archives and runtime modules, plus the qualified compiler-rt builtins and CRT files.
-Source headers and the i686 sysroot are excluded.
-This is a compiler-only *x86-64 product prototype*, not the full two-profile publisher SDK.
+Fourth, it retains the selected device's native link/runtime library set, including glibc linker scripts, startup objects, archives and runtime modules, plus the matching compiler-rt builtins and CRT files.
+Source headers and the opposite target's sysroot are excluded.
+An i686 product includes its i686 runtime; an x86-64 product includes its x86-64 runtime. Neither contains the full two-profile publisher SDK.
 
 Fifth, dependency identities are associated with package copyright notices.
 An unknown library-to-package mapping rejects assembly instead of quietly shipping an unaccounted component.
@@ -85,8 +94,8 @@ The bundle records its SDK lock and copied file digests, retains notices, and is
 Release license/source-offer review is still a release obligation; copying notice files is not a blanket legal conclusion.
 
 The closure is intentionally conservative.
-It includes a monolithic LLVM library containing unused backends and a broad native library set.
-“Thin” here means separated from publication/frontends, not a demonstrated minimum-size binary.
+It rejects monolithic `libLLVM` dependencies and unexpected backend families, but still includes substantial required LLVM components and a broad native library set.
+“Thin” here means separated from publication/frontends and foreign NieR native implementations, not a demonstrated minimum-size binary.
 Removing more components requires dependency evidence and output-kind tests, not just observing that one executable happened to compile.
 
 ## Compiler relocation and application runtime paths
@@ -99,7 +108,9 @@ leaving the developer's `NIER_SDK_ROOT` set while testing a moved bundle can mak
 The installed compiler uses an origin-relative RPATH for its bundled nonbaseline dependencies.
 Its LLVM subprocesses receive an SDK-specific library search environment from `Sdk::toolEnvironment`.
 That environment is for compiler processes, not a wrapper which must accompany the final application's execution.
-The compiler's own host loader/glibc remains the documented Ubuntu baseline.
+The compiler's own host loader/glibc remains the documented Noble 2.39 baseline for its matching architecture.
+`nierc --print-target` identifies that one device target. Explicit foreign targets reject for both compilation and diagnostic `lower`.
+Shared structural inspection can still read a foreign-only artifact, but must report that its native plan was not validated by this device compiler.
 
 Native application linking is separate.
 `Sdk::linkCommand` supplies startup objects, compiler-rt support, native libraries, an explicit managed glibc interpreter, and the runtime search paths used by the generated ELF.
@@ -119,7 +130,7 @@ Native dependencies are explicit requirements, not an accidental return of the p
 ## Verify absence as well as successful execution
 
 `tests/consumer-install.sh` starts with an artifact made by an independent producer, assembles a bundle, and moves it to a path containing a space.
-It checks the payload digests and rejects forbidden bundle contents such as Clang, publisher plugins, source headers or the i686 sysroot.
+It checks the payload digests and rejects forbidden bundle contents such as Clang, publisher plugins, source headers or the opposite target's sysroot.
 It also inspects symbols to catch producer/frontend code linked into `nierc`.
 
 The test runs the moved compiler with a clean environment and traces file opens and subprocess execution.
@@ -131,10 +142,23 @@ Finally, the produced application is executed independently.
 Its trace must show the intended managed libc and must not show the artifact or compiler programs being used.
 A successful `Hello World` under a richly configured developer shell would not establish these absence properties.
 
+The `tests/dual-consumer.sh` matrix publishes each artifact once and sends identical bytes to both products, comparing native references at O0 and O2.
+Its i686 half uses `tests/consumer-vm.sh` to boot a real 32-bit Linux kernel, check every compiler tool's ELF class, and require `ENOEXEC` for an ELF64 probe before native compilation can pass.
+The separate corpus option `--i686-bundle` runs the original cJSON and zlib destination recipes in that guest as well.
+Both final source-built bundles passed the fresh matrix and the complete fresh dual-destination corpus at the recorded 2026-09-12 checkpoint.
+A host compatibility-mode component test or bootstrap-only VM probe is not a substitute for either gate.
+The manually dispatched `Device compiler qualification` workflow assembles these checks separately from the ordinary publisher CI smoke job.
+Recorded local results are not a claim that the remote workflow has passed.
+
+Target isolation does not automatically reduce installed size.
+The current assembled x86-64 and i686 bundles measure 244 MiB and 265 MiB respectively, compared with the earlier 190 MiB monolithic x86-64 baseline.
+Statically linked components are duplicated across separate LLVM tool executables; these are not compressed download sizes or minimum-footprint results.
+
 ## Optional independent lab
 
 This lab copies a substantial runtime bundle but does not rebuild NieR.
-Run it from the repository root after preparing the SDK and Release build:
+Run it from the repository root after preparing the publisher SDK/build, the `.sdk/consumer/x86_64` source SDK, and the Release `consumer-x86_64` preset build described in the [compiler distribution reference](../../reference/compiler-distribution.md).
+Do not pass the ordinary publisher build/SDK to the target-specific packager:
 
 ```bash
 source sdk/env.sh
@@ -142,8 +166,8 @@ distribution_lab=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide-distribution-XXXXXX")
 clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
   examples/hello/hello/main.c examples/hello/hello/hello.c \
   -o "$distribution_lab/hello.nier"
-bash scripts/package-consumer.sh build/prealpha \
-  "$distribution_lab/original" "$NIER_SDK_ROOT"
+bash scripts/package-consumer.sh build/consumer-x86_64 \
+  "$distribution_lab/original" "$PWD/.sdk/consumer/x86_64"
 mv -- "$distribution_lab/original" "$distribution_lab/relocated bundle"
 env -u NIER_SDK_ROOT -u LD_LIBRARY_PATH -u LD_PRELOAD \
   "$distribution_lab/relocated bundle/bin/nierc" \
@@ -180,6 +204,6 @@ Their tests should prove those distinctions even when development happens in one
 > No. Native output retains the managed interpreter/runtime paths chosen when it was linked.
 
 Read [development SDK reference](../../reference/development-sdk.md) for host assumptions, [compiler distribution reference](../../reference/compiler-distribution.md) for the bundle's supported contract,
-`src/consumer/Main.cpp` for SDK discovery and overrides, and `src/support/Support.cpp` for subprocess environments and native link construction.
+`src/consumer/Main.cpp` for SDK discovery and overrides, and `src/support/Sdk.cpp` for subprocess environments and native link construction.
 
 [Previous: Artifact validation and robustness](22-artifact-validation-and-robustness.md) · [Next: Maintaining and evolving NieR](24-maintaining-and-evolving-nier.md)

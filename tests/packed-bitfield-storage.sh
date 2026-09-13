@@ -39,7 +39,7 @@ for level in O0 O2; do
        "$(env -u LD_LIBRARY_PATH "$lane/native-x86_64")"
 
   for target in x86_64 i686; do
-    "$nierc" lower "$lane/program.nier" --target "$target" --output-dir "$lane/lowered-$target"
+    "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$lane/program.nier" --target "$target" --output-dir "$lane/lowered-$target"
     native_ir="$lane/lowered-$target/0.ll"
     "$llvm/opt" -passes=verify -disable-output "$native_ir"
     # Check real packed storage, unaligned native scalar accesses and signed

@@ -111,7 +111,7 @@ On failure, `takeError()` transfers its error to the caller instead of losing th
 An `Error` condition has the opposite everyday reading:
 
 ```cpp
-if (auto error = nier::verifyModule(module))
+if (auto error = nier::verifyModule(module, nier::supportedNativeTargets()))
   return error;
 return llvm::Error::success();
 ```

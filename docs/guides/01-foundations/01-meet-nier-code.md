@@ -110,7 +110,8 @@ If the existing NieR contract cannot express a required behavior, somebody must 
 
 The code you will study is a working pre-alpha implementation, not the complete future platform.
 It has a bounded C producer and a language-blind consumer.
-Its semantic validation currently recognizes x86-64 and i686 profiles; product native execution is initially qualified for x86-64.
+Its semantic validation recognizes x86-64 and i686 profiles, and separate native compiler bundles exist for both devices.
+The [distribution reference](../../reference/compiler-distribution.md) records the current real-device and full-corpus qualification evidence.
 Other architectures and languages remain work, not automatic consequences of the file extension.
 
 The publication is not original source or a package of the original LLVM captures.

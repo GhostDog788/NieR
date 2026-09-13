@@ -39,7 +39,7 @@ Native linking later combines objects and libraries.
 Confusing those stages can accidentally introduce whole-program optimization or change archive selection. The compilation-unit plan keeps them separate.
 
 The implementation entry point is `execute` in the consumer driver (`src/consumer/Main.cpp`).
-Read it first as a sequence of requests to other components. You can understand its control flow without reading every lowering rule in `Compiler.cpp`.
+Read it first as a sequence of requests to other components. You can understand its control flow without reading every lowering rule in `NativeLowering.cpp`.
 
 ## Establish the contract before compiling it
 
@@ -47,9 +47,11 @@ The driver first calls `readPackage` and `validatePackage`. An archive being rea
 Package validation checks the manifest and permitted members, including the declared module records and their digests.
 A checksum detects changed bytes relative to the manifest; it is not a trusted developer signature.
 
-For compilation, the requested target must occur in the artifact's target domain.
-Today's native-output command is qualified for x86-64. The diagnostic `lower` command can also expose i686 LLVM output.
-That diagnostic capability is not an installed i686 product promise.
+For compilation, the compiler's one native target must occur in the artifact's target domain and match its SDK.
+An explicit foreign `--target` rejects before output staging for both ordinary compilation and diagnostic `lower`.
+The shared schema is checked even for inactive domains, while `inspect` explicitly reports which native plans were validated and which have no available backend in this device build.
+Both source-built native bundles have passed a fresh publish-once two-device matrix, with i686 running under a real 32-bit kernel.
+The [distribution reference](../../reference/compiler-distribution.md) separates that evidence from the full-corpus gate and the earlier private lowering tests.
 
 The artifact kind matters too. A relocatable NieR object is an intermediate publication input: the normal stock-Clang publication link must combine it before `nierc` emits a final native product.
 Executable, shared-library, and static-library artifacts select different final output paths.
@@ -153,7 +155,8 @@ The consumer validates a public artifact, specializes target-dependent semantics
 
 > [!faq]- Why can `inspect` do more than list archive members?
 >
-> It validates NieR modules and checks reconstruction of declared units across the artifact's target domain.
+> It validates the shared schema across declared domains and checks native reconstruction only for the implementation linked into this device compiler.
+> Foreign native plans are explicitly reported as not validated.
 > It is contract inspection, not just `tar -t`.
 
 > [!faq]- Why not combine every common module before optimization?
@@ -163,7 +166,7 @@ The consumer validates a public artifact, specializes target-dependent semantics
 
 > [!faq]- Does `nierc lower --target i686` establish full i686 deployment support?
 >
-> No. It exposes qualified specialization evidence; native product output is currently x86-64.
+> No. An x86-64 `nierc` rejects that foreign target. An i686 `nierc` can expose its own diagnostic specialization, but full deployment still requires real-device compiler/output and corpus qualification.
 
 > [!faq]- Can the generated executable need libc but not need NieR?
 >
@@ -172,7 +175,7 @@ The consumer validates a public artifact, specializes target-dependent semantics
 ## Guided source and evidence
 
 Start with `execute` (`src/consumer/Main.cpp`),
-then follow `lowerCompilationUnit` (`src/ir/CompilationUnits.cpp`) into the core interfaces (`include/nier/IR/Compiler.h`) and lowering implementation (`src/ir/Compiler.cpp`).
+then follow `lowerCompilationUnit` (`src/ir/CompilationUnits.cpp`) into the core interfaces (`include/nier/IR/Compiler.h`) and lowering implementation (`src/ir/NativeLowering.cpp`).
 Read the device-boundary test (`tests/device-boundary.sh`) to see how file accesses distinguish compilation from execution, and the independent producer (`tests/independent.cpp`) to check that C provenance is not a requirement.
 The authoritative scope remains [02](../../02-implementation-plan.md), not this walkthrough's small example.
 

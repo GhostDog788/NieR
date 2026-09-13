@@ -20,7 +20,7 @@ llvm::Error rejectInputAlias(const fs::path &input, const fs::path &output) {
   return llvm::Error::success();
 }
 struct Options {
-  std::string command = "compile", target = "x86_64";
+  std::string command = "compile", target = NIER_DEVICE_TARGET;
   fs::path input, output;
   std::vector<fs::path> libraryDirectories;
   Sdk sdk;
@@ -28,24 +28,32 @@ struct Options {
 };
 void usage() {
   llvm::outs() << "NieR compiler — pre-alpha; no backward-compatibility promise\n"
+      "Native target: " NIER_DEVICE_TARGET " (this compiler does not cross-compile)\n"
       "  nierc INPUT.nier -o OUTPUT [--sdk DIR] [--library-dir DIR] [--keep-work]\n"
       "  nierc inspect INPUT.nier\n"
-      "  nierc lower INPUT.nier --output-dir DIR [--target x86_64|i686]\n"
+      "  nierc lower INPUT.nier --output-dir DIR [--target " NIER_DEVICE_TARGET "]\n"
+      "  nierc --print-target\n"
+      "  nierc --check-sdk\n"
       "C publication uses stock clang --config=nier.cfg, not this program.\n";
 }
-llvm::Expected<Options> parse(int argc, char **argv) {
-  if (argc < 2) return fail("expected an artifact; use nierc --help");
-  Options result;
+Sdk discoverSdk() {
+  Sdk result;
   const char *sdk = std::getenv("NIER_SDK_ROOT");
-  result.sdk.root = fs::absolute(sdk ? sdk : NIER_DEFAULT_SDK);
+  result.root = fs::absolute(sdk ? sdk : NIER_DEFAULT_SDK);
   if (!sdk) {
     std::error_code ec;
     auto executable = fs::read_symlink("/proc/self/exe", ec);
     if (!ec) {
       auto bundled = executable.parent_path().parent_path() / "sdk";
-      if (fs::is_directory(bundled / "host")) result.sdk.root = bundled;
+      if (fs::is_directory(bundled / "host")) result.root = bundled;
     }
   }
+  return result;
+}
+llvm::Expected<Options> parse(int argc, char **argv) {
+  if (argc < 2) return fail("expected an artifact; use nierc --help");
+  Options result;
+  result.sdk = discoverSdk();
   int start = 1;
   if (std::string(argv[1]) == "inspect" || std::string(argv[1]) == "lower") {
     result.command = argv[1];
@@ -70,6 +78,8 @@ llvm::Expected<Options> parse(int argc, char **argv) {
   return result;
 }
 llvm::Error execute(const Options &options) {
+  if (options.target != NIER_DEVICE_TARGET)
+    return fail("native target unavailable: " + options.target + "; this compiler supports only " NIER_DEVICE_TARGET);
   auto files = readPackage(options.input);
   if (!files) return files.takeError();
   auto manifest = validatePackage(*files);
@@ -82,7 +92,6 @@ llvm::Error execute(const Options &options) {
     bool admitted = false;
     for (auto &target : *object.getArray("targets")) admitted |= target.getAsString() == options.target;
     if (!admitted) return fail("artifact does not support requested target: " + options.target);
-    if (!lower && options.target != "x86_64") return fail("native output is currently qualified only for x86_64");
     if (!lower && object.getString("kind") == "object") return fail("relocatable NieR unit requires publication linking through stock Clang");
     if (!lower) if (auto error = options.sdk.validate()) return error;
   }
@@ -90,7 +99,12 @@ llvm::Error execute(const Options &options) {
   if (!scratch) return scratch.takeError();
   scratch->keep = options.keepWork;
   if (options.keepWork) llvm::errs() << "Private compiler workspace: " << scratch->path.string() << '\n';
-  if (inspect) llvm::outs() << "Contract: " << Contract << "\nKind: " << *object.getString("kind") << '\n';
+  if (inspect) {
+    llvm::outs() << "Contract: " << Contract << "\nKind: " << *object.getString("kind")
+                 << "\nCompiler native target: " NIER_DEVICE_TARGET "\nDeclared targets:";
+    for (auto target : targetDomain) llvm::outs() << ' ' << target;
+    llvm::outs() << '\n';
+  }
   std::vector<fs::path> nativeObjects;
   std::vector<fs::path> bytecodes;
   size_t index = 0;
@@ -101,9 +115,11 @@ llvm::Error execute(const Options &options) {
     fs::path bytecode = scratch->path / (stem + ".nierbc");
     if (auto error = write(bytecode, files->at(member))) return error;
     bytecodes.push_back(bytecode);
+    // Admit every public module before any selected-target native lowering.
+    // Native lowering remains limited to this device backend.
+    nier::ArtifactSummary summary;
+    if (auto error = nier::inspectArtifactStructure(bytecode.string(), summary)) return error;
     if (inspect) {
-      nier::ArtifactSummary summary;
-      if (auto error = nier::inspectArtifact(bytecode.string(), summary, targetDomain)) return error;
       llvm::outs() << member << ": " << summary.functions << " functions, " << summary.operations << " operations\n";
     }
   }
@@ -111,6 +127,11 @@ llvm::Error execute(const Options &options) {
   if (!plans) return plans.takeError();
   if (inspect) {
     for (const auto &[target, units] : *plans) {
+      if (target != NIER_DEVICE_TARGET) {
+        llvm::outs() << target << ": " << units.size()
+                     << " native compilation units; not validated (native backend unavailable)\n";
+        continue;
+      }
       for (const auto &unit : units) {
         std::vector<std::string> paths;
         for (auto fragment : unit.modules) paths.push_back(bytecodes[fragment].string());
@@ -118,7 +139,7 @@ llvm::Error execute(const Options &options) {
         if (auto error = nier::lowerCompilationUnit(references, target,
             (scratch->path / "inspection.ll").string())) return error;
       }
-      llvm::outs() << target << ": " << units.size() << " native compilation units\n";
+      llvm::outs() << target << ": " << units.size() << " native compilation units; native validation passed\n";
     }
     return llvm::Error::success();
   }
@@ -189,6 +210,15 @@ llvm::Error execute(const Options &options) {
 int main(int argc, char **argv) {
   try {
     if (argc == 2 && std::string(argv[1]) == "--help") { usage(); return 0; }
+    if (argc == 2 && std::string(argv[1]) == "--print-target") {
+      llvm::outs() << NIER_DEVICE_TARGET << '\n'; return 0;
+    }
+    if (argc == 2 && std::string(argv[1]) == "--check-sdk") {
+      if (auto error = discoverSdk().validate()) {
+        llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "nierc: "); return 1;
+      }
+      llvm::outs() << "Matching native SDK: " NIER_DEVICE_TARGET "\n"; return 0;
+    }
     auto options = parse(argc, argv);
     if (!options) { llvm::logAllUnhandledErrors(options.takeError(), llvm::errs(), "nierc: "); return 1; }
     if (auto error = execute(*options)) { llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "nierc: "); return 1; }

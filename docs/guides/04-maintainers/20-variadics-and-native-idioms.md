@@ -151,14 +151,15 @@ clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
   tests/abi/va_forward.c -o "$varargs_lab/forward.nier"
 build/prealpha/nierc "$varargs_lab/forward.nier" -o "$varargs_lab/forward"
 env -u LD_LIBRARY_PATH -u LD_PRELOAD "$varargs_lab/forward"
-build/prealpha/nierc lower "$varargs_lab/forward.nier" \
+build/prealpha/nier_reference_lower lower "$varargs_lab/forward.nier" \
   --target x86_64 --output-dir "$varargs_lab/wide"
-build/prealpha/nierc lower "$varargs_lab/forward.nier" \
+build/prealpha/nier_reference_lower lower "$varargs_lab/forward.nier" \
   --target i686 --output-dir "$varargs_lab/narrow"
 printf 'Lab files: %s\n' "$varargs_lab"
 ```
 
 Expect `Native va_list forwarding passed`.
+The two-target inspection uses the publisher-only `nier_reference_lower` test helper; the native-only public compiler does not provide foreign-target lowering.
 Compare the state layout and the argument passed to `vsnprintf` in the two lowered modules.
 Do not expect their native pointer manipulation to be textually identical; preserving the common logical operation is what makes the native differences correct.
 
@@ -183,6 +184,6 @@ The useful abstraction is a proved state transition or intrinsic operation, not 
 > No. It is a reference oracle; integrated public semantics and proofs remain separate obligations.
 
 Read `src/ir/Varargs.cpp` beside `tests/varargs.cpp` and `tests/varargs.sh`.
-For idiom boundaries, compare `src/ir/ByteSwap.cpp` with `tests/byteswap.cpp`, then locate the corresponding operation branches in `src/ir/Compiler.cpp`.
+For idiom boundaries, compare `src/ir/ByteSwap.cpp` with `tests/byteswap.cpp`, then locate the corresponding native operation branches in `src/ir/NativeLowering.cpp`.
 
 [Previous: Native calling conventions](19-native-calling-conventions.md) · [Next: Build and link semantics](21-build-and-link-semantics.md)

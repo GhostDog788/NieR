@@ -44,7 +44,7 @@ struct NativeABISignature {
   unsigned remainingSSE = 0;
 };
 
-llvm::DataLayout nativeABIDataLayout(bool x64);
+llvm::Expected<llvm::DataLayout> nativeABIDataLayout(bool x64);
 
 // Ordinary Linux SysV C calling convention, with the pinned baseline target
 // layouts. orderedRecords is an explicit semantic assertion: every listed

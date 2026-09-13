@@ -181,7 +181,7 @@ guide18_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-guide18-XXXXXX")
 clang --config="$PWD/build/prealpha/nier.cfg" -O0 \
   tests/storage-native.c -o "$guide18_work/storage.nier"
 for guide18_target in x86_64 i686; do
-  build/prealpha/nierc lower "$guide18_work/storage.nier" \
+  build/prealpha/nier_reference_lower lower "$guide18_work/storage.nier" \
     --target "$guide18_target" --output-dir "$guide18_work/$guide18_target"
 done
 rg -n '= type|global |getelementptr|alloca ' \
@@ -194,6 +194,7 @@ printf 'Lab files: %s\n' "$guide18_work"
 ```
 
 Successful execution returns zero without printing an application message.
+The two-target dumps come from the publisher-only `nier_reference_lower` test helper; a public device compiler has only its own native lowering implementation.
 Inspect the native record fields and GEP paths; do not assume record numbering will remain unchanged between pre-alpha revisions.
 This fixture also exercises callbacks and native nonlocal jumps, but its storage relationships are enough for this chapter's inspection.
 
@@ -222,7 +223,7 @@ Explicit overlap is not interchangeable with ordered fields, and storage layout 
 ## Guided source and evidence
 
 Read the public storage types (`include/nier/IR/Dialect.h`), overlap type (`include/nier/IR/Overlap.h`), and their syntax implementation (`src/ir/Dialect.cpp`).
-Follow `type`, `initializer`, and GEP handling in `src/ir/Producer.cpp` and `src/ir/Compiler.cpp`.
+Follow `type`, `initializer`, and GEP handling in `src/ir/Producer.cpp` and `src/ir/NativeLowering.cpp`.
 Compare private overlap evidence (`src/ir/OverlapEvidence.cpp`) with consumer carrier selection (`src/ir/OverlapLayout.cpp`).
 Storage tests (`tests/storage.cpp`), the State fixture (`tests/storage-native.c`), overlap tests (`tests/overlap.cpp`), and the packed-bitfield fixture (`tests/fixtures/packed-bitfield-storage.c`) make the boundaries concrete.
 The supported subset remains recorded in [02](../../02-implementation-plan.md).

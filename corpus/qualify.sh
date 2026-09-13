@@ -1,26 +1,40 @@
 #!/usr/bin/env bash
 # Exhaustive pinned corpus gate. A compiler rejection is a failure, not a skip.
 set -euo pipefail
-if test "$#" -ne 3 && test "$#" -ne 5; then
-  echo "usage: bash corpus/qualify.sh /path/nier-build /path/nierc /path/sdk [--project cjson|zlib]" >&2
+if test "$#" -lt 3; then
+  echo "usage: bash corpus/qualify.sh /path/nier-build /path/nierc /path/sdk [--project cjson|zlib] [--i686-bundle DIR]" >&2
   exit 2
-fi
-selected_project=all
-if test "$#" -eq 5; then
-  if test "$4" != --project || { test "$5" != cjson && test "$5" != zlib; }; then
-    echo 'Only complete cjson or zlib project qualification may be selected.' >&2
-    exit 2
-  fi
-  selected_project=$5
 fi
 build_tool=$(realpath -- "$1")
 nierc=$(realpath -- "$2")
 export NIER_SDK_ROOT=$(realpath -- "$3")
+shift 3
+selected_project=all
+i686_bundle=
+while test "$#" -gt 0; do
+  case "$1" in
+    --project)
+      test "$#" -ge 2 && test "$selected_project" = all
+      case "$2" in cjson|zlib) selected_project=$2 ;; *) echo 'Select the complete cjson or zlib project.' >&2; exit 2 ;; esac
+      shift 2 ;;
+    --i686-bundle)
+      test "$#" -ge 2 && test -z "$i686_bundle"
+      i686_bundle=$(realpath -e -- "$2")
+      test -x "$i686_bundle/bin/nierc"
+      readelf -h "$i686_bundle/bin/nierc" | grep 'Class:.*ELF32' >/dev/null
+      readelf -h "$i686_bundle/bin/nierc" | grep 'Machine:.*Intel 80386' >/dev/null
+      test -f "$i686_bundle/payload.sha256"
+      shift 2 ;;
+    *) printf 'Unknown qualification option: %s\n' "$1" >&2; exit 2 ;;
+  esac
+done
 corpus_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 corpus_work=$(mktemp -d "${TMPDIR:-/tmp}/nier-corpus-XXXXXX")
 tool_directory=$(dirname -- "$build_tool")
 clang_configuration="$tool_directory/nier.cfg"
 qualification_report="$corpus_work/qualification.txt"
+i686_fixtures="$corpus_work/i686-consumer-fixtures"
+if test -n "$i686_bundle"; then mkdir -p "$i686_fixtures/corpus"; fi
 echo "Corpus evidence: $corpus_work"
 finish_report() {
   local status=$?
@@ -39,15 +53,22 @@ trap finish_report EXIT
 {
   printf 'NieR configured upstream corpus qualification\nStarted UTC: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'Selected projects: %s\nNative profiles: x86_64, i686\nDestination: x86_64\n' "$selected_project"
+  if test -n "$i686_bundle"; then printf 'Additional required destination: i686 under a real 32-bit kernel\n'; fi
   printf 'Replay:'
   printf ' %q' bash "$corpus_root/qualify.sh" "$build_tool" "$nierc" "$NIER_SDK_ROOT"
   if test "$selected_project" != all; then printf ' --project %q' "$selected_project"; fi
+  if test -n "$i686_bundle"; then printf ' --i686-bundle %q' "$i686_bundle"; fi
   printf '\nActual tool/configuration/recipe SHA-256:\n'
   sha256sum "$build_tool" "$nierc" "$tool_directory/nier-native-ld" "$tool_directory/nier-ld" \
     "$tool_directory/libnier-clang.so" "$tool_directory/nier-capture.so" "$clang_configuration" \
     "$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/clang" "$NIER_SDK_ROOT/sdk-lock.sha256" \
     "$corpus_root/../sdk/packages.lock" "$corpus_root/releases.lock" \
     "$corpus_root/cjson-static.cmake" "$corpus_root/cjson-shared.cmake" "$corpus_root/qualify.sh"
+  if test -n "$i686_bundle"; then
+    sha256sum "$i686_bundle/bin/nierc" "$i686_bundle/payload.sha256" \
+      "$corpus_root/../tests/consumer-vm.sh" "$corpus_root/../tests/consumer-corpus.sh" \
+      "$corpus_root/../tests/vm/packages.lock" "$corpus_root/../tests/vm/test-tools.lock"
+  fi
   printf 'Native configure/build/test commands and immutable input journals are retained per publication.\n'
   printf 'This report is functional regression evidence, not a security attestation or publication recipe.\n'
 } | tee "$qualification_report"
@@ -60,6 +81,13 @@ test_tool_libraries="$NIER_SDK_ROOT/host/usr/lib/llvm-18/lib:$NIER_SDK_ROOT/host
 destination_ctest() {
   env -u LD_LIBRARY_PATH -u LD_PRELOAD "$test_loader" --library-path "$test_tool_libraries" "$ctest" "$@"
 }
+destination_nierc() {
+  # Never let the publisher's SDK receipt or loader overrides replace a thin
+  # compiler's own sibling SDK. A normal development compiler retains its
+  # configured default SDK when those environment overrides are absent.
+  env -u NIER_SDK_ROOT -u LD_LIBRARY_PATH -u LD_PRELOAD "$nierc" "$@"
+}
+test "$(destination_nierc --print-target)" = x86_64
 unset CFLAGS CPPFLAGS LDFLAGS LIBS
 mkdir "$corpus_work/sources"
 while read -r project version url expected; do
@@ -115,12 +143,12 @@ for mode in static shared; do
     --configure-arg "$corpus_root/cjson-$mode.cmake" --target all --target check)
   if test "$mode" = shared; then
     publish "cjson-$mode-library" "$artifacts/library.nier" "${cjson_args[@]}" --output libcjson.so.1.7.19
-    "$nierc" "$artifacts/library.nier" -o "$destination/libcjson.so.1"
+    destination_nierc "$artifacts/library.nier" -o "$destination/libcjson.so.1"
     record_destination "$destination/libcjson.so.1"
     readelf -d "$destination/libcjson.so.1" | grep -q 'SONAME.*libcjson.so.1'
   else
     publish "cjson-$mode-library" "$artifacts/library.nier" "${cjson_args[@]}" --output libcjson.a
-    "$nierc" "$artifacts/library.nier" -o "$destination/libcjson.a"
+    destination_nierc "$artifacts/library.nier" -o "$destination/libcjson.a"
     record_destination "$destination/libcjson.a"
     test "$("$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/llvm-ar" t "$destination/libcjson.a")" = \
       "$("$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/llvm-ar" t "$last_private/build-x86_64/build/libcjson.a")"
@@ -128,7 +156,7 @@ for mode in static shared; do
   for program in "${cjson_programs[@]}"; do
     label=${program//\//-}
     publish "cjson-$mode-$label" "$artifacts/$label.nier" "${cjson_args[@]}" --output "$program"
-    "$nierc" "$artifacts/$label.nier" --library-dir "$destination" -o "$destination/$program"
+    destination_nierc "$artifacts/$label.nier" --library-dir "$destination" -o "$destination/$program"
     record_destination "$destination/$program"
     if test "$program" = cJSON_test; then
       env -u LD_LIBRARY_PATH -u LD_PRELOAD "$last_private/build-x86_64/build/cJSON_test" \
@@ -171,6 +199,33 @@ for mode in static shared; do
   destination_ctest --test-dir "$destination" --show-only | tee "$corpus_work/cjson-$mode-inventory.log"
   grep -q '^Total Tests: 19$' "$corpus_work/cjson-$mode-inventory.log"
   destination_ctest --test-dir "$destination" --output-on-failure | tee "$corpus_work/cjson-$mode-destination.log"
+  if test -n "$i686_bundle"; then
+    pack="$i686_fixtures/corpus/cjson-$mode"
+    mkdir -p "$pack/data/tests" "$pack/data/fuzzing"
+    cp -a "$artifacts" "$pack/artifacts"
+    printf '%s\n' "${cjson_programs[@]}" > "$pack/programs.list"
+    reference="$last_private/build-i686/build"
+    reference_pattern=$(printf '%s' "$reference" | sed 's/[][\\.^$*|]/\\&/g')
+    for directory in . tests fuzzing; do
+      sed "s|$reference_pattern|@NIER_CORPUS_DESTINATION@|g" \
+        "$reference/$directory/CTestTestfile.cmake" > "$pack/data/$directory/CTestTestfile.cmake"
+    done
+    cp -R "$reference/tests/inputs" "$pack/data/tests/inputs"
+    env -u LD_LIBRARY_PATH -u LD_PRELOAD "$reference/cJSON_test" > "$pack/reference.stdout"
+    if test "$mode" = static; then
+      "$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/llvm-ar" t "$reference/libcjson.a" > "$pack/archive-members.txt"
+    else
+      guest_runtime=/opt/nier/sdk/sysroots/i686-linux-gnu/usr/lib/i386-linux-gnu
+      "$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/clang" --target=i686-unknown-linux-gnu \
+        --sysroot="$NIER_SDK_ROOT/sysroots/i686-linux-gnu" \
+        -resource-dir="$NIER_SDK_ROOT/host/usr/lib/llvm-18/lib/clang/18" \
+        --rtlib=compiler-rt --unwindlib=none --ld-path="$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/ld.lld" \
+        "$reference/CMakeFiles/cJSON_test.dir/test.c.o" -L"$reference" -l:libcjson.so.1 -lm \
+        -Wl,--dynamic-linker,"$guest_runtime/ld-linux.so.2" \
+        "-Wl,-rpath,\$ORIGIN:$guest_runtime" -Wl,-z,nodefaultlib -o "$pack/native-caller"
+    fi
+    printf '%s\n' "cjson-$mode" >> "$i686_fixtures/corpus.list"
+  fi
 done
 fi
 
@@ -185,18 +240,18 @@ export CFLAGS=-O3
 zlib_args=(--system make --source "$zlib_source" --configure-arg --shared
   --target all --target test --target test64)
 publish zlib-static-library "$artifacts/static-library.nier" "${zlib_args[@]}" --output libz.a
-"$nierc" "$artifacts/static-library.nier" -o "$destination/libz.a"
+destination_nierc "$artifacts/static-library.nier" -o "$destination/libz.a"
 record_destination "$destination/libz.a"
 test "$("$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/llvm-ar" t "$destination/libz.a")" = \
   "$("$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/llvm-ar" t "$last_private/build-x86_64/source/libz.a")"
 publish zlib-library "$artifacts/library.nier" "${zlib_args[@]}" --output libz.so.1.3.2
-"$nierc" "$artifacts/library.nier" -o "$destination/libz.so.1"
+destination_nierc "$artifacts/library.nier" -o "$destination/libz.so.1"
 record_destination "$destination/libz.so.1"
 readelf -d "$destination/libz.so.1" | grep -q 'SONAME.*libz.so.1'
 readelf --version-info "$destination/libz.so.1" | grep -q ZLIB_
 for program in example minigzip examplesh minigzipsh example64 minigzip64; do
   publish "zlib-$program" "$artifacts/$program.nier" "${zlib_args[@]}" --output "$program"
-  "$nierc" "$artifacts/$program.nier" --library-dir "$destination" -o "$destination/$program"
+  destination_nierc "$artifacts/$program.nier" --library-dir "$destination" -o "$destination/$program"
   record_destination "$destination/$program"
 done
 cp "$last_private/build-x86_64/source/Makefile" "$destination/Makefile"
@@ -206,6 +261,38 @@ cp "$last_private/build-x86_64/source/Makefile" "$destination/Makefile"
 env -u LD_LIBRARY_PATH -u LD_PRELOAD make -C "$destination" -o all -o static -o shared -o all64 \
   CC=/bin/false AR=/bin/false RANLIB=/bin/false LD=/bin/false QEMU_RUN= test test64 \
   | tee "$corpus_work/zlib-destination.log"
+if test -n "$i686_bundle"; then
+  pack="$i686_fixtures/corpus/zlib"
+  mkdir -p "$pack/data"
+  cp -a "$artifacts" "$pack/artifacts"
+  cp "$last_private/build-i686/source/Makefile" "$pack/data/Makefile"
+  "$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/llvm-ar" t \
+    "$last_private/build-i686/source/libz.a" > "$pack/archive-members.txt"
+  printf 'zlib\n' >> "$i686_fixtures/corpus.list"
+fi
+fi
+if test -n "$i686_bundle"; then
+  guest_runtime=/opt/nier/sdk/sysroots/i686-linux-gnu/usr/lib/i386-linux-gnu
+  "$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/clang" --target=i686-unknown-linux-gnu \
+    --sysroot="$NIER_SDK_ROOT/sysroots/i686-linux-gnu" \
+    -resource-dir="$NIER_SDK_ROOT/host/usr/lib/llvm-18/lib/clang/18" \
+    --rtlib=compiler-rt --unwindlib=none --ld-path="$NIER_SDK_ROOT/host/usr/lib/llvm-18/bin/ld.lld" \
+    "$corpus_root/../tests/vm/exec-format.c" -Wl,--dynamic-linker,"$guest_runtime/ld-linux.so.2" \
+    -Wl,-rpath,"$guest_runtime" -Wl,-z,nodefaultlib -o "$i686_fixtures/exec-format"
+  cp /bin/true "$i686_fixtures/elf64-negative"
+  case "$selected_project" in all) count=50 ;; cjson) count=42 ;; zlib) count=8 ;; esac
+  printf '%s\n' "$count" > "$i686_fixtures/corpus-count"
+  (
+    cd "$i686_fixtures"
+    find . -type f ! -name fixtures.sha256 -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+  ) > "$i686_fixtures/fixtures.sha256"
+  printf 'Source-free i686 consumer fixture hashes:\n' | tee -a "$qualification_report"
+  cat "$i686_fixtures/fixtures.sha256" | tee -a "$qualification_report"
+  env -u NIER_SDK_ROOT -u LD_LIBRARY_PATH -u LD_PRELOAD \
+    NIER_VM_TIMEOUT="${NIER_VM_TIMEOUT:-3600}" \
+    bash "$corpus_root/../tests/consumer-vm.sh" "$i686_bundle" "$i686_fixtures" \
+    2>&1 | tee "$corpus_work/i686-consumer-vm.log"
+  printf 'Real-kernel i686 destination qualification: PASS (%s artifacts)\n' "$count" | tee -a "$qualification_report"
 fi
 if test "$selected_project" = all; then
   echo 'All pinned native references and destination NieR corpus tests passed.'

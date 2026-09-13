@@ -4,7 +4,8 @@ This SDK is a user-local extraction of unmodified Ubuntu 24.04 packages, not a c
 It supplies Clang/LLVM/MLIR/LLD **18.1.3-1ubuntu1**, matching Clang frontend headers and the Clang C++ plugin library,
 compiler-rt, CMake 3.28.3, Ninja 1.11.1, libarchive development files, LLVM dependencies,
 and separate x86-64/i686 glibc **2.39-0ubuntu8.8** development/runtime sysroots.
-The matching GCC runtime base package is also pinned so the extracted `libstdc++6` and `libgcc-s1` copyright notices resolve when assembling the consumer-only distribution.
+The matching GCC runtime base package is also pinned so the extracted `libstdc++6` and `libgcc-s1` copyright notices resolve.
+Distributable device compilers use separate target-specific source SDKs, not this publisher SDK; see the [compiler distribution reference](compiler-distribution.md).
 
 ## Bootstrap and check
 

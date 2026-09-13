@@ -29,7 +29,7 @@ for level in O0 O2; do
     "$project/tests/fixtures/nonlocal.c" -o "$lane/program.nier"
   "$nierc" "$lane/program.nier" --sdk "$sdk" -o "$lane/program"
   test "$(env -u LD_LIBRARY_PATH "$lane/program")" = "$expected"
-  "$nierc" lower "$lane/program.nier" --target i686 --output-dir "$lane/lowered32"
+  "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$lane/program.nier" --target i686 --output-dir "$lane/lowered32"
   "$llvm/opt" -passes="default<$level>" -verify-each "$lane/lowered32/0.ll" -o "$lane/optimized32.bc"
   "$llvm/llc" -O="${level#O}" -filetype=obj -relocation-model=pic "$lane/optimized32.bc" -o "$lane/program32.o"
   sysroot="$sdk/sysroots/i686-linux-gnu"

@@ -1,10 +1,11 @@
 # Broad-C qualification corpus
 
 These are locked qualification inputs.
-Both configured projects have passed the complete gate on one coherent pre-alpha checkpoint:
-cJSON's static and shared configurations each produced 21 artifacts and passed all 19 original destination CTests;
-zlib's eight outputs passed the original static, shared and 64-bit Make recipes.
-Native reference tests also passed on both private profiles. This is configured functional coverage, not full general-C, performance, RE or security acceptance; later compiler changes must requalify it.
+Both configured projects passed the complete fresh dual-destination gate at the recorded 2026-09-12 pre-alpha checkpoint:
+cJSON's static and shared configurations each produced 21 artifacts and passed all 19 original CTests on each destination;
+zlib's eight outputs passed the original static, shared and 64-bit-offset Make recipes on both destinations.
+All 50 artifacts were published once and supplied unchanged to the separate native x86-64 and i686 compilers; i686 ran under a real 32-bit Linux kernel.
+Fresh native reference tests also passed on both private profiles. This is configured functional coverage, not full general-C, performance, RE or security acceptance; later compiler changes must requalify it.
 
 Source archives must match `corpus/releases.lock`. Never patch upstream application/test sources or disable a failing required test.
 
@@ -85,4 +86,15 @@ This selected Make suite is not a claim to qualify zlib's separate CMake package
 Every selected executable/shared-library link and static-library output produces its own NieR artifact.
 Compile those artifacts with `nierc`, then stage native dependencies in the qualified fixture library root and run the original selected tests against them.
 Only test data and the ordinary native runtime/dependencies accompany execution; compiler capture data and build-time generators remain private.
-Native x86-64 and i686 reference runs are separate from initial x86-64 product execution support.
+Native x86-64 and i686 reference runs are separate from testing the independently installed device compilers.
+
+The opt-in `--i686-bundle /path/to/i686-bundle` gate extends destination execution to both independent native compilers, using a real 32-bit Linux kernel for i686.
+Pass the x86-64 bundle's `bin/nierc` as the ordinary consumer argument and retain the publisher SDK as the third argument.
+The runner publishes each selected artifact once, completes the x86-64 checks, and stages the same artifacts plus original generated test recipes and runtime data into the offline i686 guest.
+The guest runs all original selected tests with separately pinned test-only runners; it contains no application source or publication frontend.
+See the [compiler distribution reference](compiler-distribution.md#full-corpus-on-both-destination-compilers) for the complete command, prerequisites, resource limits, and evidence locations.
+Before the fresh run, a retained-artifact i686 regression also compiled all 50 prior artifacts under the real 32-bit kernel and passed the same original selected test inventories.
+Its input hashes matched the current publisher's byte-identical retained replay; source publication and native-reference builds were not rerun for that consumer-only regression.
+The subsequent complete fresh dual-destination command passed separately, with new source publication/native-reference builds and `Result: PASS (all)` in its `qualification.txt`.
+Its actual i686 VM also passed the native-caller, loader, SONAME/version, archive-order, and checksum checks and produced the required explicit serial PASS receipt.
+Keep these evidence categories separate: replay, retained consumer regression, and fresh source-to-both-devices qualification are not interchangeable claims.

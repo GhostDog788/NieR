@@ -1,0 +1,37 @@
+# Test-only Noble i386 runners: package architecture version SHA256 HTTPS-URL
+# Exact records from local noble/noble-updates/noble-security i386 APT indexes.
+# Not compiler-bundle dependencies. Only CTest, GNU make, readelf and their
+# actual DT_NEEDED closure are copied into the corpus guest's /opt/test-tools.
+cmake i386 3.28.3-1build7 75a75ff5256f12c4ce65d241986f23d8121942a577b630df84dc5962fde7890c https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/c/cmake/cmake_3.28.3-1build7_i386.deb
+cmake-data all 3.28.3-1build7 20a3b644211ce82f35c24f1f5052199adeb0ac159978a8740fd6c0959611557f https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/c/cmake/cmake-data_3.28.3-1build7_all.deb
+make i386 4.3-4.1build2 d9832ec1da4c828617fc27082aa6067ca2d5a4ff5c772c9de959da9b1ccfd13c https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/m/make-dfsg/make_4.3-4.1build2_i386.deb
+binutils-i686-linux-gnu i386 2.42-4ubuntu2.10 a177535e6713753ab4b579c1b5a357d8b729e764a25e0b9597730f25452f2607 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/binutils/binutils-i686-linux-gnu_2.42-4ubuntu2.10_i386.deb
+libcurl4t64 i386 8.5.0-2ubuntu10.13 08cf5ba913e517d7b1c66777a1a015d1ca5919b2464fd858e8553c4986f81d0d https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/c/curl/libcurl4t64_8.5.0-2ubuntu10.13_i386.deb
+libjsoncpp25 i386 1.9.5-6build1 4f3fa0c319146ee98241b0f08c19215cf4f29b21404d53e8b892b09e4c28bb25 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libj/libjsoncpp/libjsoncpp25_1.9.5-6build1_i386.deb
+librhash0 i386 1.4.3-3build1 78e845c0dcd447fd1a50a6597cd5a65d091fa4800defc647ad84cd72ca0d257a https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/r/rhash/librhash0_1.4.3-3build1_i386.deb
+libuv1t64 i386 1.48.0-1.1build1 5dbc4ca20ee7995f466ad9dffa822d20c524d595be8bfe4fdc0344886284e2f7 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libu/libuv1/libuv1t64_1.48.0-1.1build1_i386.deb
+libexpat1 i386 2.6.1-2ubuntu0.4 b6bb2203d8b8888cf359fafe4c9d505fd383b236850878251f7ae67dd1ddaf73 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/e/expat/libexpat1_2.6.1-2ubuntu0.4_i386.deb
+libnghttp2-14 i386 1.59.0-1ubuntu0.4 0ec0a5de6d576837207b035e30e4d74781306cca63286f23a81e6726be3797ba https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/n/nghttp2/libnghttp2-14_1.59.0-1ubuntu0.4_i386.deb
+libidn2-0 i386 2.3.7-2build1.1 2f5f779b74f628ef962c110e94082b4ab17f2a53a9f5c4abd0d7cb81d43aaea7 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libi/libidn2/libidn2-0_2.3.7-2build1.1_i386.deb
+librtmp1 i386 2.4+20151223.gitfa8646d.1-2build7 9452e916fc8381a5c130a9e13000dbafd046c701bb8594e8d4a0b9e84a03c993 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/r/rtmpdump/librtmp1_2.4+20151223.gitfa8646d.1-2build7_i386.deb
+libssh-4 i386 0.10.6-2ubuntu0.5 3fc8c5a36d6b081419b58758ac0ecc8d4b8ab6a84f7d0ec14977feaca6dfbba7 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libs/libssh/libssh-4_0.10.6-2ubuntu0.5_i386.deb
+libpsl5t64 i386 0.21.2-1.1build1 88c889ae22210b6b7317b5c0bd4e0ab53e3f7b3030d80e16ee62aa1687353c76 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libp/libpsl/libpsl5t64_0.21.2-1.1build1_i386.deb
+libssl3t64 i386 3.0.13-0ubuntu3.15 38f2b69835d5915452093f0cba5d1bde61aee3ec9dfc45b78b0c0366f6d4814c https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/o/openssl/libssl3t64_3.0.13-0ubuntu3.15_i386.deb
+libgssapi-krb5-2 i386 1.20.1-6ubuntu2.8 eff6dc99e5d9785c9557547899b98c27f55b0d44fd1164311e5de5f16bd93627 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/k/krb5/libgssapi-krb5-2_1.20.1-6ubuntu2.8_i386.deb
+libkrb5-3 i386 1.20.1-6ubuntu2.8 68268ca9d15e32cec360ae03af4d666fde7ed6d557749fd3de075cc05d105176 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/k/krb5/libkrb5-3_1.20.1-6ubuntu2.8_i386.deb
+libk5crypto3 i386 1.20.1-6ubuntu2.8 a2065cda935234d60b07431791c86470d4bdaed46807c9d4d4e9e3f9fedd32f9 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/k/krb5/libk5crypto3_1.20.1-6ubuntu2.8_i386.deb
+libcom-err2 i386 1.47.0-2.4~exp1ubuntu4.1 2f1645a9d17c9bcdf4b23faef3a50ec337201a615df451431cda60442ba91253 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/e/e2fsprogs/libcom-err2_1.47.0-2.4~exp1ubuntu4.1_i386.deb
+libkrb5support0 i386 1.20.1-6ubuntu2.8 05bec5bd75152df6651720112178e09d809246aa0089c89a7c9ad3d454c77ebc https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/k/krb5/libkrb5support0_1.20.1-6ubuntu2.8_i386.deb
+libkeyutils1 i386 1.6.3-3build1 3361b0a438944c225b5ddf2b61f04004b19145eade8e3b9cba483771d7dea4d3 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/k/keyutils/libkeyutils1_1.6.3-3build1_i386.deb
+libgnutls30t64 i386 3.8.3-1.1ubuntu3.6 efa56ce2bd14257b43a7b0588b75676a46d50a974af03150ad23fec5351ed1ef https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/g/gnutls28/libgnutls30t64_3.8.3-1.1ubuntu3.6_i386.deb
+libhogweed6t64 i386 3.9.1-2.2build1.1 ec2b02ed50db01050de021ebef1a6b760f3ac9393f89e25459bbcf580dff7302 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/n/nettle/libhogweed6t64_3.9.1-2.2build1.1_i386.deb
+libgmp10 i386 2:6.3.0+dfsg-2ubuntu6.1 4a2e46c92bae850790c5983b159e6bf8919eea0ad5197c0ea532609305f9636e https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/g/gmp/libgmp10_6.3.0+dfsg-2ubuntu6.1_i386.deb
+libunistring5 i386 1.1-2build1.1 806416affacc7e88f4327e0435b9c3b285eda50f39d3c6bfb6ada65f2741fb54 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libu/libunistring/libunistring5_1.1-2build1.1_i386.deb
+libp11-kit0 i386 0.25.3-4ubuntu2.2 e525982c2bddcefce008f50ad25582151b7c55c62dacc1f7560d10d95c201635 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/p/p11-kit/libp11-kit0_0.25.3-4ubuntu2.2_i386.deb
+libtasn1-6 i386 4.19.0-3ubuntu0.24.04.2 78203d5856efd28c9b0d96626b4756497cdb44349089ae61f7bd040cf4be7977 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libt/libtasn1-6/libtasn1-6_4.19.0-3ubuntu0.24.04.2_i386.deb
+libldap2 i386 2.6.10+dfsg-0ubuntu0.24.04.1 0f13579436d609134bf6b337cd57e217362b49bce42af22a45f11b6c0331df40 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/o/openldap/libldap2_2.6.10+dfsg-0ubuntu0.24.04.1_i386.deb
+libsasl2-2 i386 2.1.28+dfsg1-5ubuntu3.1 3eef06af7cace7b74cae67027e77c165b0610429f1a97bd46131a4695a83d1f1 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/c/cyrus-sasl2/libsasl2-2_2.1.28+dfsg1-5ubuntu3.1_i386.deb
+libbrotli1 i386 1.1.0-2build2 4771011aa83c0a09e3841b4f8642a4243ea6bd9a1f38f208c4a7831a39500335 https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/brotli/libbrotli1_1.1.0-2build2_i386.deb
+libctf-nobfd0 i386 2.42-4ubuntu2.10 ea882cae7502ec41612441305b23641441c9c8ff7569ed324e9efbfab6c99ead https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/binutils/libctf-nobfd0_2.42-4ubuntu2.10_i386.deb
+libsframe1 i386 2.42-4ubuntu2.10 fa01ec962aac6ff44b0b3a3084bbf1b5672aaea85b3fda8ce6d98cc75a061aef https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/binutils/libsframe1_2.42-4ubuntu2.10_i386.deb
+libffi8 i386 3.4.6-1build1 8f16d0a794a9cadb910171b65119ec767fce0850ec8cd0212f7f4f31d528d44f https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/libf/libffi/libffi8_3.4.6-1build1_i386.deb

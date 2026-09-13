@@ -1,0 +1,6 @@
+# VM-only package lock: role package architecture version sha256 HTTPS-URL
+# Kernel SHA-256: Debian bookworm/main binary-i386 Packages, version 6.1.176-1.
+# BusyBox SHA-256: Ubuntu noble-security/main binary-i386 Packages.
+# These packages are extracted, never installed; no maintainer scripts run.
+kernel linux-image-6.1.0-50-686-pae i386 6.1.176-1 0d6241268f9344a998c3339c11e527ea8048d409d6c770f67c573707606a3f2e https://snapshot.debian.org/archive/debian/20260910T000000Z/pool/main/l/linux-signed-i386/linux-image-6.1.0-50-686-pae_6.1.176-1_i386.deb
+busybox busybox-static i386 1:1.36.1-6ubuntu3.1 39c410d5bc570ce2a4e14055bcf021afbae75bc0efe850634138234828b3416a https://snapshot.ubuntu.com/ubuntu/20260910T000000Z/pool/main/b/busybox/busybox-static_1.36.1-6ubuntu3.1_i386.deb

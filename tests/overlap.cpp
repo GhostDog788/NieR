@@ -24,7 +24,7 @@ bool validate(std::string text, bool accept) {
   auto module = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
   if (!module) return !accept;
   module->walk([&](mlir::Operation *op) { op->setLoc(mlir::UnknownLoc::get(&context)); });
-  auto error = nier::verifyModule(*module);
+  auto error = nier::verifyModule(*module, nier::supportedNativeTargets());
   bool passed = !error;
   if (error) llvm::consumeError(std::move(error));
   return passed == accept;

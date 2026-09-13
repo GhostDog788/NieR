@@ -69,11 +69,13 @@ By contrast, an `i32` constant eight remains fixed. This distinction is the repr
 Parsing checks whether bytes or text can form an MLIR structure. MLIR's structural verifier checks framework invariants.
 NieR's schema checks then reject unknown operation/attribute combinations, disallowed private locations, and other violations of the publication contract.
 
-`nier::verifyModule` goes further: for each declared semantic target, it attempts the supported lowering and verifies the specialized LLVM result.
-An operation that is legal for one target but invalid for another cannot be published with both targets merely because the generic syntax parsed.
+`nier::verifyModuleStructure` checks the entire public graph, including target-conditional regions that are inactive on this device.
+`nier::verifyModule` goes further: for every explicitly requested native target, it lowers and verifies the specialized LLVM result.
+Unknown, duplicate, empty, or unavailable native-target requests fail; there is no fallback that calls unavailable native validation successful.
 
-Public APIs default to the current `x86_64` and `i686` domain; artifact consumers pass the declared domain explicitly.
-A thin destination compiler need only compile its requested supported target.
+Native-validation APIs require an explicit target list. `nier::supportedNativeTargets()` returns the implementations actually linked into this build, not every domain understood by the shared schema.
+The publisher has both `x86_64` and `i686` implementations and proves both profiles. A thin destination compiler has only its own native implementation.
+Its inspector can structurally admit a foreign-only artifact, but must report that the foreign native plan was not validated; compiling or lowering it rejects.
 Do not confuse selected-target native compilation with independent certification of every other target's execution.
 
 Validation also has a privacy boundary.
@@ -118,7 +120,8 @@ llvm::Error emitOneModule(mlir::ModuleOp module,
   auto bytecodePath = scratch->path / "module.nierbc";
 
   // writeModule validates before serializing the current NieR contract.
-  if (auto error = nier::writeModule(module, bytecodePath.string()))
+  if (auto error = nier::writeModule(module, bytecodePath.string(),
+                                    nier::supportedNativeTargets()))
     return error;
 
   auto bytes = read(bytecodePath);
@@ -164,7 +167,7 @@ build/prealpha/nierc "$guide_work/independent.nier" \
 env -u LD_LIBRARY_PATH "$guide_work/independent"
 printf 'Native exit status: %s\n' "$?"
 
-build/prealpha/nierc lower "$guide_work/independent.nier" \
+build/prealpha/nier_reference_lower lower "$guide_work/independent.nier" \
   --target i686 --output-dir "$guide_work/narrow"
 opt -passes=verify -disable-output "$guide_work/narrow/0.ll"
 opt -passes=verify -disable-output "$guide_work/narrow/1.ll"
@@ -172,6 +175,7 @@ printf 'Independent-producer workspace: %s\n' "$guide_work"
 ```
 
 The application prints no greeting: success is exit status zero. Its `main` checks a native-width helper and a fixed-eight helper from the other module.
+The final narrow inspection uses the publisher-only `nier_reference_lower` test helper, not a foreign-target mode of the public native-only `nierc`.
 This tests both target-dependent and fixed semantics across a public module boundary. It is not evidence that all potential language runtime semantics already fit the current dialect.
 
 ## Extending the contract is a coordinated change
@@ -207,5 +211,6 @@ The public boundary is usable without Clang, but every producer must obey the cu
 
 Read `include/nier/IR/Dialect.h` and `src/ir/Dialect.cpp` together.
 Follow `verifyModule`, `writeModule`, and `readModule` in `src/ir/Compiler.cpp`.
+Native lowering is implemented separately in `src/ir/NativeLowering.cpp`; the destination build links only its selected target specialization.
 Compare `include/nier/IR/Compiler.h` and `include/nier/Artifact/Artifact.h` to the complete independent producer (`tests/independent.cpp`).
 `tests/ir.cpp` contains valid and invalid contract examples; `tests/package.cpp` checks the archive layer independently.

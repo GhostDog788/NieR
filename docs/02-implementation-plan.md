@@ -150,11 +150,13 @@ over such modules.
 ### 3.1 Targets and workspaces
 
 Capture x86-64 Linux and i686 Linux profiles privately from the beginning.
-Initial destination compilation and execution target **x86-64 only**.
+The first destination milestone targeted **x86-64 only**; the later
+dual-device checkpoint in section 17.1 adds a separate native i686 compiler.
 
 Private native i686 builds and execution probes are allowed to establish
-reference behavior and check capture/specialization. They are not a claim
-that the publication product already supports i686 installation or execution.
+reference behavior and check capture/specialization. Those private probes
+alone do not establish i686 installation or execution support; that requires
+the independent compiler and real-device acceptance in section 17.1.
 
 Use the same physical machine initially, with separated publisher and
 destination workspaces. The destination receives only the publication
@@ -613,8 +615,17 @@ executable or shared library has one standalone artifact containing all its
 ordinary code and required public metadata; external native dependencies remain
 explicit rather than implicitly bundled.
 
-`nierc lower INPUT.nier --target i686 --output-dir DIR` provides diagnostic
-LLVM output. It is not an installed i686 execution claim. `nierc` has no
+`nierc --print-target` reports the compiler's one native device target.
+`nierc lower INPUT.nier --output-dir DIR` provides diagnostic LLVM output for
+that same target. An explicit `--target i686` is accepted only by the i686
+compiler; the x86-64 compiler rejects it before output staging, just as ordinary
+native compilation does. Private publisher-only test helpers may prove both
+profiles; they are not a public foreign-target consumer interface.
+Inspection validates the entire public schema, including inactive domains, and
+reports which declared native plans it can validate. A structurally valid
+foreign-only artifact can be inspected with an explicit unavailable-native
+validation report, but cannot be lowered or compiled on the wrong device.
+`nierc` has no
 publication/source-language mode. There is no `aot publish` compatibility path.
 
 Successful writers use validated atomic replacement. The SDK coordinator stages
@@ -631,8 +642,9 @@ of this migration; T8 remains later production work.
 
 ### 8.1 Input and transformation boundary
 
-The destination selects a supported target from the artifact constraints and a
-matching SDK. Reject unsupported versions, missing required modules,
+The destination uses its one native target and a matching SDK, requiring that
+target in the artifact constraints. It does not expose a general cross-compiler
+switch. Reject unsupported versions, missing required modules,
 incompatible native inputs, and unknown required semantics.
 
 Specialize symbolic values, types, layout, conditional regions, and native
@@ -1378,7 +1390,7 @@ The command sequence is the new interface and must be exercised after each
 integration change. A consumer-only build uses `NIER_BUILD_PUBLISHER=OFF`;
 its independent-producer test must work without linking the merger or Clang.
 The consolidated checkpoint passes all 39 publisher/core integration tests
-and all eight consumer-only tests. The relocated compiler-only distribution
+and all nine component tests in each native consumer build. The relocated compiler-only distribution
 test also verifies source/frontend-free compilation and direct native execution.
 The complete corpus is a separate, longer qualification command; its private
 reports record the actual tool/configuration/recipe hashes and all 50 artifact
@@ -1393,6 +1405,113 @@ complete corpus results above without presenting replay as a fresh corpus run.
 Do not report broad-C completion from passing a subset of the C01-C12 registry.
 Performance/RE, other languages/targets, production lifecycle, and security
 remain separate future gates.
+
+### 17.1 Dual-device compiler acceptance
+
+The current consumer implementation supplies separate real x86-64 and i686 compiler
+distributions, each containing native `nierc`, `opt`, `llc`, `ld.lld`, and
+`llvm-ar` for its own device. The compiler's native target must agree with its
+host architecture; selecting the other width must reject before output staging.
+This extends the deployment product beyond the earlier x86-64 checkpoint. It
+must not be described as complete merely because diagnostic i686 lowering or
+an ELF32 application worked under a 64-bit kernel's compatibility mode.
+
+The implementation separates shared structural admission from native
+specialization. `Compiler.cpp` validates the common schema and both public
+word domains, including inactive conditional operations. Each device
+`nierc` links only its own native lowering and ABI implementation; it cannot
+compile or diagnostically lower the opposite target. Inspection reports
+foreign native validation as unavailable rather than silently skipping it.
+The independent publisher links both native implementations for private
+two-profile reconstruction proofs. No on-device compiler is called to publish.
+
+Each consumer SDK is built from pinned, unmodified LLVM/MLIR sources for its
+own ABI, registering the X86 backend family and statically linking required
+components rather than shipping monolithic `libLLVM`. Stock X86 backend
+internals still cover both x86 widths, and stock LLD retains its upstream
+multi-format and relocation logic; this is not a fork that removes those
+internals. Build-host TableGen is private, and its supported host headers and
+runtime remain non-hermetic bootstrap dependencies. The
+[distribution reference](reference/compiler-distribution.md) records the
+source-SDK identity, cache-root restrictions, native loader prerequisites,
+and compiler-versus-application relocation boundaries.
+
+`tests/dual-consumer.sh` is the initial functional acceptance runner. It
+publishes each portable fixture once, preserves its hashes, and gives those
+same bytes to both independent compiler bundles. Cases include Hello, native
+shared-library output and callers, ordered duplicate-member static archives
+whose unused member would fail an eager link, and the existing scalar,
+native-width, storage, packed/bitfield, overlap, variadic/forwarded `va_list`,
+nonlocal-jump, conditional, and aggregate-call fixtures at O0 and O2.
+Stock-Clang reference programs provide per-target behavior comparisons.
+The runner checks 28 native executable outputs, three DSOs, and one archive per
+device, including a native-only narrowed artifact. Twelve rejection cases cover
+malformed and relocatable inputs, missing dependencies, foreign native targets,
+input/output aliases, and malformed operations in either conditional domain,
+with prior native-output preservation checked. Foreign-only inspection must
+explicitly distinguish structural admission from unavailable native validation.
+
+The i686 side must run through `tests/consumer-vm.sh`, not through user-mode
+emulation or a 64-bit kernel. Its separately pinned test-only Linux 6.1 i386
+kernel and Noble i386 static BusyBox form a generated initramfs with the selected
+compiler bundle and source-free fixtures. The guest has no network device or
+host filesystem mount. Acceptance checks the actual kernel architecture, each
+compiler tool's ELF class/machine, and a real `execve` rejection of an ELF64
+probe with `ENOEXEC`, then requires an explicit fresh serial PASS receipt.
+
+The default VM has 3 GiB of RAM and a 900-second bound. KVM is used when its
+preflight succeeds; TCG is the functional fallback. The receipt records the
+accelerator, limits, kernel/initramfs hashes, and serial evidence. Neither the
+hosted regression cases nor emulated elapsed time establish performance parity
+or complete 32-bit resource coverage.
+
+The separate full-corpus gate is `corpus/qualify.sh` with `--i686-bundle DIR`,
+using an x86-64 bundle as its ordinary destination compiler argument. It still
+publishes each selected output once, runs the original native-profile and
+x86-64 destination tests, then stages the same artifacts and original generated
+test recipes into the source-free i686 guest. Full selection requires all 50
+outputs: 21 cJSON static, 21 cJSON shared, and eight zlib outputs. CTest, GNU
+make, readelf, and their pinned i386 runtime closure are test-only inputs under
+`/opt/test-tools`, separate from the compiler bundle. The guest runs all original
+19-test cJSON inventories in each mode and the original zlib `test test64`
+recipes without reducing their scope; its default bound is 3600 seconds.
+
+The actual source-built i686 bundle has passed the complete bounded matrix on
+the retained prepared fixtures under the pinned real i686 kernel, using KVM
+and 3 GiB RAM. All 28 executable outputs, three DSOs, one static archive, and
+twelve rejection/preservation cases passed, with the required ELF64 `ENOEXEC`
+and explicit serial receipts. This is native i686 consumer evidence, not a
+fresh publication or full-corpus run.
+
+A subsequent retained-artifact i686 corpus regression also passed: the actual
+32-bit compiler consumed all 50 unchanged prior artifacts under that kernel,
+both cJSON configurations passed all 19 original CTests, and zlib passed its
+original static/shared/64-bit-offset Make recipes. Native caller, loader,
+SONAME/version, archive-order, and checksum checks passed. The input artifacts
+matched the current publisher's byte-identical retained replay. This establishes
+i686 consumer/corpus regression evidence, not a fresh publication or rerun of
+the source/native-reference build stages.
+
+Both final source-built bundles subsequently passed the fresh dual-device
+publication matrix: each portable input was published once, both native
+reference programs were rebuilt, and both consumers used the same artifacts.
+The i686 half again ran under the pinned real kernel with KVM and 3 GiB RAM.
+The complete fresh dual-destination corpus also passed on 2026-09-12, with
+`Result: PASS (all)` in its private `qualification.txt`. All 50 publications
+and both native-profile references were rebuilt. The x86-64 consumer and the
+real-kernel i686 consumer compiled the same artifact bytes; cJSON passed all
+19 original CTests in both static/shared modes on each destination, and zlib
+passed the original static/shared/64-bit-offset recipes on both. Native-caller,
+loader, SONAME/version, archive-order, checksum, and explicit i686 serial
+receipt checks passed. This is fresh source-to-both-devices evidence, separate
+from the earlier retained regression and host component tests.
+
+Measured assembled bundle sizes are 244 MiB for x86-64 and 265 MiB for i686,
+compared with the earlier 190 MiB monolithic x86-64 baseline. Static components
+are duplicated across separate tool executables. This checkpoint establishes
+native implementation isolation, not a footprint reduction or minimum size.
+The manually dispatched device-qualification workflow encodes the full gate;
+local results are not a claim that a remote GitHub Actions run has passed.
 
 ## 18. Requirement traceability
 

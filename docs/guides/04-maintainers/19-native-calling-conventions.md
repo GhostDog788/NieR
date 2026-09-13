@@ -153,14 +153,15 @@ clang --config="$PWD/build/prealpha/nier.cfg" -O2 \
   -o "$abi_lab/fixed.nier"
 build/prealpha/nierc "$abi_lab/fixed.nier" -o "$abi_lab/fixed"
 env -u LD_LIBRARY_PATH -u LD_PRELOAD "$abi_lab/fixed"
-build/prealpha/nierc lower "$abi_lab/fixed.nier" \
+build/prealpha/nier_reference_lower lower "$abi_lab/fixed.nier" \
   --target i686 --output-dir "$abi_lab/narrow"
 printf 'Lab files: %s\n' "$abi_lab"
 ```
 
 The executable should report that the fixed aggregate matrix passed.
 Inspect the lowered files for hidden result parameters and expanded arguments.
-The `lower` command demonstrates diagnostic specialization; it does not claim an installed i686 native-output product.
+The publisher-only `nier_reference_lower` test helper demonstrates the narrow specialization; the public x86-64 `nierc` rejects foreign-target lowering.
+This inspection is not an installed i686 compiler or native-output acceptance run.
 For the stronger external-caller case, read `tests/aggregate-pipeline.sh`, which also builds a NieR DSO and an independently compiled native caller at O0 and O2.
 
 ## Recap and questions

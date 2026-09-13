@@ -10,7 +10,7 @@ for system in make cmake; do
   "$build_tool" --system "$system" --source "$test_root/tests/fixtures/link-order" \
     --target hello --output hello --artifact "$test_work/$system.nier"
   for target in x86_64 i686; do
-    "$nierc" lower "$test_work/$system.nier" --target "$target" \
+    "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$test_work/$system.nier" --target "$target" \
       --output-dir "$test_work/$system-$target"
   done
   grep -q 'define.*@first' "$test_work/$system-x86_64/1.ll"

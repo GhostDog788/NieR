@@ -165,7 +165,7 @@ clang --config="$PWD/build/prealpha/nier.cfg" -O0 \
   tests/fixtures/width.c -o "$guide16_work/width.nier"
 build/prealpha/nierc inspect "$guide16_work/width.nier"
 for guide16_target in x86_64 i686; do
-  build/prealpha/nierc lower "$guide16_work/width.nier" \
+  build/prealpha/nier_reference_lower lower "$guide16_work/width.nier" \
     --target "$guide16_target" --output-dir "$guide16_work/$guide16_target"
 done
 rg -n 'target triple|ret i(32|64) [48]|i32 4|i32 8' \
@@ -175,6 +175,7 @@ printf 'Lab files: %s\n' "$guide16_work"
 
 Read the surrounding functions rather than treating a matching text pattern as a proof.
 Both dumps come from the same `.nier` artifact.
+`nier_reference_lower` is a publisher-only test helper with both native validators; public device `nierc` builds do not expose foreign-target lowering.
 This demonstrates the qualified two-profile specialization, not a new CPU port or installed i686 execution support.
 
 ## Recap and questions

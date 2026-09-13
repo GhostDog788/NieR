@@ -40,9 +40,9 @@ for level in O0 O2; do
   test "$(env -u LD_LIBRARY_PATH "$lane/program")" = \
        "$(env -u LD_LIBRARY_PATH "$lane/native-x86_64")"
 
-  # The thin public compiler exposes diagnostic i686 lowering, not an i686
+  # The developer-only reference lowerer checks the other publication profile.
   # device-linking product. This private test uses only stock LLVM and LLD.
-  "$nierc" lower "$lane/program.nier" --target i686 --output-dir "$lane/lowered32"
+  "${NIER_REFERENCE_LOWER:-$(dirname -- "$nierc")/nier_reference_lower}" lower "$lane/program.nier" --target i686 --output-dir "$lane/lowered32"
   "$llvm/opt" -passes="default<$level>" -verify-each "$lane/lowered32/0.ll" -o "$lane/optimized32.bc"
   "$llvm/llc" -O="${level#O}" -filetype=obj -relocation-model=pic "$lane/optimized32.bc" -o "$lane/program32.o"
   sysroot="$sdk/sysroots/i686-linux-gnu"

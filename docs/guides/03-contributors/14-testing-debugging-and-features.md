@@ -163,7 +163,7 @@ ctest --test-dir build/prealpha \
   -R '^(ir_validation|producer_validation|byteswap_normalization)$' \
   --output-on-failure 2>&1 | tee "$guide14_work/tests.txt"
 rg -n 'nier.bswap|byteSwapPrimitive|normalizeNativeByteSwaps' \
-  include/nier/IR/Dialect.h src/ir/Compiler.cpp src/ir/Producer.cpp src/ir/ByteSwap.cpp
+  include/nier/IR/Dialect.h src/ir/Compiler.cpp src/ir/NativeLowering.cpp src/ir/Producer.cpp src/ir/ByteSwap.cpp
 printf 'Lab files: %s\n' "$guide14_work"
 ```
 
@@ -195,7 +195,7 @@ That is the contributor exit: not knowing every compiler algorithm, but knowing 
 
 ## Guided source and evidence
 
-Trace `ByteSwapOp` (`include/nier/IR/Dialect.h`), the schema and `nier.bswap` branch in the core (`src/ir/Compiler.cpp`),
+Trace `ByteSwapOp` (`include/nier/IR/Dialect.h`), the schema (`src/ir/Compiler.cpp`) and native `nier.bswap` branch (`src/ir/NativeLowering.cpp`),
 intrinsic handling in the producer (`src/ir/Producer.cpp`), and the private recognizer (`src/ir/ByteSwap.cpp`).
 Compare normalizer tests (`tests/byteswap.cpp`), public IR tests (`tests/ir.cpp`), and paired producer tests (`tests/producer.cpp`).
 The next chapter begins the full maintainer track by asking where the native evidence comes from.

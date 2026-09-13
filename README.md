@@ -95,7 +95,7 @@ For an existing application, use [Publish your C project with NieR](docs/guides/
 | --- | --- |
 | Format and compiler | Independent `.nier` artifacts, public producer APIs, and a separate LLVM-based `nierc`. |
 | C publication | Stock-Clang plugin; qualified Make/CMake builds; executable, shared-library, and static-archive outputs. |
-| Native target | Linux x86-64 on the documented Ubuntu 24.04 baseline. Private i686 reference builds are not a second deployment product. |
+| Native targets | Separate Linux x86-64 and i686 compiler bundles on the documented glibc 2.39 runtime baseline; i686 verified under a real 32-bit Linux kernel. |
 | Still being qualified | General C/ABI coverage, broader build semantics, native-equivalent performance, and reverse-engineering resistance. |
 | Planned | More languages and targets; production distribution; SENieR (SEN) for signing and executable-memory security enforcement. |
 

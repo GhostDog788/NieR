@@ -199,6 +199,6 @@ Always distinguish complete inputs, body excerpts, and pseudocode when experimen
 
 - Independent producer (`tests/independent.cpp`): `helperModule` contains the real fixed-value and native-property examples.
 - IR tests (`tests/ir.cpp`): `valid` contains the calculation shape, with a complete function wrapper.
-- Dialect definitions (`include/nier/IR/Dialect.h`) name the operations and types; core validation/lowering (`src/ir/Compiler.cpp`) gives them their admitted behavior.
+- Dialect definitions (`include/nier/IR/Dialect.h`) name the operations and types; core validation (`src/ir/Compiler.cpp`) and native lowering (`src/ir/NativeLowering.cpp`) give them their admitted behavior.
 
 [Next: Values, Control Flow, and Memory](04-values-control-flow-and-memory.md)

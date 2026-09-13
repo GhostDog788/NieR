@@ -1531,7 +1531,7 @@ llvm::Error mergeProfiles(StringRef x86_64Capture, StringRef i686Capture,
     return failure("cannot serialize common MLIR bytecode");
   output.flush();
   if (output.has_error()) return failure("failed writing common MLIR bytecode");
-  if (summary) return inspectArtifact(bytecodeOutput, *summary);
+  if (summary) return inspectArtifact(bytecodeOutput, *summary, {"x86_64", "i686"});
   return llvm::Error::success();
 }
 
