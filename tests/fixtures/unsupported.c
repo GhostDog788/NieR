@@ -1,4 +1,1 @@
-int main(void) {
-    __asm__ volatile ("" ::: "memory");
-    return 0;
-}
+#error "deliberate source failure: no artifact may be published"

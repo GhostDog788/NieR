@@ -171,6 +171,23 @@ SELA_SIMPLE_OP(NegateOp, "sela.fneg", mlir::OpTrait::OneOperand,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
 SELA_SIMPLE_OP(ByteSwapOp, "sela.bswap", mlir::OpTrait::OneOperand,
               mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
+SELA_SIMPLE_OP(ExtractValueOp, "sela.extract_value", mlir::OpTrait::OneOperand,
+              mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
+SELA_SIMPLE_OP(InsertValueOp, "sela.insert_value", mlir::OpTrait::NOperands<2>::Impl,
+              mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
+SELA_SIMPLE_OP(ExtractElementOp, "sela.extract_element", mlir::OpTrait::NOperands<2>::Impl,
+              mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
+SELA_SIMPLE_OP(InsertElementOp, "sela.insert_element", mlir::OpTrait::NOperands<3>::Impl,
+              mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
+SELA_SIMPLE_OP(ShuffleOp, "sela.shuffle", mlir::OpTrait::NOperands<2>::Impl,
+              mlir::OpTrait::OneResult, mlir::OpTrait::ZeroRegions);
+SELA_SIMPLE_OP(IntrinsicOp, "sela.intrinsic", mlir::OpTrait::VariadicOperands,
+              mlir::OpTrait::VariadicResults, mlir::OpTrait::ZeroRegions);
+SELA_SIMPLE_OP(InlineAsmOp, "sela.inline_asm", mlir::OpTrait::VariadicOperands,
+              mlir::OpTrait::VariadicResults, mlir::OpTrait::ZeroRegions);
+SELA_SIMPLE_OP(InlineAsmBranchOp, "sela.inline_asm_br", mlir::OpTrait::VariadicOperands,
+              mlir::OpTrait::VariadicResults, mlir::OpTrait::ZeroRegions,
+              mlir::OpTrait::VariadicSuccessors, mlir::OpTrait::IsTerminator);
 SELA_SIMPLE_OP(ReturnOp, "sela.return", mlir::OpTrait::VariadicOperands,
               mlir::OpTrait::ZeroResults, mlir::OpTrait::ZeroRegions,
               mlir::OpTrait::IsTerminator);

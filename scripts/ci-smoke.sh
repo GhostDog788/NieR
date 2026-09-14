@@ -21,6 +21,12 @@ tests=(
   ir_validation
   package_validation
   read_validation
+  instruction_contracts
+  definition_domains
+  target_selection_validation
+  target_selection_pipeline
+  target_code_pipeline
+  target_build_graphs
   producer_validation
   independent_producer
   capture_hook

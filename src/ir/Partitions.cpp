@@ -121,7 +121,7 @@ llvm::Error writeCapture(const llvm::Module &module, const std::filesystem::path
   return llvm::Error::success();
 }
 }
-llvm::Expected<MergedPartitions> mergeProfilePartitions(
+static llvm::Expected<MergedPartitions> mergeProvedPartitions(
     llvm::ArrayRef<ProfilePartitionInput> observations,
     llvm::StringRef privateDirectory) {
   if (observations.empty() || observations.size() > 256) return fail("invalid grouped target observation inventory");
@@ -211,6 +211,60 @@ llvm::Expected<MergedPartitions> mergeProfilePartitions(
     for (size_t p = 0; p < profiles.size(); ++p) captures.push_back({observations[p].target, fragmentPaths[p][i]});
     if (auto error = mergeProfiles(captures, output.string())) return error;
     result.fragments.push_back(output.string());
+    std::vector<std::string> domain;
+    for (const auto &observation : observations) domain.push_back(observation.target);
+    result.fragmentTargets.push_back(std::move(domain));
+  }
+  return result;
+}
+llvm::Expected<MergedPartitions> mergeProfilePartitions(
+    llvm::ArrayRef<ProfilePartitionInput> observations,
+    llvm::StringRef privateDirectory) {
+  auto shared = mergeProvedPartitions(observations, privateDirectory);
+  if (shared) return shared;
+  llvm::consumeError(shared.takeError());
+  if (observations.empty() || observations.size() > 256) return fail("invalid grouped observation inventory");
+  // Unproved cross-TU repartitioning is not an import failure. Retain original
+  // native units and only group matching definition inventories across targets.
+  // Every group still passes the ordinary Sela importer and strict inverse.
+  struct Group { std::string key; std::vector<CaptureObservation> captures; std::set<std::string> targets; };
+  std::vector<Group> groups;
+  std::set<std::string> targets;
+  MergedPartitions result;
+  for (const auto &observation : observations) {
+    if (!sela::targets::find(observation.target) || !targets.insert(observation.target).second ||
+        observation.captures.empty() || observation.captures.size() > 256)
+      return fail("invalid grouped target capture inventory");
+    auto &units = result.unitsByTarget[observation.target];
+    for (const auto &path : observation.captures) {
+      llvm::LLVMContext context;
+      llvm::SMDiagnostic diagnostic;
+      auto module = llvm::parseIRFile(path, diagnostic, context);
+      if (!module || llvm::verifyModule(*module)) return fail("invalid scoped native capture: " + path);
+      std::set<std::string> definitions;
+      for (const auto &value : module->global_values())
+        if (!value.isDeclaration()) definitions.insert(value.getName().str());
+      std::string key;
+      for (const auto &definition : definitions) {
+        key += std::to_string(definition.size()) + ':' + definition;
+      }
+      size_t index = 0;
+      while (index < groups.size() && (groups[index].key != key || groups[index].targets.count(observation.target))) ++index;
+      if (index == groups.size()) groups.push_back({key, {}, {}});
+      groups[index].captures.push_back({observation.target, path});
+      groups[index].targets.insert(observation.target);
+      units.push_back({index});
+    }
+  }
+  const auto directory = std::filesystem::path(privateDirectory.str());
+  std::filesystem::create_directories(directory);
+  for (size_t index = 0; index < groups.size(); ++index) {
+    const auto output = directory / ("scoped-fragment-" + std::to_string(index) + ".selabc");
+    if (auto error = mergeProfiles(groups[index].captures, output.string())) return error;
+    result.fragments.push_back(output.string());
+    std::vector<std::string> domain;
+    for (const auto &capture : groups[index].captures) domain.push_back(capture.target);
+    result.fragmentTargets.push_back(std::move(domain));
   }
   return result;
 }

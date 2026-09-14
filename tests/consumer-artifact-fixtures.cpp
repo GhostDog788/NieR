@@ -104,16 +104,12 @@ llvm::Error generate(const fs::path &input, const fs::path &output) {
     if (auto error = sela::inspectArtifact(temporary.string(), summary, targets)) return error;
     modules.push_back({files->at(member)});
   }
-  std::vector<std::string> libraries, options;
-  for (auto &entry : *object.getArray("libraries")) libraries.push_back(entry.getAsString()->str());
-  for (auto &entry : *object.getArray("link_options")) options.push_back(entry.getAsString()->str());
-  llvm::StringRef versionScript;
-  if (object.get("version_script")) versionScript = files->at("link/version.script");
+  auto links = readLinkPlan(object, *files);
   fs::create_directories(output);
   for (auto id : targets) {
     auto target = id.str();
     CompilationPlan selected{{target, plan->at(target)}};
-    auto artifact = createArtifact("executable", modules, libraries, options, {target}, versionScript, selected);
+    auto artifact = createArtifact("executable", modules, {}, {}, {target}, {}, selected, {{target, links.at(target)}});
     if (!artifact) return artifact.takeError();
     if (auto error = writePackage(output / ("foreign-only-" + target + ".sela"), *artifact)) return error;
   }

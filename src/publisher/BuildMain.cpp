@@ -15,7 +15,7 @@ llvm::Error build(int argc, char **argv) {
     if (argument == "--help") {
       llvm::outs() << "Internal SDK service; use Sela.mk or Sela.cmake.\n"
                       "--system make|cmake --source DIR --output RELPATH --artifact FILE\n"
-                      "[--target NAME] [--configure-arg ARG] [--cflag ARG] [--keep-private]\n";
+                      "[--arch ID] [--build-target NAME] [--configure-arg ARG] [--cflag ARG] [--keep-private]\n";
       return llvm::Error::success();
     }
     if (argument == "--keep-private") { keep = true; continue; }
@@ -25,7 +25,8 @@ llvm::Error build(int argc, char **argv) {
     else if (argument == "--source") request.sourceDirectory = value;
     else if (argument == "--output") request.output = value;
     else if (argument == "--artifact") output = value;
-    else if (argument == "--target") request.targets.push_back(value);
+    else if (argument == "--arch") request.architectures.push_back(value);
+    else if (argument == "--build-target") request.buildTargets.push_back(value);
     else if (argument == "--configure-arg") request.configureArgs.push_back(value);
     else if (argument == "--cflag") request.cflags.push_back(value);
     else if (argument == "--sdk") sdk.root = value;
@@ -50,7 +51,12 @@ llvm::Error build(int argc, char **argv) {
   config = fs::weakly_canonical(fs::absolute(config));
   if (fs::weakly_canonical(output) == config)
     return fail("artifact output aliases the Clang configuration input");
-  if (auto error = sdk.validate(true)) return error;
+  auto selected = publicationTargets(request.architectures);
+  if (!selected) return selected.takeError();
+  request.architectures = *selected;
+  const std::map<std::string, std::string> publicationEnvironment{
+      {"SELA_ARCHS", targetSelectionText(*selected)}};
+  if (auto error = sdk.validate(true, *selected)) return error;
   auto scratch = Scratch::create();
   if (!scratch) return scratch.takeError();
   scratch->keep = keep;
@@ -73,9 +79,14 @@ llvm::Error build(int argc, char **argv) {
     }
     pluginArgument("optimization=" + unit.optimization);
     command.insert(command.end(), {"-x", "ir", "-c", unit.pathsByTarget.begin()->second.front().string(), "-o", artifact.string()});
-    if (auto error = run(command)) return error;
+    if (auto error = run(command, {}, publicationEnvironment)) return error;
     if (!fs::is_regular_file(artifact)) return fail("stock Clang did not emit the multi-profile Sela unit");
     link.push_back(artifact.string());
+    if (unit.pathsByTarget.size() != selected->size()) {
+      std::vector<std::string> domain;
+      for (const auto &[target, paths] : unit.pathsByTarget) domain.push_back(target);
+      link.insert(link.end(), {"-Xlinker", "--sela-input-domain=" + std::to_string(i) + ":" + targetSelectionText(domain)});
+    }
   }
   if (captured->kind == "shared") link.push_back("-shared");
   if (captured->kind == "static") {
@@ -85,11 +96,29 @@ llvm::Error build(int argc, char **argv) {
   }
   for (const auto &library : captured->libraries) link.push_back("-l" + library);
   for (const auto &option : captured->linkOptions) { link.push_back("-Xlinker"); link.push_back(option); }
+  if (!captured->linksByTarget.empty()) {
+    llvm::json::Object links;
+    for (const auto &[target, plan] : captured->linksByTarget) {
+      llvm::json::Array libraries, options;
+      for (const auto &library : plan.libraries) libraries.push_back(library);
+      for (const auto &option : plan.options) options.push_back(option);
+      links[target] = llvm::json::Object{{"libraries", std::move(libraries)}, {"link_options", std::move(options)},
+          {"version_script", plan.versionScript}};
+    }
+    auto settings = scratch->path / "target-links.json";
+    if (auto error = write(settings, jsonText(std::move(links)))) return error;
+    link.insert(link.end(), {"-Xlinker", "--sela-target-links=" + settings.string()});
+  }
   for (const auto &[target, indices] : captured->ordersByTarget) {
     std::string order;
+    std::map<size_t, size_t> targetIndices;
+    for (size_t index = 0; index < captured->units.size(); ++index)
+      if (captured->units[index].pathsByTarget.count(target)) targetIndices.emplace(index, targetIndices.size());
     for (size_t index : indices) {
+      auto mapped = targetIndices.find(index);
+      if (mapped == targetIndices.end()) return fail("native unit order references an inactive target input");
       if (!order.empty()) order += ',';
-      order += std::to_string(index);
+      order += std::to_string(mapped->second);
     }
     link.insert(link.end(), {"-Xlinker", "--sela-unit-order=" + target + ":" + order});
   }
@@ -102,7 +131,7 @@ llvm::Error build(int argc, char **argv) {
   // that cleanup at the user's previously valid publication artifact.
   const auto staged = scratch->path / "linked.sela";
   link.insert(link.end(), {"-o", staged.string()});
-  if (auto error = run(link)) return error;
+  if (auto error = run(link, {}, publicationEnvironment)) return error;
   auto finalFiles = readPackage(staged);
   if (!finalFiles) return finalFiles.takeError();
   auto finalManifest = validatePackage(*finalFiles);

@@ -31,11 +31,11 @@ For a project whose ordinary `make hello` creates `hello`:
 make -f /path/to/sela/sdk/share/sela/Sela.mk \
   SELA_BUILD_TOOL=/path/to/sela/build/prealpha/sela-build \
   SELA_SOURCE_DIR=/path/to/application \
-  SELA_TARGETS=hello SELA_NATIVE_OUTPUT=hello \
+  SELA_BUILD_TARGETS=hello SELA_NATIVE_OUTPUT=hello \
   SELA_ARTIFACT=/path/to/output/hello.sela
 ```
 
-`SELA_TARGETS`, `SELA_CONFIGURE_ARGS`, and `SELA_CFLAGS` accept whitespace-separated target/argument lists. The source, native-output, artifact, and helper paths each support spaces.
+`SELA_BUILD_TARGETS`, `SELA_CONFIGURE_ARGS`, and `SELA_CFLAGS` accept whitespace-separated build-goal/argument lists. The source, native-output, artifact, and helper paths each support spaces.
 Complex individual arguments containing spaces should use the CMake integration's quoted argument lists; this Make adapter does not guess how to split them.
 The selected native output is relative to the project's private source/build directory. A project's `configure` script, when present, runs before its Makefile.
 The destination artifact's parent directory must exist.
@@ -53,13 +53,29 @@ sela_add_publication(hello
   NATIVE_OUTPUT hello
   OUTPUT hello.sela
   BUILD_TOOL "/path/to/sela/build/prealpha/sela-build"
-  TARGETS hello
+  BUILD_TARGETS hello
   CONFIGURE_ARGS "-DENABLE_FEATURE=ON")
 ```
 
 Configure that small project normally, then build target `hello`.
 Optional `CFLAGS` and `CONFIGURE_ARGS` are CMake argument lists. The SDK supplies the native profile compilers, archiver, sysroots, and Ninja; configure arguments must not override those inputs.
 The selected output is relative to the private CMake build directory. `OUTPUT` is relative to the publication project's binary tree.
+
+## Architecture selection and differing builds
+
+Architecture selection is separate from Make/CMake build goals.
+Leave it unset to publish all four registered targets, or choose explicitly:
+
+- Stock Clang: `SELA_ARCHS=x86_64,aarch64 clang --config=... source.c -o program.sela`.
+- Make adapter: `SELA_ARCHS=x86_64,aarch64` alongside `SELA_BUILD_TARGETS=hello`.
+- CMake adapter: `ARCHS x86_64 aarch64` alongside `BUILD_TARGETS hello`.
+- Internal coordinator: repeated `--arch x86_64 --arch aarch64`; `--build-target hello` names a build goal.
+
+Unknown, duplicate, or explicitly empty selections fail.
+Each selected target must build and publish successfully; there is no automatic narrowing to whichever targets happen to work.
+Native build lanes can have different source files, flags, libraries, version scripts and archive members.
+Sela records module availability, native compilation-unit order and target-specific link settings explicitly.
+Retained evidence includes `capture-targets.json`; replay uses that exact selection rather than guessing targets from directories.
 
 ## Rebuild and execution
 

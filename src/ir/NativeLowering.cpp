@@ -7,6 +7,8 @@
 #include "ConditionalSpecialization.h"
 #include "sela/IR/Dialect.h"
 #include "sela/IR/Domains.h"
+#include "sela/IR/Intrinsics.h"
+#include "InstructionContracts.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -20,6 +22,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/NoFolder.h"
 #include "llvm/IR/Operator.h"
@@ -114,6 +117,14 @@ public:
     }
     if (input.isF32()) return llvm::Type::getFloatTy(context);
     if (input.isF64()) return llvm::Type::getDoubleTy(context);
+    if (auto vector = mlir::dyn_cast<mlir::VectorType>(input)) {
+      auto *element = type(vector.getElementType());
+      if (!element || vector.isScalable() || vector.getRank() != 1 || vector.getNumElements() < 1 ||
+          vector.getNumElements() > 1024 || !llvm::VectorType::isValidElementType(element)) {
+        fail("invalid fixed-vector type"); return nullptr;
+      }
+      return llvm::FixedVectorType::get(element, unsigned(vector.getNumElements()));
+    }
     if (auto array = mlir::dyn_cast<ir::ArrayType>(input)) {
       auto *element = type(array.getElementType());
       if (!element || array.getNumElements() > (1ULL << 30)) {
@@ -178,7 +189,7 @@ public:
     }
     if (auto integer = mlir::dyn_cast<mlir::IntegerType>(input)) {
       unsigned width = integer.getWidth();
-      if (width == 1 || width == 8 || width == 16 || width == 32 || width == 64)
+      if (width >= 1 && width <= 128)
         return llvm::IntegerType::get(context, width);
     }
     fail("artifact contains an unsupported type");
@@ -220,6 +231,13 @@ public:
         return llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(expected));
     }
     if (expected->isIntegerTy()) {
+      if (auto literal = mlir::dyn_cast<mlir::IntegerAttr>(value)) {
+        unsigned width = expected->getIntegerBitWidth();
+        if (!literal.getValue().isSignedIntN(width) && !literal.getValue().isIntN(width)) {
+          fail("integer initializer does not fit its native type"); return nullptr;
+        }
+        return llvm::ConstantInt::get(context, literal.getValue().sextOrTrunc(width));
+      }
       auto number = expression(value);
       if (!error.empty()) return nullptr;
       return llvm::ConstantInt::get(expected, number);
@@ -284,16 +302,19 @@ public:
     }
     if (auto elements = mlir::dyn_cast<mlir::ArrayAttr>(value)) {
       uint64_t count = expected->isArrayTy() ? llvm::cast<llvm::ArrayType>(expected)->getNumElements()
-          : expected->isStructTy() ? llvm::cast<llvm::StructType>(expected)->getNumElements() : UINT64_MAX;
+          : expected->isStructTy() ? llvm::cast<llvm::StructType>(expected)->getNumElements()
+          : expected->isVectorTy() ? llvm::cast<llvm::FixedVectorType>(expected)->getNumElements() : UINT64_MAX;
       if (elements.size() != count || count > 1024 * 1024) { fail("aggregate initializer extent mismatch"); return nullptr; }
       llvm::SmallVector<llvm::Constant *> native;
       for (unsigned i = 0; i < count; ++i) {
         auto *elementType = expected->isArrayTy() ? llvm::cast<llvm::ArrayType>(expected)->getElementType()
+            : expected->isVectorTy() ? llvm::cast<llvm::VectorType>(expected)->getElementType()
             : llvm::cast<llvm::StructType>(expected)->getElementType(i);
         auto *element = initializer(elementType, elements[i]);
         if (!element) return nullptr;
         native.push_back(element);
       }
+      if (expected->isVectorTy()) return llvm::ConstantVector::get(native);
       return expected->isArrayTy() ? static_cast<llvm::Constant *>(llvm::ConstantArray::get(llvm::cast<llvm::ArrayType>(expected), native))
           : llvm::ConstantStruct::get(llvm::cast<llvm::StructType>(expected), native);
     }
@@ -315,7 +336,7 @@ public:
         return {};
       }
       for (auto field : dictionary)
-        if (field.getName() != "name" && field.getName() != "string" && field.getName() != "integer") {
+        if (field.getName() != "name" && field.getName() != "string" && field.getName() != "integer" && field.getName() != "type") {
           fail("unknown ABI attribute record field"); return {};
         }
       if (dictionary.get("string") && dictionary.get("integer")) {
@@ -334,6 +355,12 @@ public:
         continue;
       }
       auto kind = llvm::Attribute::getAttrKindFromName(name.getValue());
+      if (auto typed = dictionary.getAs<mlir::TypeAttr>("type")) {
+        auto *native = type(typed.getValue());
+        if (!native || !llvm::Attribute::isTypeAttrKind(kind)) { fail("invalid typed ABI attribute"); return {}; }
+        result.push_back(llvm::Attribute::get(context, kind, native));
+        continue;
+      }
       if (kind == llvm::Attribute::None || llvm::Attribute::isTypeAttrKind(kind)) {
         fail("unsupported ABI attribute kind");
         return {};
@@ -479,7 +506,7 @@ public:
       auto *native = type(t);
       if (!native)
         return nullptr;
-      if (!native->isIntegerTy() && !native->isFloatingPointTy() && !native->isPointerTy() &&
+      if (!native->isIntegerTy() && !native->isFloatingPointTy() && !native->isPointerTy() && !native->isVectorTy() && !native->isAggregateType() &&
           !mlir::isa<ir::VaListArgumentType>(t)) {
         fail("aggregate by-value ABI parameters are not qualified yet"); return nullptr;
       }
@@ -490,7 +517,7 @@ public:
     if (!returns)
       return nullptr;
     if (!returns->isVoidTy() && !returns->isIntegerTy() &&
-        !returns->isFloatingPointTy() && !returns->isPointerTy()) {
+        !returns->isFloatingPointTy() && !returns->isPointerTy() && !returns->isVectorTy() && !returns->isAggregateType()) {
       fail("aggregate by-value ABI results are not qualified yet"); return nullptr;
     }
     auto *nativeType = llvm::FunctionType::get(returns, inputs, variadic.getValue());
@@ -525,6 +552,13 @@ public:
     result->setDSOLocal(local.getValue());
     if (!visibility(operation, *result)) return nullptr;
     result->setAttributes(attributeList(operation, inputs.size()));
+    if (auto settings = operation.getAttrOfType<mlir::DictionaryAttr>("codegen")) {
+      for (const auto &[publicName, nativeName] : std::vector<std::pair<StringRef, StringRef>>{
+             {"cpu", "target-cpu"}, {"features", "target-features"}, {"tune", "tune-cpu"}})
+        if (auto value = settings.getAs<mlir::StringAttr>(publicName)) result->addFnAttr(nativeName, value.getValue());
+      if (auto width = settings.getAs<mlir::IntegerAttr>("min_vector_bits"))
+        result->addFnAttr("min-legal-vector-width", std::to_string(width.getInt()));
+    }
     if (operation.getAttr("native_abi")) {
       AggregateABI abi;
       if (!aggregateABI(operation, nativeType, abi)) return nullptr;
@@ -675,13 +709,13 @@ public:
       llvm::SmallVector<llvm::Type *> parameters;
       for (auto parameter : functionType.getInputs()) {
         auto *native = type(parameter);
-        if (!native || (!native->isIntegerTy() && !native->isFloatingPointTy() && !native->isPointerTy())) {
+        if (!native || (!native->isIntegerTy() && !native->isFloatingPointTy() && !native->isPointerTy() && !native->isVectorTy() && !native->isAggregateType())) {
           fail("indirect aggregate by-value ABI parameters are not qualified yet"); return;
         }
         parameters.push_back(native);
       }
       auto *returns = functionType.getNumResults() ? type(functionType.getResult(0)) : llvm::Type::getVoidTy(context);
-      if (!returns || (!returns->isVoidTy() && !returns->isIntegerTy() && !returns->isFloatingPointTy() && !returns->isPointerTy())) {
+      if (!returns || (!returns->isVoidTy() && !returns->isIntegerTy() && !returns->isFloatingPointTy() && !returns->isPointerTy() && !returns->isVectorTy() && !returns->isAggregateType())) {
         fail("indirect aggregate by-value ABI results are not qualified yet"); return;
       }
       llvm::SmallVector<llvm::Value *> arguments;
@@ -823,6 +857,119 @@ public:
       } else {
         builder.CreateRetVoid();
       }
+    } else if (name == "sela.inline_asm" || name == "sela.inline_asm_br") {
+      const bool branch = name == "sela.inline_asm_br";
+      auto argumentCount = branch ? operation.getAttrOfType<mlir::IntegerAttr>("argument_count").getInt() : operation.getNumOperands();
+      llvm::SmallVector<llvm::Value *> arguments;
+      llvm::SmallVector<llvm::Type *> types;
+      for (auto input : operation.getOperands().take_front(argumentCount)) {
+        auto *native = operand(input);
+        if (!native) return;
+        arguments.push_back(native); types.push_back(native->getType());
+      }
+      auto *returns = operation.getNumResults() ? type(operation.getResult(0).getType()) : builder.getVoidTy();
+      if (!returns) return;
+      auto *signature = llvm::FunctionType::get(returns, types, false);
+      auto constraints = operation.getAttrOfType<mlir::StringAttr>("constraints").getValue();
+      if (auto error = llvm::InlineAsm::verify(signature, constraints)) { fail(llvm::toString(std::move(error))); return; }
+      auto *assembly = llvm::InlineAsm::get(signature, operation.getAttrOfType<mlir::StringAttr>("template").getValue(), constraints,
+          operation.getAttrOfType<mlir::BoolAttr>("side_effects").getValue(),
+          operation.getAttrOfType<mlir::BoolAttr>("align_stack").getValue(),
+          operation.getAttrOfType<mlir::StringAttr>("dialect").getValue() == "att" ? llvm::InlineAsm::AD_ATT : llvm::InlineAsm::AD_Intel,
+          operation.getAttrOfType<mlir::BoolAttr>("can_throw").getValue());
+      if (branch) {
+        auto counts = operation.getAttrOfType<mlir::DenseI32ArrayAttr>("argument_counts");
+        llvm::SmallVector<llvm::BasicBlock *> destinations;
+        size_t offset = argumentCount;
+        for (unsigned index = 0; index < counts.size(); ++index) {
+          auto *destination = edge(operation, index, operation.getOperands().slice(offset, counts[index]));
+          if (!destination) return;
+          destinations.push_back(destination); offset += counts[index];
+        }
+        auto *call = builder.CreateCallBr(signature, assembly, destinations.front(), llvm::ArrayRef(destinations).drop_front(), arguments);
+        call->setAttributes(attributeList(operation, arguments.size()));
+        result = call;
+      } else {
+        auto *call = builder.CreateCall(signature, assembly, arguments);
+        call->setAttributes(attributeList(operation, arguments.size()));
+        call->setTailCallKind(llvm::CallInst::TailCallKind(operation.getAttrOfType<mlir::IntegerAttr>("tail").getInt()));
+        result = call;
+      }
+    } else if (name == "sela.intrinsic") {
+      auto name = operation.getAttrOfType<mlir::StringAttr>("name");
+      auto *spec = name ? ir::findIntrinsic(name.getValue()) : nullptr;
+      if (!spec || operation.getNumOperands() != spec->operands || operation.getNumResults() > 1 ||
+          (!spec->backend.empty() && spec->backend != targetInfo().llvmBackend)) { fail("invalid target intrinsic"); return; }
+      llvm::SmallVector<llvm::Value *> arguments;
+      for (auto value : operation.getOperands()) {
+        auto *native = operand(value);
+        if (!native) return;
+        arguments.push_back(native);
+      }
+      llvm::SmallVector<llvm::Type *> overloads;
+      auto *returns = operation.getNumResults() ? type(operation.getResult(0).getType()) : llvm::Type::getVoidTy(context);
+      if (!returns) return;
+      if (spec->overload == ir::IntrinsicOverload::Result) overloads.push_back(returns);
+      if (spec->overload == ir::IntrinsicOverload::FirstOperand) overloads.push_back(arguments.front()->getType());
+      auto *functionType = llvm::Intrinsic::getType(context, spec->llvmID, overloads);
+      if (functionType->getReturnType() != returns || functionType->getNumParams() != arguments.size()) {
+        fail("registered intrinsic signature mismatch"); return;
+      }
+      for (unsigned index = 0; index < arguments.size(); ++index)
+        if (functionType->getParamType(index) != arguments[index]->getType()) { fail("registered intrinsic operand type mismatch"); return; }
+      auto *function = llvm::Intrinsic::getDeclaration(module.get(), spec->llvmID, overloads);
+      for (unsigned index = 0; index < arguments.size(); ++index)
+        if (function->hasParamAttribute(index, llvm::Attribute::ImmArg) && !llvm::isa<llvm::Constant>(arguments[index])) {
+          fail("registered intrinsic requires a constant immediate operand"); return;
+        }
+      auto *call = builder.CreateCall(function, arguments);
+      call->setAttributes(attributeList(operation, arguments.size()));
+      auto tail = operation.getAttrOfType<mlir::IntegerAttr>("tail");
+      if (!tail || tail.getInt() < 0 || tail.getInt() > 3) { fail("invalid intrinsic tail-call kind"); return; }
+      call->setTailCallKind(llvm::CallInst::TailCallKind(tail.getInt()));
+      result = call;
+    } else if (name == "sela.extract_value" || name == "sela.insert_value") {
+      const bool insert = name == "sela.insert_value";
+      if (!shape(operation, insert ? 2 : 1, 1)) return;
+      auto *aggregate = operand(operation.getOperand(0));
+      auto raw = operation.getAttrOfType<mlir::DenseI32ArrayAttr>("indices");
+      if (!aggregate || !raw || raw.empty() || raw.size() > 64) { fail("invalid aggregate indices"); return; }
+      llvm::SmallVector<unsigned> indices;
+      for (auto index : raw.asArrayRef()) {
+        if (index < 0) { fail("negative aggregate index"); return; }
+        indices.push_back(unsigned(index));
+      }
+      auto *element = llvm::ExtractValueInst::getIndexedType(aggregate->getType(), indices);
+      if (!element) { fail("aggregate index is outside its type"); return; }
+      if (insert) {
+        auto *value = operand(operation.getOperand(1));
+        if (!value || value->getType() != element) { fail("aggregate insertion type mismatch"); return; }
+        result = builder.CreateInsertValue(aggregate, value, indices);
+      } else result = builder.CreateExtractValue(aggregate, indices);
+    } else if (name == "sela.extract_element" || name == "sela.insert_element") {
+      const bool insert = name == "sela.insert_element";
+      if (!shape(operation, insert ? 3 : 2, 1)) return;
+      auto *vector = operand(operation.getOperand(0));
+      auto *index = operand(operation.getOperand(insert ? 2 : 1));
+      auto *vectorType = vector ? llvm::dyn_cast<llvm::FixedVectorType>(vector->getType()) : nullptr;
+      if (!vectorType || !index || !index->getType()->isIntegerTy()) { fail("invalid vector indexing operands"); return; }
+      if (insert) {
+        auto *value = operand(operation.getOperand(1));
+        if (!value || value->getType() != vectorType->getElementType()) { fail("vector insertion type mismatch"); return; }
+        result = builder.CreateInsertElement(vector, value, index);
+      } else result = builder.CreateExtractElement(vector, index);
+    } else if (name == "sela.shuffle") {
+      if (!shape(operation, 2, 1)) return;
+      auto *left = operand(operation.getOperand(0));
+      auto *right = operand(operation.getOperand(1));
+      auto *vector = left ? llvm::dyn_cast<llvm::FixedVectorType>(left->getType()) : nullptr;
+      auto mask = operation.getAttrOfType<mlir::DenseI32ArrayAttr>("mask");
+      if (!vector || !right || left->getType() != right->getType() || !mask || mask.empty() || mask.size() > 1024) {
+        fail("invalid vector shuffle operands or mask"); return;
+      }
+      for (auto lane : mask.asArrayRef())
+        if (lane < -1 || lane >= int64_t(vector->getNumElements()) * 2) { fail("vector shuffle lane is out of range"); return; }
+      result = builder.CreateShuffleVector(left, right, mask.asArrayRef());
     } else if (name == "sela.binary") {
       if (!shape(operation, 2, 1)) return;
       auto opcode = operation.getAttrOfType<mlir::StringAttr>("opcode");
@@ -840,7 +987,7 @@ public:
       if (!code || !error.empty() || flags > 7 ||
           !validArithmeticFlags(code, unsigned(flags)) ||
           !left || !right || left->getType() != right->getType() ||
-          (floatingOpcode ? !left->getType()->isFloatingPointTy() : !left->getType()->isIntegerTy())) {
+          (floatingOpcode ? !left->getType()->isFPOrFPVectorTy() : !left->getType()->isIntOrIntVectorTy())) {
         fail("invalid scalar binary operation"); return;
       }
       auto *binary = llvm::cast<llvm::BinaryOperator>(
@@ -854,7 +1001,10 @@ public:
       auto *condition = operand(operation.getOperand(0));
       auto *yes = operand(operation.getOperand(1));
       auto *no = operand(operation.getOperand(2));
-      if (!condition || !yes || !no || !condition->getType()->isIntegerTy(1) ||
+      bool vectorCondition = condition && yes && condition->getType()->isVectorTy() && yes->getType()->isVectorTy() &&
+          condition->getType()->getScalarType()->isIntegerTy(1) &&
+          llvm::cast<llvm::VectorType>(condition->getType())->getElementCount() == llvm::cast<llvm::VectorType>(yes->getType())->getElementCount();
+      if (!condition || !yes || !no || (!condition->getType()->isIntegerTy(1) && !vectorCondition) ||
           yes->getType() != no->getType()) {
         fail("invalid scalar select"); return;
       }
@@ -862,7 +1012,7 @@ public:
     } else if (name == "sela.fneg") {
       if (!shape(operation, 1, 1)) return;
       auto *value = operand(operation.getOperand(0));
-      if (!value || !value->getType()->isFloatingPointTy()) {
+      if (!value || !value->getType()->isFPOrFPVectorTy()) {
         fail("floating negate requires float or double"); return;
       }
       result = builder.CreateFNeg(value);
@@ -891,12 +1041,12 @@ public:
       auto predicate = operation.getAttrOfType<mlir::IntegerAttr>("predicate");
       auto *left = operand(operation.getOperand(0));
       auto *right = operand(operation.getOperand(1));
-      bool floating = left && left->getType()->isFloatingPointTy();
+      bool floating = left && left->getType()->isFPOrFPVectorTy();
       int first = floating ? llvm::CmpInst::FIRST_FCMP_PREDICATE : llvm::CmpInst::FIRST_ICMP_PREDICATE;
       int last = floating ? llvm::CmpInst::LAST_FCMP_PREDICATE : llvm::CmpInst::LAST_ICMP_PREDICATE;
       if (!predicate || predicate.getInt() < first || predicate.getInt() > last ||
           !left || !right || left->getType() != right->getType() ||
-          (!floating && !left->getType()->isIntegerTy() && !left->getType()->isPointerTy())) {
+          (!floating && !left->getType()->isIntOrIntVectorTy() && !left->getType()->isPointerTy())) {
         fail("invalid scalar comparison"); return;
       }
       result = floating
@@ -920,6 +1070,14 @@ public:
       }
       llvm::SmallVector<llvm::Metadata *> metadata{nullptr};
       for (auto option : options) {
+        if (auto error = detail::validateLoopOption(option)) { fail(llvm::toString(std::move(error))); return; }
+        if (auto record = mlir::dyn_cast<mlir::DictionaryAttr>(option)) {
+          auto name = record.getAs<mlir::StringAttr>("name");
+          auto value = record.getAs<mlir::IntegerAttr>("value");
+          metadata.push_back(llvm::MDNode::get(context, {llvm::MDString::get(context, name.getValue()),
+              llvm::ConstantAsMetadata::get(builder.getInt32(value.getInt()))}));
+          continue;
+        }
         auto name = mlir::dyn_cast<mlir::StringAttr>(option);
         if (!name || (name.getValue() != "llvm.loop.mustprogress" &&
                       name.getValue() != "llvm.loop.unroll.disable" &&
@@ -1007,7 +1165,7 @@ public:
           std::map<std::string, llvm::GlobalValue::LinkageTypes> linkages = {
               {"external", llvm::GlobalValue::ExternalLinkage}, {"internal", llvm::GlobalValue::InternalLinkage},
               {"private", llvm::GlobalValue::PrivateLinkage}, {"common", llvm::GlobalValue::CommonLinkage},
-              {"weak", llvm::GlobalValue::WeakAnyLinkage}};
+              {"weak", llvm::GlobalValue::WeakAnyLinkage}, {"appending", llvm::GlobalValue::AppendingLinkage}};
           auto selected = linkage ? linkages.find(linkage.getValue().str()) : linkages.end();
           if (!error.empty() || !id || id.getValue().empty() || symbols.count(id.getValue().str()) ||
               !nativeType || !nativeType->isSized() || !constant || !declaration || !local || selected == linkages.end() ||
@@ -1123,8 +1281,8 @@ public:
     // attributes are native compiler configuration, not public Sela payload.
     for (auto &function : *module) {
       if (function.isIntrinsic()) continue;
-      function.addFnAttr("target-cpu", targetInfo().cpu);
-      function.addFnAttr("target-features", targetInfo().features);
+      if (!function.hasFnAttribute("target-cpu")) function.addFnAttr("target-cpu", targetInfo().cpu);
+      if (!function.hasFnAttribute("target-features")) function.addFnAttr("target-features", targetInfo().features);
     }
     std::string diagnostics;
     llvm::raw_string_ostream stream(diagnostics);

@@ -7,7 +7,7 @@ test_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-build-rejections-XXXXXX")
 for selected in missing-capture mutated-object transplanted-marker repeated-journal unsupported-link unsupported-interpreter; do
   if make -f "$test_root/sdk/share/sela/Sela.mk" SELA_BUILD_TOOL="$build_tool" \
       SELA_SOURCE_DIR="$test_root/tests/fixtures/build-rejections" \
-      SELA_TARGETS="$selected" SELA_NATIVE_OUTPUT="$selected" \
+      SELA_BUILD_TARGETS="$selected" SELA_NATIVE_OUTPUT="$selected" \
       SELA_ARTIFACT="$test_work/$selected.sela" > "$test_work/$selected.log" 2>&1; then
     echo "An unqualified selected link unexpectedly published: $selected" >&2
     exit 1

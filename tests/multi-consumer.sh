@@ -49,10 +49,11 @@ publish "$clang" --config="$config" -O2 "$source_dir/static-main.c" -l:libdevice
 printf 'deliberately not a Sela archive\n' > "$fixtures/malformed.sela"
 
 # Reuse the existing positive regression sources without reducing their scope.
-matrix=(scalars width storage scalar-fields packed-bitfields overlap varargs va-forward nonlocal conditional aggregate)
+matrix=(scalars width storage scalar-fields packed-bitfields overlap varargs va-forward nonlocal conditional aggregate target-vector target-asm target-init)
 matrix_sources() {
     case "$1" in
         scalars|width) sources=("$repository/tests/fixtures/$1.c") ;;
+        target-vector|target-asm|target-init) sources=("$repository/tests/fixtures/$1.c") ;;
         storage) sources=("$repository/tests/storage-native.c") ;;
         scalar-fields) sources=("$repository/tests/fixtures/scalar-field-result.c") ;;
         packed-bitfields) sources=("$repository/tests/fixtures/packed-bitfield-storage.c") ;;

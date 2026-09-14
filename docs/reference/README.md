@@ -11,9 +11,10 @@ For compiler terminology, use the [glossary](../guides/reference/glossary.md).
 - [Compiler-only distribution](compiler-distribution.md) — native compiler packages, release stripping, source/delivery receipts, size reporting, and qualification checkpoints.
 - [Native targets and adding an architecture](adding-native-targets.md) — the four Linux/glibc targets, shared registry, ABI adapters, and equal qualification obligations.
 - [Device-compiler retrospective](device-compiler-retrospective.md) — lessons for contributors and coding agents about build time, specialization, and the package-size regression.
-- [Broad-C qualification corpus](qualification-corpus.md) — locked cJSON/zlib configurations, commands, and evidence requirements.
+- [Broad-C qualification corpus](qualification-corpus.md) — locked cJSON, zlib and xxHash configurations, commands, and evidence requirements.
 - [Native aggregate and variadic ABI evidence](native-abi-matrix.md) — native fixtures, observed signatures, implemented proofs, and remaining gates.
 - [Current toolchain status](toolchain-status.md) — supported outputs, publication and runtime boundaries, evidence, and failure behavior.
+- [Target-specific C checkpoint](target-c-checkpoint.md) — new compiler capabilities, exact local test evidence, and unfinished acceptance gates.
 - [GitHub presentation and maintenance](github-presentation.md) — branding assets, the recorded demo, CI, and repository settings.
 
 Source paths mentioned in these references are relative to the repository root and are intended for VS Code.

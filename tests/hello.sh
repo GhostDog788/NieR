@@ -28,9 +28,28 @@ test "$(env -u LD_LIBRARY_PATH "$test_work/width")" = 'pointer=8 word=8 fixed=4,
 "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower "$test_work/width.sela" --target i686 --output-dir "$test_work/width-i686"
 "$SELA_SDK_ROOT/host/usr/lib/llvm-18/bin/opt" -passes=verify -disable-output "$test_work/width-i686/0.ll"
 if "$clang" --config="$config" "$test_root/tests/fixtures/unsupported.c" -o "$test_work/unsupported.sela"; then
-    printf 'ERROR: accepted unqualified inline assembly\n' >&2; exit 1
+    printf 'ERROR: accepted invalid C input\n' >&2; exit 1
 fi
 test ! -e "$test_work/unsupported.sela"
+# A syntax failure above does not test rejection by the Sela importer. Keep a
+# separately valid Clang C case for the still-unimplemented TLS contract.
+for profile in x86_64 i686 armv7 aarch64; do
+    eval "$(python3 "$test_root/sdk/targets.py" shell "$profile")"
+    tls_source="$test_root/tests/fixtures/not-yet-supported-tls.c"
+    "$clang" --target="$SELA_TARGET_TRIPLE" \
+        "${SELA_TARGET_CLANG_ARGS[@]}" "${SELA_TARGET_PUBLICATION_CLANG_ARGS[@]}" \
+        -std=c11 -fPIC -c "$tls_source" -o "$test_work/tls-$profile.o"
+    readelf -s "$test_work/tls-$profile.o" | rg -q 'TLS.*sela_tls_probe'
+    if SELA_ARCHS="$profile" "$clang" --config="$config" -std=c11 "$tls_source" \
+        -o "$test_work/tls-$profile.sela" > "$test_work/tls-$profile.log" 2>&1; then
+        printf 'ERROR: unimplemented TLS storage was silently published\n' >&2; exit 1
+    fi
+    rg -q 'unsupported single-target global storage/linkage: sela_tls_probe' "$test_work/tls-$profile.log"
+    test ! -e "$test_work/tls-$profile.sela"
+done
+"$clang" --config="$config" "$test_root/tests/fixtures/inline-asm-barrier.c" -o "$test_work/barrier.sela"
+"$selac" "$test_work/barrier.sela" -o "$test_work/barrier"
+env -u LD_LIBRARY_PATH "$test_work/barrier"
 if "$selac" "$test_work/hello.sela" --sdk "$test_work/missing-sdk" -o "$test_work/invalid"; then
     printf 'ERROR: accepted missing SDK\n' >&2; exit 1
 fi

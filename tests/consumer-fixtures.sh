@@ -87,7 +87,7 @@ while IFS= read -r executable; do
     esac
     matrix_count=$((matrix_count + 1))
 done < "$fixtures/executables.list"
-test "$matrix_count" -eq 24
+test "$matrix_count" -eq 30
 
 cp "$output/hello" "$output/protected"
 protected_before=$(sha256sum "$output/protected")
@@ -148,4 +148,5 @@ while IFS= read -r executable; do sha256sum "$output/$executable"; done < "$fixt
 )
 target_count=$(wc -l < "$fixtures/targets.list")
 test "$negatives" -eq "$((6 * target_count))"
-printf 'SELA_CONSUMER_FIXTURES_PASS target=%s executables=28 shared=3 static=1 negatives=%s\n' "$target" "$negatives"
+printf 'SELA_CONSUMER_FIXTURES_PASS target=%s executables=%s shared=3 static=1 negatives=%s\n' \
+    "$target" "$((matrix_count + 4))" "$negatives"

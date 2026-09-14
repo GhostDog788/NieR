@@ -100,7 +100,7 @@
       "name": "prealpha",
       "configurePreset": "prealpha",
       "output": { "outputOnFailure": true },
-      "execution": { "jobs": 2 }
+      "execution": { "jobs": 2, "timeout": 180 }
     },
     {
       "name": "consumer-x86_64",

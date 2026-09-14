@@ -728,4 +728,48 @@ llvm::Expected<CommonModule> mergeCommonModules(
   if (mlir::failed(mlir::verify(*merger.output))) return fail("factored shared graph failed structural verification");
   return CommonModule{std::move(merger.output), std::move(merger.storageIdentities)};
 }
+llvm::Expected<CommonModule> factorScopedModules(
+    llvm::ArrayRef<mlir::ModuleOp> modules, llvm::ArrayRef<StringRef> ids) {
+  if (modules.empty() || modules.size() != ids.size()) return fail("invalid scoped observation inventory");
+  auto *context = modules.front()->getContext();
+  mlir::Builder builder(context);
+  mlir::OwningOpRef<mlir::ModuleOp> output(mlir::ModuleOp::create(builder.getUnknownLoc()));
+  (*output)->setAttr("sela.schema", builder.getI32IntegerAttr(1));
+  (*output)->setAttr("sela.targets", ir::targetSet(context, ids));
+  std::vector<llvm::SmallVector<Operation *>> definitions(modules.size());
+  llvm::SmallVector<Attribute> flags;
+  size_t count = 0;
+  for (size_t i = 0; i < modules.size(); ++i) {
+    if (modules[i]->getContext() != context) return fail("scoped factoring requires one MLIR context");
+    for (auto &operation : modules[i]->getRegion(0).front().getOperations()) definitions[i].push_back(&operation);
+    count = std::max(count, definitions[i].size());
+    if (auto values = modules[i]->getAttrOfType<mlir::ArrayAttr>("sela.module_flags"))
+      flags.append(values.begin(), values.end());
+  }
+  (*output)->setAttr("sela.module_flags", builder.getArrayAttr(flags));
+  // Positional grouping is conservative and preserves the native symbol order
+  // even when one target has extra or reordered definitions. The richer common
+  // merger remains responsible for proving nonliteral sharing opportunities.
+  for (size_t index = 0; index < count; ++index) {
+    struct Group { Operation *operation; llvm::SmallVector<StringRef> targets; };
+    std::vector<Group> groups;
+    std::map<std::string, size_t> keys;
+    for (size_t i = 0; i < modules.size(); ++i) {
+      if (index >= definitions[i].size()) continue;
+      auto *operation = definitions[i][index];
+      std::string text;
+      llvm::raw_string_ostream stream(text);
+      operation->print(stream);
+      auto [found, inserted] = keys.emplace(text, groups.size());
+      if (inserted) groups.push_back({operation, {}});
+      groups[found->second].targets.push_back(ids[i]);
+    }
+    for (const auto &group : groups) {
+      auto *copy = group.operation->clone();
+      if (group.targets.size() != ids.size()) copy->setAttr("targets", ir::targetSet(context, group.targets));
+      output->getBody()->push_back(copy);
+    }
+  }
+  return CommonModule{std::move(output), {}};
+}
 }

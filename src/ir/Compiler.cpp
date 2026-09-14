@@ -6,6 +6,8 @@
 #include "ConditionalSpecialization.h"
 #include "sela/IR/Dialect.h"
 #include "sela/IR/Domains.h"
+#include "sela/IR/Intrinsics.h"
+#include "InstructionContracts.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -121,6 +123,11 @@ llvm::Error validateInitializer(Attribute value, unsigned depth = 0) {
 
 llvm::Error validateInitializerShape(mlir::Type type, Attribute value, unsigned depth = 0) {
   if (depth > 64) return failure("public initializer shape nesting exceeds the qualified bound");
+  if (auto integer = mlir::dyn_cast<mlir::IntegerType>(type))
+    if (auto literal = mlir::dyn_cast<mlir::IntegerAttr>(value)) {
+      if (!literal.getValue().isSignedIntN(integer.getWidth()) && !literal.getValue().isIntN(integer.getWidth()))
+        return failure("integer initializer does not fit its public result type");
+    }
   auto elements = mlir::dyn_cast<mlir::ArrayAttr>(value);
   if (auto record = mlir::dyn_cast<mlir::DictionaryAttr>(value)) {
     if (auto explicitElements = record.getAs<mlir::ArrayAttr>("array")) {
@@ -153,6 +160,12 @@ llvm::Error validateInitializerShape(mlir::Type type, Attribute value, unsigned 
       if (auto error = validateInitializerShape(record.getFields()[i], elements[i], depth + 1)) return error;
     return llvm::Error::success();
   }
+  if (auto vector = mlir::dyn_cast<mlir::VectorType>(type)) {
+    if (elements.size() != vector.getNumElements()) return failure("vector initializer lane count mismatch");
+    for (auto element : elements)
+      if (auto error = validateInitializerShape(vector.getElementType(), element, depth + 1)) return error;
+    return llvm::Error::success();
+  }
   // Overlap carriers are chosen by the native layout implementation. Their
   // public storage is one carrier field, but its scalar type is not guessed.
   if (mlir::isa<ir::OverlapType>(type) && elements.size() == 1) return llvm::Error::success();
@@ -168,10 +181,10 @@ llvm::Error validateAttributeList(Attribute value) {
     for (auto attribute : attributes) {
       auto record = mlir::dyn_cast<mlir::DictionaryAttr>(attribute);
       auto name = record ? record.getAs<mlir::StringAttr>("name") : mlir::StringAttr();
-      if (!name || (record.get("integer") && record.get("string")))
+      if (!name || unsigned(bool(record.get("integer"))) + unsigned(bool(record.get("string"))) + unsigned(bool(record.get("type"))) > 1)
         return failure("invalid or ambiguous public ABI attribute");
       for (auto field : record)
-        if (field.getName() != "name" && field.getName() != "integer" && field.getName() != "string")
+        if (field.getName() != "name" && field.getName() != "integer" && field.getName() != "string" && field.getName() != "type")
           return failure("unknown public ABI attribute record field");
       if (auto raw = record.get("string")) {
         if (!mlir::isa<mlir::StringAttr>(raw) || configurationAttribute(name.getValue()) ||
@@ -181,6 +194,11 @@ llvm::Error validateAttributeList(Attribute value) {
         continue;
       }
       auto kind = llvm::Attribute::getAttrKindFromName(name.getValue());
+      if (auto typed = record.get("type")) {
+        if (!mlir::isa<mlir::TypeAttr>(typed) || !llvm::Attribute::isTypeAttrKind(kind))
+          return failure("invalid public typed ABI attribute");
+        continue;
+      }
       if (kind == llvm::Attribute::None || llvm::Attribute::isTypeAttrKind(kind))
         return failure("unsupported public ABI attribute kind");
       if (auto raw = record.get("integer")) {
@@ -213,8 +231,14 @@ llvm::Error validatePublicTypes(mlir::ModuleOp module) {
       return llvm::Error::success();
     if (auto integer = mlir::dyn_cast<mlir::IntegerType>(type)) {
       unsigned width = integer.getWidth();
-      if (width == 1 || width == 8 || width == 16 || width == 32 || width == 64)
+      if (width >= 1 && width <= 128)
         return llvm::Error::success();
+    }
+    if (auto vector = mlir::dyn_cast<mlir::VectorType>(type)) {
+      if (vector.isScalable() || vector.getRank() != 1 || vector.getNumElements() < 1 || vector.getNumElements() > 1024)
+        return failure("invalid fixed-vector extent");
+      if (!mlir::isa<mlir::IntegerType, mlir::FloatType>(vector.getElementType())) return failure("invalid fixed-vector element type");
+      return visit(vector.getElementType(), depth + 1);
     }
     if (auto function = mlir::dyn_cast<mlir::FunctionType>(type)) {
       if (function.getNumResults() > 1) return failure("public function type has multiple results");
@@ -302,7 +326,7 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
   }
   const std::map<std::string, std::set<std::string>> allowed = {
       {"builtin.module", {"sela.schema", "sela.module_flags", "sela.targets"}},
-      {"sela.func", {"id", "type", "declaration", "variadic", "internal", "weak", "available_externally", "dso_local", "visibility", "intrinsic", "attributes", "block_domains", "native_abi"}},
+      {"sela.func", {"id", "type", "declaration", "variadic", "internal", "weak", "available_externally", "dso_local", "visibility", "intrinsic", "attributes", "block_domains", "native_abi", "codegen"}},
       {"sela.global", {"id", "bytes", "alignment", "unnamed", "element", "initializer", "constant", "declaration", "linkage", "dso_local", "visibility"}},
       {"sela.constant", {"value"}}, {"sela.address", {"global"}},
       {"sela.alloca", {"element", "alignment"}}, {"sela.load", {"alignment", "volatile"}},
@@ -312,6 +336,11 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
       {"sela.compare", {"predicate"}}, {"sela.return", {}},
       {"sela.gep", {"element", "inbounds"}},
       {"sela.select", {}}, {"sela.fneg", {}}, {"sela.bswap", {}},
+      {"sela.extract_value", {"indices"}}, {"sela.insert_value", {"indices"}},
+      {"sela.extract_element", {}}, {"sela.insert_element", {}}, {"sela.shuffle", {"mask"}},
+      {"sela.intrinsic", {"name", "attributes", "tail"}},
+      {"sela.inline_asm", {"template", "constraints", "backend", "side_effects", "align_stack", "can_throw", "dialect", "attributes", "tail"}},
+      {"sela.inline_asm_br", {"template", "constraints", "backend", "side_effects", "align_stack", "can_throw", "dialect", "attributes", "tail", "argument_count", "argument_counts"}},
       {"sela.va_arg", {}}, {"sela.va_forward", {}},
       {"sela.br", {"loop", "loop_id"}}, {"sela.cond_br", {"true_count", "loop", "loop_id"}},
       {"sela.switch", {"cases", "argument_counts", "case_domains"}},
@@ -324,12 +353,48 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
       {"sela.call_indirect", {"type", "variadic", "attributes", "tail"}},
       {"sela.binary", {"opcode", "flags"}}, {"sela.cast", {"opcode"}},
       {"sela.compare", {"predicate"}}, {"sela.gep", {"element", "inbounds"}},
+      {"sela.extract_value", {"indices"}}, {"sela.insert_value", {"indices"}}, {"sela.shuffle", {"mask"}},
+      {"sela.intrinsic", {"name", "attributes", "tail"}},
+      {"sela.inline_asm", {"template", "constraints", "backend", "side_effects", "align_stack", "can_throw", "dialect", "attributes", "tail"}},
+      {"sela.inline_asm_br", {"template", "constraints", "backend", "side_effects", "align_stack", "can_throw", "dialect", "attributes", "tail", "argument_count", "argument_counts"}},
       {"sela.cond_br", {"true_count"}}, {"sela.switch", {"cases", "argument_counts"}}};
   const std::set<std::string> booleans = {"declaration", "variadic", "internal", "weak", "available_externally",
       "dso_local", "constant", "inbounds", "volatile"};
   const std::set<std::string> strings = {"id", "global", "callee", "visibility", "linkage", "intrinsic", "opcode", "bytes"};
   std::string error;
+  std::set<std::string> symbols;
+  for (auto &operation : module.getBody()->getOperations()) {
+    auto id = operation.getAttrOfType<mlir::StringAttr>("id");
+    if (!id || !symbols.insert(id.getValue().str()).second)
+      return failure("missing or overlapping active definition identity");
+  }
   module.walk([&](Operation *operation) {
+    if (auto linkage = operation->getAttrOfType<mlir::StringAttr>("linkage"); linkage && linkage.getValue() == "appending") {
+      auto id = operation->getAttrOfType<mlir::StringAttr>("id");
+      auto declaration = operation->getAttrOfType<mlir::BoolAttr>("declaration");
+      if (operation->getName().getStringRef() != "sela.global" || !id || !declaration || declaration.getValue() ||
+          (id.getValue() != "llvm.global_ctors" && id.getValue() != "llvm.global_dtors")) {
+        error = "appending storage is reserved for native initialization/finalization records"; return;
+      }
+    }
+    if (operation->getName().getStringRef() == "sela.intrinsic") {
+      auto name = operation->getAttrOfType<mlir::StringAttr>("name");
+      auto *spec = name ? ir::findIntrinsic(name.getValue()) : nullptr;
+      if (!spec || operation->getNumOperands() != spec->operands || operation->getNumResults() > 1) {
+        error = "unknown or malformed registered Sela intrinsic"; return;
+      }
+      if (!spec->backend.empty()) {
+        auto domain = ir::declaredTargets(module);
+        if (!domain) { error = llvm::toString(domain.takeError()); return; }
+        for (auto id : *domain)
+          if (targets::find(id)->llvmBackend != spec->backend) {
+            error = "intrinsic is outside its target backend domain"; return;
+          }
+      }
+    }
+    if (auto invalid = detail::validateExtendedInstruction(*operation)) {
+      error = llvm::toString(std::move(invalid)); return;
+    }
     auto found = allowed.find(operation->getName().getStringRef().str());
     if (found == allowed.end()) { error = "unknown required common IR operation"; return; }
     if (auto fields = required.find(found->first); fields != required.end())
@@ -347,6 +412,37 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
         error = "unknown common IR attribute: " + attribute.getName().str(); return;
       }
       std::string field = attribute.getName().str();
+      if (field == "codegen") {
+        auto settings = mlir::dyn_cast<mlir::DictionaryAttr>(attribute.getValue());
+        if (!settings || settings.empty()) { error = "invalid target code-generation settings"; return; }
+        for (auto setting : settings) {
+          auto key = setting.getName().getValue();
+          if (key == "min_vector_bits") {
+            auto width = publicInteger(setting.getValue());
+            if (!width) { error = llvm::toString(width.takeError()); return; }
+            if (*width > 65536) { error = "oversized minimum vector width"; return; }
+          } else {
+            auto text = mlir::dyn_cast<mlir::StringAttr>(setting.getValue());
+            if ((key != "cpu" && key != "features" && key != "tune") || !text || text.getValue().empty() || text.getValue().size() > 8192 ||
+                !llvm::all_of(text.getValue(), [](char c) {
+                  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                         c == '_' || c == '-' || c == '+' || c == ',' || c == '.';
+                })) { error = "invalid target code-generation setting"; return; }
+          }
+        }
+      }
+      if (field == "callee" || field == "global") {
+        auto reference = mlir::dyn_cast<mlir::StringAttr>(attribute.getValue());
+        if (!reference || !symbols.count(reference.getValue().str())) {
+          error = "active reference has no declaration in its target domain"; return;
+        }
+      }
+      if (field == "initializer") attribute.getValue().walk([&](mlir::Attribute nested) {
+        if (auto dictionary = mlir::dyn_cast<mlir::DictionaryAttr>(nested))
+          if (auto symbol = dictionary.getAs<mlir::StringAttr>("symbol");
+              symbol && !symbols.count(symbol.getValue().str()))
+            error = "initializer reference has no declaration in its target domain";
+      });
       if ((booleans.count(field) && !mlir::isa<mlir::BoolAttr>(attribute.getValue())) ||
           (strings.count(field) && !mlir::isa<mlir::StringAttr>(attribute.getValue())) ||
           ((field == "type" || field == "element" || field == "native_abi") &&
@@ -384,7 +480,8 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
       }
       attribute.getValue().walk([&](Attribute nested) {
         if (auto integer = mlir::dyn_cast<mlir::IntegerAttr>(nested))
-          if (integer.getValue().getBitWidth() > 64)
+          if (integer.getValue().getBitWidth() > 128 ||
+              (integer.getValue().getBitWidth() > 64 && field != "value" && field != "initializer"))
             error = "oversized integer attribute in common IR";
         if (auto record = mlir::dyn_cast<mlir::DictionaryAttr>(nested)) {
           if (record.get("array") || record.get("count")) {
@@ -439,9 +536,7 @@ llvm::Error validateSchema(mlir::ModuleOp module) {
           !llvm::all_of(id.drop_front(), [](char c) { return c >= '0' && c <= '9'; }))
         error = "loop options require an opaque loop identity";
       if (options) for (auto option : options) {
-        auto name = mlir::dyn_cast<mlir::StringAttr>(option);
-        if (!name || (name.getValue() != "llvm.loop.mustprogress" && name.getValue() != "llvm.loop.unroll.disable" &&
-                      name.getValue() != "llvm.loop.unroll.enable")) error = "unknown loop semantic option";
+        if (auto invalid = detail::validateLoopOption(option)) error = llvm::toString(std::move(invalid));
       }
     }
     for (auto &region : operation->getRegions())

@@ -38,7 +38,7 @@ std::map<std::string, std::string> Sdk::toolEnvironment() const {
   return {{"LD_LIBRARY_PATH", (root / "host/usr/lib/llvm-18/lib").string() + ":" +
                                (root / "host/usr/lib" / hostTarget().multiarch.str()).string()}};
 }
-llvm::Error Sdk::validate(bool publisher) const {
+llvm::Error Sdk::validate(bool publisher, llvm::ArrayRef<std::string> selectedTargets) const {
   auto receipt = read(root / "sdk-lock.sha256", 128);
   if (!receipt) return fail("SDK bootstrap receipt missing: " + llvm::toString(receipt.takeError()));
   if (llvm::StringRef(*receipt).trim() != SELA_SDK_LOCK_SHA256)
@@ -65,9 +65,11 @@ llvm::Error Sdk::validate(bool publisher) const {
     return fail("this device SDK does not provide publication tools");
 #else
     if (!fs::is_regular_file(tool("clang"))) return fail("publisher SDK is missing stock Clang");
-    for (const auto &target : sela::targets::all())
-      if (!fs::is_regular_file(sysroot(target.id) / "usr/include/stdio.h"))
-        return fail("publisher SDK headers missing for " + target.id.str() + "; run scripts/bootstrap-sdk.sh");
+    auto selected = publicationTargets(selectedTargets);
+    if (!selected) return selected.takeError();
+    for (const auto &target : *selected)
+      if (!fs::is_regular_file(sysroot(target) / "usr/include/stdio.h"))
+        return fail("publisher SDK headers missing for " + target + "; run scripts/bootstrap-sdk.sh");
 #endif
   }
   return llvm::Error::success();

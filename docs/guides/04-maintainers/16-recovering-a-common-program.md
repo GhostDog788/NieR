@@ -8,7 +8,7 @@ This chapter explains the reference producer's central algorithm: turning a fini
 You should understand SSA, native-width types, capture provenance, and the integer flags introduced in [chapter 14](../03-contributors/14-testing-debugging-and-features.md).
 
 The result is neither a source reconstruction nor a general equivalence proof.
-It is a common program whose admitted semantics are checked against every declared native profile.
+It is one Sela publication whose shared and target-specific semantics are checked against every declared native profile.
 The algorithm fails when it cannot establish that relationship. Those failures are compiler limitations, not security policies.
 
 ## Inputs, output, and the claim being made
@@ -18,15 +18,18 @@ Its optional summary is descriptive, not a proof token.
 On success, the output is Sela bytecode; capture paths and mandatory producer provenance are not part of the public module contract.
 
 Each capture is first checked for the pinned target assumptions and verified as LLVM.
-The producer then applies specific private normalizations, constructs the common module, lowers it back for each profile,
+The producer imports each capture independently, optionally normalizes and factors common structure, lowers the result back for each profile,
 and compares the admitted normalized native forms before writing the bytecode.
 
 The essential shape is:
 
 ```text
-captures for N targets --> one shared Sela graph --> N reconstructed native contracts
-          |                                                      |
-          +------------- compare each corresponding target -------+
+captures for N targets --> independent Sela projections
+          |                         |
+          |                 optional common factoring
+          |                 or target-scoped definitions
+          |                         |
+          +---- compare <--- N reconstructed native contracts
 ```
 
 The per-target comparisons are separate. Comparing only program stdout would miss ABI mistakes and target-specific behavior.
@@ -35,9 +38,11 @@ Checking one reconstruction leaves every other specialization unproved.
 ## A small worked correspondence
 
 The following two-target example isolates width differences for readability.
-The public entrypoint accepts an N-observation inventory, currently four targets; its shared graph must reconstruct every observation, including same-width targets with different ABIs.
-The implementation combines private pair-correspondence machinery with per-target semantic projections and shared graph factoring in `src/ir/CommonMerge.cpp`.
-Those projections are producer evidence, never per-target program payloads in the published artifact.
+The public entrypoint accepts an N-observation inventory, currently up to four targets; its result must reconstruct every observation, including same-width targets with different ABIs.
+`LLVMImporter` in `src/ir/Producer.cpp` imports one observation at a time, without requiring matching function inventories or CFGs.
+`src/ir/CommonMerge.cpp` then attempts common graph factoring.
+If factoring cannot be proved, explicit target-scoped Sela definitions remain valid publication content.
+They contain ordinary Sela operations, never opaque LLVM or native payloads.
 
 Return to two functions: one returns `sizeof(void *)`, the other literal 8. Suppose their result type in C is `size_t`.
 
@@ -67,7 +72,7 @@ Fixed-width controls prevent that tempting but incorrect generalization.
 
 ## Correspondence is a relationship, not matching names
 
-The `Merger` maintains relationships among native values, blocks, symbols and storage types.
+The factoring pass maintains relationships among imported values, blocks, symbols and storage types.
 When two native instructions produce one common value, later uses must refer to that same established relationship.
 A value cannot change its counterpart halfway through a function simply because another instruction has a convenient type.
 
@@ -75,13 +80,14 @@ For records, the same native type must consistently correspond to the same other
 Identified storage types receive opaque public identities such as `r0`.
 Public symbol names needed for native linking remain meaningful; private source type names are not the public layout contract.
 
-The ordinary instruction path pairs corresponding blocks and then walks their non-debug instructions.
-PHIs are handled through block arguments and edge values.
-When opcodes differ or one stream has an extra instruction, the algorithm only uses admitted normalization rules.
-Otherwise it reports the function and instruction mismatch. It does not skip arbitrary instructions until the sequences happen to line up.
+The importer walks each native instruction and preserves its operands, flags, types and effects.
+PHIs become block arguments and edge values.
+The optional factoring path tries to establish corresponding imported instructions and uses only admitted normalization rules.
+If that relationship cannot be established, scoped definitions preserve the distinct bodies instead of skipping instructions to force a match.
 
 This is why implementation entry points are worth reading together.
-`type` establishes a common type; `expression` represents a paired constant; `value` and the correspondence maps resolve operands; `mergeInstruction` constructs the operation.
+In the importer, `type`, `expression`, `value`, and `mergeInstruction` encode native semantics; some internal helpers retain paired signatures from the earlier implementation but receive the same observation on both sides.
+Common factoring is a separate pass over the imported Sela modules.
 None of these alone proves the whole module.
 
 ## Normalize an asymmetry without deleting its meaning
@@ -119,6 +125,8 @@ Later chapters explain those algorithms.
 
 These normalizers are not broad optimization passes. They recognize bounded semantic templates with use, effect and layout conditions.
 A rejected candidate must not leave a half-rewritten capture.
+If optional ABI recovery fails, the importer restarts from the untouched native module and uses explicit concrete Sela signatures and storage.
+The inverse comparison then checks that concrete form, without pretending that a common ABI normalization succeeded.
 The public consumer needs the resulting generic semantics, not the producer's recognition algorithm or source debug types.
 
 ## What the inverse comparison preserves
@@ -128,7 +136,8 @@ Native aggregate forms are independently normalized again using explicit generat
 so both captured and reconstructed forms pass the same admitted semantic-template proof before comparison.
 
 The final comparison uses canonical LLVM text, with deliberately defined normalization.
-Source/debug spelling, private local names, and checked pinned target configuration are not compared as application semantics.
+Source/debug spelling and unnecessary private names may be normalized; CPU/features/tuning are preserved as code-generation inputs.
+When inline assembly can refer to symbol spellings, those names remain unchanged in both import and comparison.
 Debug and the admitted TBAA optimization metadata are removed. That metadata policy is not a performance-parity result.
 
 PHI incoming lists are ordered consistently without changing which incoming value belongs to which predecessor.
@@ -145,15 +154,17 @@ Equality after these checks is a useful sufficient test for the admitted program
 Inequality does not prove that two arbitrary programs differ in behavior; the producer may simply lack a required normalization.
 Either way, it cannot claim successful publication under the current rules.
 
-## A rejected correspondence
+## A rejected sharing attempt is not necessarily a rejected program
 
 Suppose the wide capture loads a global and the narrow capture calls an external function at the corresponding point.
 Both might return an integer, and a sample execution might produce the same value.
 That does not justify pairing them as one load or one call.
 The call may have observable effects, different failure behavior, or depend on state not represented by the load.
 
-Without an admitted common operation and a proof of its specialization, the correct result is a correspondence error.
-Packaging both original bodies behind a target selector would evade the requested common representation, not solve the missing algorithm.
+Without a proved common operation, these instructions must not be merged as if they were equivalent.
+The producer can instead encode both bodies using ordinary Sela operations with disjoint target domains and validate each reconstruction.
+This is a valid Sela representation; sharing is optional.
+If either body's semantics are not representable in Sela, publication still fails. An LLVM blob is not an escape hatch.
 
 ## Optional independent lab
 
@@ -204,7 +215,8 @@ It does not recover arbitrary source intent from LLVM or prove universal portabi
 
 ## Guided source and evidence
 
-Read `mergeProfiles`, `Merger::type`, `expression`, the instruction pairing loop, and `canonicalize` in `src/ir/Producer.cpp`.
+Read `mergeProfiles`, `LLVMImporter::importModule`, `type`, `expression`, `mergeInstruction`, and `canonicalize` in `src/ir/Producer.cpp`.
+Then follow optional factoring and scoped definitions in `src/ir/CommonMerge.cpp` and translation-unit reconstruction in `src/ir/CompilationUnits.cpp`.
 Compare the public core (`src/ir/Compiler.cpp`), paired producer tests (`tests/producer.cpp`), and the width fixture (`tests/fixtures/width.c`).
 The aggregate normalization tests (`tests/aggregate-normalize.cpp`) provide a larger example of proving both accepted templates and rejected speculation.
 Keep [02's verification contract](../../02-implementation-plan.md) alongside the code when deciding whether a proposed normalization is an explanation or an unjustified exception.

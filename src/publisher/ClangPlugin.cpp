@@ -101,7 +101,10 @@ llvm::Expected<clang::CompilerInvocation> nativeInvocation(
     arguments.emplace_back(tokens[i]);
   }
   const auto flags = sdk.compileFlags(profile);
-  arguments.insert(arguments.end(), flags.begin(), flags.end());
+  // Target ISA defaults precede the recorded user options; target/sysroot
+  // identity remains fixed by the selected publication lane.
+  arguments.insert(arguments.begin() + 1, flags.begin() + 3, flags.end());
+  arguments.insert(arguments.end(), flags.begin(), flags.begin() + 3);
   // Reconstruct frontend actions only: genuine link flags in the original
   // command are intentionally unused by this private driver run. This is a
   // driver-only option, not a suppression of the user's frontend diagnostics.
@@ -140,12 +143,9 @@ llvm::Error captureSource(const clang::CompilerInvocation &original,
                           clang::DiagnosticsEngine &diagnostics,
                           const fs::path &dependencyOutput = {}) {
   const auto &originalTarget = original.getTargetOpts();
-  if ((!originalTarget.CPU.empty() && originalTarget.CPU != "x86-64" &&
-       originalTarget.CPU != "i686") ||
-      (!originalTarget.TuneCPU.empty() && originalTarget.TuneCPU != "generic") ||
-      !originalTarget.FeaturesAsWritten.empty() || !originalTarget.ABI.empty() ||
+  if (!originalTarget.ABI.empty() ||
       !originalTarget.FPMath.empty())
-    return fail("explicit CPU/features/ABI tuning is not qualified by the neutral source producer");
+    return fail("explicit ABI/FPU calling-convention changes require a matching registered profile");
   if (!original.getCodeGenOpts().PassPlugins.empty())
     return fail("additional LLVM pass plugins are not qualified by the source producer");
   auto regenerated = nativeInvocation(original, sdk, profile, diagnostics);
@@ -253,10 +253,11 @@ class SelaAction final : public clang::PluginASTAction {
         auto partition = sela::mergeProfilePartitions(partitions, scratch->path.string());
         if (!partition) return partition.takeError();
         std::vector<ArtifactModule> modules;
-        for (const auto &path : partition->fragments) {
+        for (size_t index = 0; index < partition->fragments.size(); ++index) {
+          const auto &path = partition->fragments[index];
           auto bytes = read(path);
           if (!bytes) return bytes.takeError();
-          modules.push_back({std::move(*bytes), opt});
+          modules.push_back({std::move(*bytes), opt, {}, partition->fragmentTargets[index]});
         }
         CompilationPlan plan;
         for (const auto &[target, units] : partition->unitsByTarget)
@@ -272,11 +273,14 @@ class SelaAction final : public clang::PluginASTAction {
       const char *sdkEnvironment = std::getenv("SELA_SDK_ROOT");
       Sdk sdk{absolutePath(!sdkArgument.empty() ? sdkArgument :
                        sdkEnvironment ? sdkEnvironment : SELA_DEFAULT_SDK)};
-      if (auto error = sdk.validate(true)) return error;
+      auto selected = publicationTargets();
+      if (!selected) return selected.takeError();
+      if (auto error = sdk.validate(true, *selected)) return error;
       clang::CompilerInvocation sourceInvocation(invocation);
       sourceInvocation.getDependencyOutputOpts() = requestedDependencies;
       const bool emitDependencies = !requestedDependencies.OutputFile.empty();
       for (const auto &target : sela::targets::all()) {
+        if (!llvm::is_contained(*selected, target.id.str())) continue;
         const auto capture = scratch->path / (target.id.str() + ".bc");
         const auto deps = emitDependencies ? scratch->path / (target.id.str() + ".d") : fs::path();
         if (auto error = captureSource(sourceInvocation, sdk, target.id, capture,
@@ -467,15 +471,16 @@ public:
         fs::path path = absolutePath(name.str());
         if (!seen.insert(path.string()).second) return llvm::Error::success();
         if (auto file = compiler.getFileManager().getOptionalFileRef(path.string())) {
-          auto id = compiler.getSourceManager().translateFile(*file);
-          if (id.isValid()) {
-            bool invalid = false;
-            auto buffer = compiler.getSourceManager().getBufferData(id, &invalid);
-            if (invalid) return fail("cannot hash the compiler's consumed input: " + path.string());
-            recordedDependencies.push_back(llvm::json::Object{
-                {"path", path.string()}, {"sha256", digest(buffer)}});
-            return llvm::Error::success();
-          }
+          // File contents live in SourceManager's per-file cache, independently
+          // of the macro-expansion/location table. Ask for that buffer directly:
+          // translateFile scans every source location for each dependency and
+          // needlessly ties provenance to the complete expansion inventory.
+          // In particular, do not reopen a consumed file to hash newer bytes.
+          auto buffer = compiler.getSourceManager().getMemoryBufferForFileOrNone(*file);
+          if (!buffer) return fail("cannot hash the compiler's consumed input: " + path.string());
+          recordedDependencies.push_back(llvm::json::Object{
+              {"path", path.string()}, {"sha256", digest(buffer->getBuffer())}});
+          return llvm::Error::success();
         }
         auto bytes = read(path);
         if (!bytes) return bytes.takeError();

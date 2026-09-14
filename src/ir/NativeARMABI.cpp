@@ -11,8 +11,14 @@ llvm::Error failure(const llvm::Twine &message) {
 
 bool scalar(llvm::Type *type) {
   if (auto *pointer = llvm::dyn_cast<llvm::PointerType>(type)) return pointer->getAddressSpace() == 0;
+  if (auto *vector = llvm::dyn_cast<llvm::FixedVectorType>(type)) {
+    auto bits = vector->getPrimitiveSizeInBits().getFixedValue();
+    return (bits == 64 || bits == 128) &&
+        (vector->getElementType()->isIntegerTy() || vector->getElementType()->isFloatingPointTy());
+  }
   return type->isFloatTy() || type->isDoubleTy() || type->isIntegerTy(1) ||
-      type->isIntegerTy(8) || type->isIntegerTy(16) || type->isIntegerTy(32) || type->isIntegerTy(64);
+      type->isIntegerTy(8) || type->isIntegerTy(16) || type->isIntegerTy(32) || type->isIntegerTy(64) ||
+      (aapcs64 && type->isIntegerTy(128));
 }
 
 struct Information {

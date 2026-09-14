@@ -212,15 +212,17 @@ int main() {
   auto wrongABI = sela::mergeProfiles({{"armv7", softFloat}}, artifact);
   if (!wrongABI) passed = false;
   else llvm::consumeError(std::move(wrongABI));
-  // Declaration-order normalization must not discard an unmatched real
-  // definition, even when its private spelling is not a public identity.
+  // Unmatched target-only definitions remain present instead of making
+  // cross-target factoring an admission requirement. The inverse checks each.
   auto extraDefinition = base + "/extra-definition.ll";
   passed &= write(extraDefinition, captureTexts.at("aarch64") +
       "define internal i32 @unmatched_definition() { ret i32 0 }\n");
   auto differentDefinitions = sela::mergeProfiles({{"x86_64", captures.at("x86_64")},
       {"i686", captures.at("i686")}, {"armv7", captures.at("armv7")}, {"aarch64", extraDefinition}}, artifact);
-  if (!differentDefinitions) passed = false;
-  else llvm::consumeError(std::move(differentDefinitions));
+  if (differentDefinitions) {
+    llvm::logAllUnhandledErrors(std::move(differentDefinitions), llvm::errs(), "target-only definition: ");
+    passed = false;
+  }
   llvm::sys::fs::remove(extraDefinition);
   llvm::sys::fs::remove(softFloat);
   for (const auto &[target, path] : captures) llvm::sys::fs::remove(path);

@@ -8,7 +8,7 @@ test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 test_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-link-order-XXXXXX")
 for system in make cmake; do
   "$build_tool" --system "$system" --source "$test_root/tests/fixtures/link-order" \
-    --target hello --output hello --artifact "$test_work/$system.sela"
+    --build-target hello --output hello --artifact "$test_work/$system.sela"
   for target in x86_64 i686; do
     "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower "$test_work/$system.sela" --target "$target" \
       --output-dir "$test_work/$system-$target"

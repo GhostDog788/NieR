@@ -9,7 +9,8 @@ SelaDialect::SelaDialect(mlir::MLIRContext *context)
   addOperations<FunctionOp, GlobalOp, ConstantOp, AddressOp, AllocaOp, LoadOp,
                 StoreOp, CallOp, IndirectCallOp, BinaryOp, CastOp, CompareOp, ReturnOp,
                 BranchOp, CondBranchOp, SwitchOp, UnreachableOp, AddressIndexOp,
-                SelectOp, NegateOp, ByteSwapOp, VaArgOp, VaForwardOp>();
+                SelectOp, NegateOp, ByteSwapOp, VaArgOp, VaForwardOp,
+                ExtractValueOp, InsertValueOp, ExtractElementOp, InsertElementOp, ShuffleOp, IntrinsicOp, InlineAsmOp, InlineAsmBranchOp>();
 }
 
 mlir::Type SelaDialect::parseType(mlir::DialectAsmParser &parser) const {

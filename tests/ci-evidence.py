@@ -59,6 +59,17 @@ class EvidenceTests(unittest.TestCase):
         entries, _ = self.collected()
         self.assertEqual(entries, {})
 
+    def test_xxhash_diagnostics_exclude_source_and_fixture_payloads(self):
+        for path in ("sela-xxhash-X/qualification.txt", "sela-xxhash-X/sanity.log",
+                     "sela-xxhash-X/publication-inputs.sha256"):
+            self.file(path)
+        self.file("sela-xxhash-X/sources/xxHash/source.log", b"not diagnostics")
+        self.file("sela-xxhash-X/consumer-fixtures/fixture.log", b"not diagnostics")
+        entries, _ = self.collected()
+        self.assertEqual(set(entries), {"temp/sela-xxhash-X/qualification.txt",
+                                      "temp/sela-xxhash-X/sanity.log",
+                                      "temp/sela-xxhash-X/publication-inputs.sha256"})
+
     def test_file_directory_and_hard_links_are_not_followed(self):
         outside = self.base / "outside"
         outside.mkdir()

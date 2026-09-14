@@ -18,10 +18,15 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeConditionalCFG(
   if (auto error = ir::verifyTargetDomains(source)) return std::move(error);
   mlir::OwningOpRef<mlir::ModuleOp> result(source.clone());
   auto all = ir::targetSet(source.getContext(), *targets);
+  for (auto &operation : llvm::make_early_inc_range(result->getBody()->getOperations()))
+    if (auto domain = operation.getAttr("targets"); domain && !ir::containsTarget(domain, selected))
+      operation.erase();
   for (auto &function : result->getBody()->getOperations()) {
     if (function.getName().getStringRef() != "sela.func") continue;
     if (function.getNumRegions() != 1) return fail("conditional CFG requires one function region");
     auto &region = function.getRegion(0);
+    auto functionDomain = function.getAttrOfType<mlir::ArrayAttr>("targets");
+    if (!functionDomain) functionDomain = all;
     auto rawDomains = function.getAttr("block_domains");
     auto domains = mlir::dyn_cast_or_null<mlir::ArrayAttr>(rawDomains);
     if (rawDomains && (!domains || domains.size() != region.getBlocks().size() || region.empty()))
@@ -29,8 +34,10 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeConditionalCFG(
     llvm::DenseMap<mlir::Block *, mlir::ArrayAttr> blockDomains;
     size_t index = 0;
     for (auto &block : region) {
-      auto domain = domains ? mlir::cast<mlir::ArrayAttr>(domains[index++]) : all;
-      if (block.isEntryBlock() && !llvm::all_of(*targets, [&](llvm::StringRef id) { return ir::containsTarget(domain, id); }))
+      auto domain = domains ? mlir::cast<mlir::ArrayAttr>(domains[index++]) : functionDomain;
+      if (block.isEntryBlock() && !llvm::all_of(functionDomain, [&](mlir::Attribute id) {
+            return ir::containsTarget(domain, mlir::cast<mlir::StringAttr>(id).getValue());
+          }))
         return fail("conditional CFG must retain a shared entry block");
       blockDomains[&block] = domain;
     }

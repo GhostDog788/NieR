@@ -14,4 +14,4 @@ sela_add_publication(publish
   NATIVE_OUTPUT hello
   OUTPUT hello.sela
   BUILD_TOOL "${SELA_BUILD_TOOL}"
-  TARGETS hello)
+  BUILD_TARGETS hello)

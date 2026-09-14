@@ -82,6 +82,11 @@ The current core admits profile IDs `x86_64`, `i686`, `armv7`, and `aarch64`.
 The artifact declares the targets for which its semantics are intended, and the consumer validates that declaration.
 A target domain is part of the meaning of a qualification claim, not an optional marketing label.
 
+Architecture neutrality does not require every target to share one function body or source inventory.
+Sela Code may contain shared definitions and explicit target-scoped definitions or translation units.
+Each remains ordinary Sela operations with defined semantics; opaque LLVM modules and prebuilt native objects are not a substitute.
+The producer checks each selected native reconstruction whether or not common factoring succeeds.
+
 The current C producer obtains private native evidence from every declared profile.
 A finite observation set cannot uniquely reconstruct every original source expression.
 For example, “pointer bytes” and “four times the number of four-byte pieces in a pointer” agree here.

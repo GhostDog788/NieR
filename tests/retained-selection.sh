@@ -9,7 +9,7 @@ test_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-retained-selection-XXXXXX")
 export SELA_SDK_ROOT=$sdk
 export LD_LIBRARY_PATH="$sdk/host/usr/lib/llvm-18/lib:$sdk/host/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 "$build_tool" --system make --source "$project/tests/fixtures/link-order" \
-  --target libfirst.a --output libfirst.a --artifact "$test_work/library.sela" \
+  --build-target libfirst.a --output libfirst.a --artifact "$test_work/library.sela" \
   --keep-private > "$test_work/build.log" 2>&1
 retained=$(sed -n 's/^Private build evidence: //p' "$test_work/build.log")
 test -d "$retained/build-x86_64/metadata"

@@ -101,7 +101,7 @@ endif
 
 SELA_BUILD_TOOL ?= $(SELA_ROOT)/build/prealpha/sela-build
 SELA_SOURCE_DIR := $(CURDIR)
-SELA_TARGETS := hello
+SELA_BUILD_TARGETS := hello
 SELA_NATIVE_OUTPUT := build/native-make/hello
 SELA_ARTIFACT := $(CURDIR)/build/sela-make/hello.sela
 
@@ -118,7 +118,7 @@ If Make reports `missing separator`, check that indentation first.
 
 `SELA_ROOT` will be supplied explicitly on the command line and must be the absolute path to your Sela checkout.
 `SELA_SOURCE_DIR` identifies the application root where you run Make.
-`SELA_TARGETS` asks the original project to build `hello`, while `SELA_NATIVE_OUTPUT` names the resulting native executable inside each private build.
+`SELA_BUILD_TARGETS` asks the original project to build `hello`, while `SELA_NATIVE_OUTPUT` names the resulting native executable inside each private build.
 `SELA_ARTIFACT` is the separate publication destination; the directory prerequisite creates its parent before publication starts.
 
 The included SDK file supplies the publication recipe.
@@ -180,7 +180,7 @@ sela_add_publication(publish
   NATIVE_OUTPUT hello
   OUTPUT hello.sela
   BUILD_TOOL "${SELA_BUILD_TOOL}"
-  TARGETS hello)
+  BUILD_TARGETS hello)
 ```
 
 This is a separate coordinator CMake project, not the application's original project.
@@ -188,7 +188,7 @@ It has no source language of its own, which is why `project` uses `NONE`.
 `SOURCE_DIR` points one level up to this application's sources; `SELA_ROOT` independently locates the toolchain.
 There is no dependency on where this project happens to sit inside the example repository.
 
-`TARGETS hello` selects the original application's native target.
+`BUILD_TARGETS hello` selects the original application's native target.
 Here `NATIVE_OUTPUT hello` is relative to its private CMake binary directory, whereas `OUTPUT hello.sela` is relative to the coordinator's binary directory.
 The SDK environment selects the matching CMake and Ninja.
 This copied application does not need a Sela development preset.

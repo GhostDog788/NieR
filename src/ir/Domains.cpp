@@ -314,8 +314,12 @@ llvm::Error verifyTargetDomains(mlir::ModuleOp module) {
       for (auto result : function.getResults()) checkType(result, depth + 1);
     } else if (auto integer = mlir::dyn_cast<mlir::IntegerType>(type)) {
       unsigned width = integer.getWidth();
-      if (width != 1 && width != 8 && width != 16 && width != 32 && width != 64)
+      if (width < 1 || width > 128)
         message = "unsupported public integer type in a declared alternative";
+    } else if (auto vector = mlir::dyn_cast<mlir::VectorType>(type)) {
+      if (vector.isScalable() || vector.getRank() != 1 || vector.getNumElements() < 1 || vector.getNumElements() > 1024)
+        message = "unsupported vector extent in a declared alternative";
+      checkType(vector.getElementType(), depth + 1);
     } else if (!mlir::isa<PointerType, WordType, VaListType, VaListArgumentType>(type) && !type.isF32() && !type.isF64()) {
       message = "unsupported public type in a declared alternative";
     }
@@ -323,11 +327,25 @@ llvm::Error verifyTargetDomains(mlir::ModuleOp module) {
   module.walk([&](mlir::Operation *operation) {
     if (!message.empty()) return;
     std::set<std::string> active = universe;
+    auto *definition = operation;
+    if (auto *parent = operation->getParentOp(); parent && parent->getName().getStringRef() == "sela.func")
+      definition = parent;
+    if (auto raw = definition->getAttr("targets")) {
+      if (definition->getParentOp() != module.getOperation() ||
+          (definition->getName().getStringRef() != "sela.func" &&
+           definition->getName().getStringRef() != "sela.global")) {
+        message = "target availability requires a top-level definition"; return;
+      }
+      if (auto error = checkSet(raw, universe)) { message = llvm::toString(std::move(error)); return; }
+      active.clear();
+      for (auto id : mlir::cast<mlir::ArrayAttr>(raw))
+        active.insert(mlir::cast<mlir::StringAttr>(id).getValue().str());
+    }
     if (auto *parent = operation->getParentOp(); parent && parent->getName().getStringRef() == "sela.func") {
       if (auto domains = parent->getAttrOfType<mlir::ArrayAttr>("block_domains")) {
         auto index = std::distance(parent->getRegion(0).begin(), operation->getBlock()->getIterator());
         if (size_t(index) >= domains.size()) { message = "local operation lacks a declared block domain"; return; }
-        if (auto error = checkSet(domains[index], universe)) { message = llvm::toString(std::move(error)); return; }
+        if (auto error = checkSet(domains[index], active)) { message = llvm::toString(std::move(error)); return; }
         active.clear();
         for (auto id : mlir::cast<mlir::ArrayAttr>(domains[index])) active.insert(mlir::cast<mlir::StringAttr>(id).getValue().str());
       }
@@ -365,6 +383,7 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeDomains(
     llvm::SmallVector<mlir::NamedAttribute> attributes;
     for (auto entry : operation->getAttrs()) {
       auto name = entry.getName().getValue();
+      if (name == "targets" && operation->getParentOp() == (*selected)->getOperation()) continue;
       mlir::Attribute raw = entry.getValue();
       if (name == "sela.module_flags") {
         auto flags = mlir::dyn_cast<mlir::ArrayAttr>(raw);
@@ -373,7 +392,11 @@ llvm::Expected<mlir::OwningOpRef<mlir::ModuleOp>> specializeDomains(
         for (auto value : flags) {
           auto record = mlir::dyn_cast<mlir::DictionaryAttr>(value);
           if (!record) { error = "invalid public module flag"; return; }
-          if (containsTarget(record.get("targets"), target.id)) kept.push_back(value);
+          if (containsTarget(record.get("targets"), target.id)) {
+            mlir::NamedAttrList fields(record);
+            fields.set("targets", targetSet(module.getContext(), {target.id}));
+            kept.push_back(fields.getDictionary(module.getContext()));
+          }
         }
         raw = mlir::ArrayAttr::get(module.getContext(), kept);
       }

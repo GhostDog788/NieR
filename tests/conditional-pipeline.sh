@@ -56,7 +56,12 @@ for level in O0 O2; do
   test "$(env -u LD_LIBRARY_PATH "$lane/program32")" = \
        "$(env -u LD_LIBRARY_PATH "$lane/native-i686")"
 
-  for negative in branch escape; do
+  # A differing CFG is now a valid target-scoped definition, not a requirement
+  # to erase the branch or guess correspondence with another target's body.
+  "$llvm/clang" --config="$config" -std=gnu11 -"$level" -c \
+    "$project/tests/fixtures/conditional-branch-rejected.c" -o "$lane/branch.o"
+  "$selac" inspect "$lane/branch.o" --sdk "$sdk" > "$lane/branch-inspect.txt"
+  for negative in escape; do
     if "$llvm/clang" --config="$config" -std=gnu11 -"$level" -c \
         "$project/tests/fixtures/conditional-$negative-rejected.c" \
         -o "$lane/rejected-$negative.o" >"$lane/$negative.log" 2>&1; then

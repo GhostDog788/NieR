@@ -91,6 +91,31 @@ This selected Make suite is not a claim to qualify zlib's separate CMake package
 - [Make tests](https://github.com/madler/zlib/blob/v1.3.2/Makefile.in)
 - [Official release digest](https://zlib.net/)
 
+## xxHash 0.8.3 target-specific C increment
+
+The separate `corpus/xxhash.lock` pins the unmodified upstream release.
+Run its preparation or device gate with:
+
+```sh
+bash corpus/qualify-xxhash.sh /path/to/sela-build /path/to/sdk --prepare-only
+# Or publish and then run the four real-kernel device jobs:
+bash corpus/qualify-xxhash.sh /path/to/sela-build /path/to/sdk \
+  --bundle-parent /path/to/artifacts
+```
+
+The six outputs are `xxhsum`, `tests/sanity_test`, static and shared libraries,
+and separate static/shared API clients. Upstream Make chooses its normal
+target-specific sources and flags, including x86 dispatch and ARM SIMD;
+qualification must not turn these off to make publication succeed.
+Device checks run the upstream CLI's built-in sanity checks, the unmodified
+standalone sanity executable, four CLI hash variants, streaming APIs, archive
+membership, SONAME and an ordinary native caller against the generated DSO.
+Only Sela artifacts, native reference binaries and generated data reach guests.
+This is functional/ABI evidence, not a benchmark or all upstream `make check`
+recipes. The new runner does not replace the complete cJSON/zlib regressions.
+Consult the [active implementation record](../02-implementation-plan.md#174-target-specific-c-implementation-and-remaining-gates)
+for what has actually passed; adding the runner alone is not qualification.
+
 ## Destination execution
 
 Every selected executable/shared-library link and static-library output produces its own Sela artifact.
@@ -123,6 +148,13 @@ The VM defaults to 3 GiB RAM and a 3600-second limit for corpus fixtures contain
 `SELA_VM_RAM_MIB` and `SELA_VM_TIMEOUT` allow explicit supported resource choices; a supplied timeout overrides either default and must remain between 30 and 3600 seconds.
 Timing is recorded for observability, not treated as a performance acceptance threshold. Logs and failed boot images are retained rather than overwritten with later retry results.
 PR CI requires the core matrix on all four targets; main/manual CI additionally requires all 50 unchanged corpus artifacts on each target.
+The target-specific C increment adds a separate six-artifact xxHash fixture set
+and four equally required destination jobs on main/manual runs. Every device
+receives the same publication archive; no per-device source rebuild or automatic
+crash retry can turn a failure into a CI pass. Publisher preparation and guest
+execution have explicit time limits, with bounded diagnostic retention.
+This describes the checked-in workflow; local passing runs are not evidence
+that the updated GitHub workflow has run successfully.
 
 ## Historical evidence distinctions
 

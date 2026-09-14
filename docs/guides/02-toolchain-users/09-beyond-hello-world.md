@@ -86,7 +86,7 @@ guide_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide09-build-XXXXXX")
 make -f "$PWD/sdk/share/sela/Sela.mk" \
   SELA_BUILD_TOOL="$PWD/build/prealpha/sela-build" \
   SELA_SOURCE_DIR="$PWD/tests/fixtures/generated" \
-  SELA_TARGETS=hello SELA_NATIVE_OUTPUT=hello \
+  SELA_BUILD_TARGETS=hello SELA_NATIVE_OUTPUT=hello \
   SELA_ARTIFACT="$guide_work/generated.sela"
 
 build/prealpha/selac inspect "$guide_work/generated.sela"

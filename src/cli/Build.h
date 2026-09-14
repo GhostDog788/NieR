@@ -1,5 +1,6 @@
 #pragma once
 #include "sela/Support.h"
+#include "sela/Artifact/Artifact.h"
 
 namespace sela::driver {
 struct CapturedUnit {
@@ -9,17 +10,19 @@ struct CapturedUnit {
 };
 struct CapturedBuild {
   std::vector<CapturedUnit> units;
+  std::vector<std::string> architectures;
   // Preserve each target's observed order of whole native TUs, never bodies
   // or flags. Equal pointer widths do not identify a native target.
   std::map<std::string, std::vector<size_t>> ordersByTarget;
   std::vector<std::string> libraries, linkOptions;
   std::string kind = "executable";
   std::string versionScript;
+  LinkPlan linksByTarget;
 };
 struct BuildRequest {
   std::string system;
   fs::path sourceDirectory, output;
-  std::vector<std::string> configureArgs, targets, cflags;
+  std::vector<std::string> configureArgs, buildTargets, architectures, cflags;
 };
 // Internal SDK service: real stock Clang in one normal build tree per target,
 // including native configure probes and project generators. No JSON recipes.

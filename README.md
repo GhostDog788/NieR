@@ -95,12 +95,14 @@ For an existing application, use [Publish your C project with Sela](docs/guides/
 | --- | --- |
 | Format and compiler | Independent `.sela` artifacts, public producer APIs, and a separate LLVM-based `selac`. |
 | C publication | Stock-Clang plugin; qualified Make/CMake builds; executable, shared-library, and static-archive outputs. |
-| Native targets | Separate x86-64, i686, ARMv7 hard-float, and AArch64 Linux/glibc compiler bundles; the core matrix and all 50 configured cJSON/zlib artifacts pass in four matching-kernel VMs. |
-| Still being qualified | General C/ABI coverage, broader build semantics, native-equivalent performance, and reverse-engineering resistance. |
+| Native targets | Separate x86-64, i686, ARMv7 hard-float, and AArch64 Linux/glibc compiler bundles; the new target-specific core matrix passes in four matching-kernel VMs. |
+| Target-specific C | Selected architecture sets, differing native build graphs, fixed vectors, selected intrinsics, inline assembly/asm goto, and constructors. This increment is partially implemented. |
+| Still being qualified | Standalone/file-scope assembly, CPU compatibility admission, general C/ABI coverage, complete corpus regression, native-equivalent performance, and reverse-engineering resistance. |
 | Planned | More languages and targets; production distribution; SESela (SES) for signing and executable-memory security enforcement. |
 
 The [current status reference](docs/reference/toolchain-status.md) explains the boundaries and failure behavior.
 The [qualification reference](docs/reference/qualification-corpus.md) records passing cJSON and zlib checkpoints; it does not imply that every later commit has rerun the full corpus.
+The [target-specific C checkpoint](docs/reference/target-c-checkpoint.md) distinguishes this increment's passing tests, failed attempts, and unfinished work.
 SES security enforcement is a separate axis, not a requirement for using today's Sela toolchain.
 
 Run the focused CI smoke suite after building:
@@ -116,6 +118,7 @@ See the [requirements](docs/01-architecture-design.md), [implementation plan](do
 
 - [Hello project walkthrough](docs/guides/02-toolchain-users/hello-project-walkthrough.md) — try the starter project and compare your chosen integration with the solution.
 - [Publish your own C project](docs/guides/02-toolchain-users/using-sela-with-your-c-project.md) — integrate an existing Make or CMake build.
+- [Publish target-specific C](docs/guides/02-toolchain-users/target-specific-c.md) — select architectures and preserve native target choices.
 - [Guide series](docs/guides/README.md) — learn Sela Code, then follow the implementation.
 - [Build and VS Code setup](docs/reference/building-sela.md) — configure the SDK and editor.
 - [Compiler-only distribution](docs/reference/compiler-distribution.md) — package the independent consumer.

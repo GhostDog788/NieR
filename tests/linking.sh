@@ -22,7 +22,7 @@ if grep -q 'hidden_answer' "$work/symbols"; then
   exit 1
 fi
 readelf -d "$work/libraries/libexample.so.1" | grep -q 'SONAME.*libexample.so.1'
-tar -xOf "$work/library.sela" link/version.script > "$work/version.script"
+tar -xOf "$work/library.sela" link/x86_64.version.script > "$work/version.script"
 if grep -q 'private publication\|/home/builder' "$work/version.script"; then
   echo 'Version script leaked publication comments' >&2
   exit 1

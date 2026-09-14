@@ -17,4 +17,8 @@ struct CommonModule {
 };
 llvm::Expected<CommonModule> mergeCommonModules(
     llvm::ArrayRef<mlir::ModuleOp> modules, llvm::ArrayRef<llvm::StringRef> targets);
+// Lossless factoring of literal definitions when structural correspondence is
+// absent. Target order and each native module's definition order are retained.
+llvm::Expected<CommonModule> factorScopedModules(
+    llvm::ArrayRef<mlir::ModuleOp> modules, llvm::ArrayRef<llvm::StringRef> targets);
 }

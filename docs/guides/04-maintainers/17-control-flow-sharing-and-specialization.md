@@ -4,6 +4,10 @@
 
 ## Objective and prerequisites
 
+This chapter describes the optional common-control-flow factoring path.
+When that path cannot prove sharing, the current producer can retain distinct target-scoped Sela definitions instead.
+That alternative still requires valid operations and a successful native inverse check for every target; it does not weaken public SSA validation.
+
 This chapter explains how Sela represents a supported target-conditioned region inside one shared function,
 and how the consumer removes inactive regions without breaking the program.
 You should understand basic blocks, SSA, dominance, PHIs/block arguments, and the finite-domain correspondence claim from the previous chapter.
@@ -129,9 +133,10 @@ Replacing that value with zero would invent semantics; retaining a dangling refe
 The public consumer must reject this graph. It cannot assume an artifact is safe because our current producer would not emit it.
 Public Sela construction is independent, and malformed input can arrive at the same API.
 
-Another rejected case is a one-sided source branch with structure outside the closed-switch-arm template.
-It may be valid C and may have an obvious meaning to a human, yet the producer lacks an admitted graph proof.
-The appropriate diagnostic is an unsupported correspondence, not successful publication of a hidden target-specific body.
+Another failed sharing case is a one-sided source branch with structure outside the closed-switch-arm template.
+The factoring pass cannot claim a common graph without its proof.
+The current producer may instead publish explicit target-scoped Sela bodies, with successful reconstruction checks for both.
+An unrepresentable instruction or escaping block-address value still rejects; it cannot be hidden in an opaque payload.
 
 These are different rejection layers. The producer rejects an unproved native-to-common mapping; the consumer rejects an invalid public graph.
 Their rules are related but do not substitute for each other.

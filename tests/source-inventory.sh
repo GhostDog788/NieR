@@ -8,7 +8,7 @@ test_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 test_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-source-inventory-XXXXXX")
 for system in make cmake; do
   "$build_tool" --system "$system" --source "$test_root/tests/fixtures/source-inventory" \
-    --target hello --output hello --artifact "$test_work/$system.sela" --keep-private \
+    --build-target hello --output hello --artifact "$test_work/$system.sela" --keep-private \
     2>&1 | tee "$test_work/$system.log"
   "$selac" inspect "$test_work/$system.sela" | tee "$test_work/$system-inspection.log"
   grep -q 'x86_64: 3 native compilation units' "$test_work/$system-inspection.log"
@@ -28,22 +28,16 @@ for system in make cmake; do
   env -u LD_LIBRARY_PATH -u LD_PRELOAD "$test_work/$system-native"
   private=$(sed -n 's/^Private compiler workspace: //p' "$test_work/$system-compile.log")
   test "$(find "$private" -maxdepth 1 -name '*.opt.bc' | wc -l)" -eq 3
-  before=$(sha256sum "$test_work/$system.sela")
   for variant in SELA_CROSS_FRAGMENT SELA_PRIVATE_IDENTITY; do
-    if "$build_tool" --system "$system" --source "$test_root/tests/fixtures/source-inventory" \
-        --target hello --output hello --artifact "$test_work/$system.sela" --cflag "-D$variant" \
-        > "$test_work/$system-$variant.log" 2>&1; then
-      echo 'An unqualified native identity boundary unexpectedly published' >&2
-      exit 1
-    fi
-    if test "$variant" = SELA_CROSS_FRAGMENT; then
-      grep -q 'cross-fragment native definition reference needs an explicit shared identity' \
-        "$test_work/$system-$variant.log"
-    else
-      grep -q 'regrouped native units currently require self-contained external scalar definitions' \
-        "$test_work/$system-$variant.log"
-    fi
-    test "$(sha256sum "$test_work/$system.sela")" = "$before"
+    "$build_tool" --system "$system" --source "$test_root/tests/fixtures/source-inventory" \
+        --build-target hello --output hello --artifact "$test_work/$system-$variant.sela" --cflag "-D$variant" \
+        > "$test_work/$system-$variant.log" 2>&1
+    "$selac" "$test_work/$system-$variant.sela" -o "$test_work/$system-$variant"
+    env -u LD_LIBRARY_PATH -u LD_PRELOAD "$test_work/$system-$variant"
+    for target in x86_64 i686 armv7 aarch64; do
+      "${SELA_REFERENCE_LOWER:-$(dirname -- "$selac")/sela_reference_lower}" lower \
+        "$test_work/$system-$variant.sela" --target "$target" --output-dir "$test_work/$system-$variant-$target"
+    done
   done
   test ! -e "$test_root/tests/fixtures/source-inventory/main.o"
 done

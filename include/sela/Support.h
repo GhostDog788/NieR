@@ -1,5 +1,6 @@
 #pragma once
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/JSON.h"
 #include <filesystem>
@@ -10,6 +11,12 @@
 namespace sela::driver {
 namespace fs = std::filesystem;
 llvm::Error fail(const std::string &message);
+// Canonical registry order, strict IDs, no empty or repeated selections.
+llvm::Expected<std::vector<std::string>> parseTargetSelection(llvm::StringRef text);
+// Explicit CLI selections override SELA_ARCHS; an absent selection means all.
+llvm::Expected<std::vector<std::string>> publicationTargets(
+    llvm::ArrayRef<std::string> requested = {});
+std::string targetSelectionText(llvm::ArrayRef<std::string> targets);
 llvm::Expected<std::string> read(const fs::path &path, size_t limit = 64 * 1024 * 1024);
 llvm::Error write(const fs::path &path, llvm::StringRef contents);
 llvm::Error replaceFile(const fs::path &source, const fs::path &output, bool executable = false);
@@ -34,7 +41,8 @@ struct Sdk {
   fs::path tool(llvm::StringRef name) const;
   fs::path sysroot(llvm::StringRef profile) const;
   std::map<std::string, std::string> toolEnvironment() const;
-  llvm::Error validate(bool publisher = false) const;
+  llvm::Error validate(bool publisher = false,
+      llvm::ArrayRef<std::string> selectedTargets = {}) const;
   std::vector<std::string> compileFlags(llvm::StringRef profile) const;
   llvm::Expected<std::vector<std::string>> linkCommand(
       llvm::StringRef profile, const std::vector<fs::path> &objects,
@@ -42,5 +50,6 @@ struct Sdk {
       bool shared = false, const std::vector<std::string> &linkOptions = {},
       const std::vector<fs::path> &libraryDirectories = {}) const;
 };
-constexpr const char *Contract = "sela-prealpha-1";
+constexpr const char *Contract = "sela-prealpha-2";
+constexpr int ArtifactFormatVersion = 2;
 }

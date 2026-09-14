@@ -15,6 +15,8 @@ No compiler-internals knowledge or earlier course chapters are required.
 Use [Publish your C project with Sela](using-sela-with-your-c-project.md). It is a standalone practical guide with copy/paste examples, application settings, native compilation, and troubleshooting.
 No earlier course chapters are required.
 
+For architecture selection, per-target sources, intrinsics and inline assembly, continue with [Publish target-specific C](target-specific-c.md).
+
 ## Following the course?
 
 These chapters build on the [foundations](../01-foundations/README.md) and explain the commands and their outputs in more detail.

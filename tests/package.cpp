@@ -80,7 +80,8 @@ PackageFiles validFiles() {
   std::string module("opaque\0module-fixture", 21);
   llvm::json::Array modules;
   modules.push_back(llvm::json::Object{{"path", "modules/0.selabc"},
-                                      {"sha256", digest(module)}});
+                                      {"sha256", digest(module)},
+                                      {"targets", llvm::json::Array{"x86_64", "i686"}}});
   llvm::json::Object plans;
   for (const char *target : {"x86_64", "i686"})
     plans[target] = llvm::json::Array{llvm::json::Object{
@@ -88,7 +89,7 @@ PackageFiles validFiles() {
   PackageFiles result;
   result["modules/0.selabc"] = module;
   result["manifest.json"] = jsonText(llvm::json::Object{
-      {"format_version", 1}, {"contract", Contract}, {"kind", "executable"},
+      {"format_version", ArtifactFormatVersion}, {"contract", Contract}, {"kind", "executable"},
       {"runtime", "glibc-2.39-0ubuntu8.8"},
       {"targets", llvm::json::Array{"x86_64", "i686"}},
       {"libraries", llvm::json::Array{}}, {"link_options", llvm::json::Array{}}, {"modules", std::move(modules)},
@@ -184,7 +185,8 @@ void manifestTests(Tests &tests) {
     throw std::runtime_error(llvm::toString(multipleManifest.takeError()));
   multipleManifest->getAsObject()->getArray("modules")->push_back(
       llvm::json::Object{{"path", "modules/1.selabc"},
-                         {"sha256", digest(multiple.at("modules/1.selabc"))}});
+                         {"sha256", digest(multiple.at("modules/1.selabc"))},
+                         {"targets", llvm::json::Array{"x86_64", "i686"}}});
   for (const char *target : {"x86_64", "i686"})
     multipleManifest->getAsObject()->getObject("compilation_units")->getArray(target)->push_back(
         llvm::json::Object{{"modules", llvm::json::Array{1}}, {"optimization", "O0"}});
@@ -270,7 +272,47 @@ void manifestTests(Tests &tests) {
   else
     tests.validate("duplicate static member names accepted in physical order", *duplicateMembers, true);
   tests.validate("unknown format version rejected",
-                 mutateManifest([](auto &m) { m["format_version"] = 2; }), false);
+                 mutateManifest([](auto &m) { m["format_version"] = 1; }), false);
+  auto targetLinks = [](llvm::json::Object &m) {
+    llvm::json::Object links;
+    links["x86_64"] = llvm::json::Object{
+        {"libraries", llvm::json::Array{}}, {"link_options", llvm::json::Array{}}};
+    links["i686"] = llvm::json::Object{
+        {"libraries", llvm::json::Array{"m"}}, {"link_options", llvm::json::Array{}}};
+    m["target_links"] = std::move(links);
+  };
+  tests.validate("target-specific libraries accepted", mutateManifest(targetLinks), true);
+  tests.validate("missing target link record rejected", mutateManifest([&](auto &m) {
+    targetLinks(m); m.getObject("target_links")->erase("i686");
+  }), false);
+  tests.validate("foreign target link record rejected", mutateManifest([&](auto &m) {
+    targetLinks(m);
+    (*m.getObject("target_links"))["aarch64"] = llvm::json::Object{
+        {"libraries", llvm::json::Array{}}, {"link_options", llvm::json::Array{}}};
+  }), false);
+  tests.validate("common and per-target libraries cannot mix", mutateManifest([&](auto &m) {
+    targetLinks(m); m["libraries"] = llvm::json::Array{"m"};
+  }), false);
+  tests.validate("common and per-target flags cannot mix", mutateManifest([&](auto &m) {
+    targetLinks(m); m["link_options"] = llvm::json::Array{"--export-dynamic"};
+  }), false);
+  tests.validate("unknown inactive target link field rejected", mutateManifest([&](auto &m) {
+    targetLinks(m); (*m.getObject("target_links")->getObject("i686"))["raw_flags"] = "-evil";
+  }), false);
+  tests.validate("inactive target library paths rejected", mutateManifest([&](auto &m) {
+    targetLinks(m);
+    (*m.getObject("target_links")->getObject("i686"))["libraries"] = llvm::json::Array{"/tmp/libbad.so"};
+  }), false);
+  auto scopedScript = mutateManifest([&](auto &m) {
+    targetLinks(m);
+    m["kind"] = "shared";
+    (*m.getObject("target_links")->getObject("i686"))["version_script"] = llvm::json::Object{
+        {"path", "link/i686.version.script"}, {"sha256", digest("API { global: entry; };\n")}};
+  });
+  scopedScript["link/i686.version.script"] = "API { global: entry; };\n";
+  tests.validate("target-specific version script accepted", scopedScript, true);
+  scopedScript["link/i686.version.script"] += "# tampered\n";
+  tests.validate("inactive target script digest checked", scopedScript, false);
   tests.validate("string format version rejected",
                  mutateManifest([](auto &m) { m["format_version"] = "1"; }), false);
   tests.validate("wrong compiler contract rejected",
@@ -284,8 +326,32 @@ void manifestTests(Tests &tests) {
   tests.validate("independently qualified target subset accepted",
                  mutateManifest([](auto &m) {
                    m["targets"] = llvm::json::Array{"x86_64"};
+                   firstModule(m)["targets"] = llvm::json::Array{"x86_64"};
                    m.getObject("compilation_units")->erase("i686");
                  }), true);
+  tests.validate("inactive fragments may be absent from a target plan",
+                 mutateManifest([](auto &m) {
+                   firstModule(m)["targets"] = llvm::json::Array{"x86_64"};
+                   (*m.getObject("compilation_units"))["i686"] = llvm::json::Array{};
+                 }), true);
+  tests.validate("inactive fragment cannot be compiled on another target",
+                 mutateManifest([](auto &m) {
+                   firstModule(m)["targets"] = llvm::json::Array{"x86_64"};
+                 }), false);
+  tests.validate("active fragment cannot be omitted",
+                 mutateManifest([](auto &m) {
+                   (*m.getObject("compilation_units"))["x86_64"] = llvm::json::Array{};
+                 }), false);
+  tests.validate("missing fragment domain rejected",
+                 mutateManifest([](auto &m) { firstModule(m).erase("targets"); }), false);
+  tests.validate("fragment domain outside artifact rejected",
+                 mutateManifest([](auto &m) {
+                   firstModule(m)["targets"] = llvm::json::Array{"armv7"};
+                 }), false);
+  tests.validate("duplicate fragment target rejected",
+                 mutateManifest([](auto &m) {
+                   firstModule(m)["targets"] = llvm::json::Array{"x86_64", "x86_64"};
+                 }), false);
   tests.validate("unknown library rejected",
                  mutateManifest([](auto &m) {
                    m["libraries"] = llvm::json::Array{"../host-secret"};

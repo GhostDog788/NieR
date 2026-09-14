@@ -9,6 +9,7 @@
 namespace sela {
 struct MergedPartitions {
   std::vector<std::string> fragments;
+  std::vector<std::vector<std::string>> fragmentTargets;
   std::map<std::string, std::vector<std::vector<size_t>>> unitsByTarget;
 };
 struct ProfilePartitionInput {

@@ -6,7 +6,7 @@ project=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 preflight_work=$(mktemp -d "${TMPDIR:-/tmp}/sela-preflight-test-XXXXXX")
 if SELA_EMULATOR_ARMV7="$preflight_work/missing-qemu" "$builder" \
     --system make --source "$project/tests/fixtures/build" --output hello \
-    --target hello --artifact "$preflight_work/rejected.sela" \
+    --build-target hello --artifact "$preflight_work/rejected.sela" \
     >"$preflight_work/rejected.log" 2>&1; then
   printf 'Missing explicitly selected emulator unexpectedly passed setup preflight\n' >&2
   exit 1

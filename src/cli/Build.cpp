@@ -114,13 +114,14 @@ std::string shellQuote(const std::string &argument) {
   return result + "'";
 }
 llvm::Expected<std::map<std::string, std::string>> preflightNativeExecution(
-    const Sdk &sdk, const fs::path &scratch) {
+    const Sdk &sdk, const fs::path &scratch, llvm::ArrayRef<std::string> selectedTargets) {
   std::map<std::string, std::string> emulators;
   const auto timeout = llvm::sys::findProgramByName("timeout");
   if (!timeout) return fail("native build execution preflight requires the host timeout utility");
   const std::vector<std::string> cleanRuntime{
       "LD_LIBRARY_PATH", "LD_PRELOAD", "QEMU_LD_PREFIX", "QEMU_SET_ENV", "QEMU_UNSET_ENV"};
   for (const auto &target : sela::targets::all()) {
+    if (!llvm::is_contained(selectedTargets, target.id.str())) continue;
     if (target.llvmBackend == "ARM" || target.llvmBackend == "AArch64") {
       const auto variable = "SELA_EMULATOR_" + target.id.upper();
       const char *configured = std::getenv(variable.c_str());
@@ -350,8 +351,9 @@ llvm::Error recordNativeLink(const std::vector<std::string> &args, const Sdk &sd
     else if (arg == "-soname" || arg == "--soname" || arg == "-h") {
       if (++i == args.size()) return fail("native linker SONAME has no value");
       linkOptions.push_back("-soname"); linkOptions.push_back(args[i]);
-    } else if (arg.starts_with("--soname=")) {
-      linkOptions.push_back("-soname"); linkOptions.push_back(arg.drop_front(9).str());
+    } else if (arg.starts_with("--soname=") || arg.starts_with("-soname=")) {
+      linkOptions.push_back("-soname");
+      linkOptions.push_back(arg.substr(arg.find('=') + 1).str());
     } else if (arg == "-export-dynamic" || arg == "--export-dynamic" || arg == "-E") {
       linkOptions.push_back("--export-dynamic");
     } else if (arg == "--hash-style=both" || arg == "--hash-style=gnu") {
@@ -697,13 +699,21 @@ llvm::Expected<CapturedBuild> combineSelected(const std::vector<SelectedBuild> &
   for (const auto &profile : selected) {
     if (!sela::targets::find(profile.target) || !labels.insert(profile.target).second)
       return fail("unsupported or duplicate native selection target");
-    if (selected[0].libraries != profile.libraries || selected[0].linkOptions != profile.linkOptions ||
-        selected[0].kind != profile.kind || selected[0].versionScript != profile.versionScript)
-      return fail("profile-dependent link graph needs a still-unimplemented common contract");
+    if (selected[0].kind != profile.kind)
+      return fail("one publication cannot mix native output kinds");
   }
   CapturedBuild result;
+  for (const auto &profile : selected) result.architectures.push_back(profile.target);
   result.kind = selected[0].kind; result.libraries = selected[0].libraries; result.linkOptions = selected[0].linkOptions;
   result.versionScript = selected[0].versionScript;
+  if (llvm::any_of(selected, [&](const auto &profile) {
+        return profile.libraries != result.libraries || profile.linkOptions != result.linkOptions ||
+               profile.versionScript != result.versionScript;
+      })) {
+    for (const auto &profile : selected)
+      result.linksByTarget[profile.target] = {profile.libraries, profile.linkOptions, profile.versionScript};
+    result.libraries.clear(); result.linkOptions.clear(); result.versionScript.clear();
+  }
   const auto &reference = selected.front().units;
   auto matches = [](const SelectedUnit &left, const SelectedUnit &right) {
     return (left.source == right.source || left.key == right.key) &&
@@ -753,19 +763,38 @@ llvm::Expected<CapturedBuild> combineSelected(const std::vector<SelectedBuild> &
     }
     return result;
   }
-  if (result.kind == "static")
-    return fail("differing static archive inventories need per-target member partition publication");
   if (reference.empty()) return fail("empty profile-selected application inventory");
   const auto &settings = reference.front();
   CapturedUnit group;
   group.optimization = settings.optimization;
+  bool commonSettings = result.kind != "static";
   for (const auto &profile : selected) {
     if (profile.units.empty()) return fail("empty profile-selected application inventory");
     for (const auto &unit : profile.units) {
       if (unit.flags != settings.flags || unit.optimization != settings.optimization)
-        return fail("differing TU partitions currently require matching effective per-unit settings");
+        commonSettings = false;
       group.pathsByTarget[profile.target].push_back(unit.capture);
     }
+  }
+  if (!commonSettings) {
+    // Keep heterogeneous native units separate. Sharing candidates must have
+    // matching source/output identity and settings, never just equal bitness.
+    std::vector<const SelectedUnit *> representatives;
+    for (const auto &profile : selected) {
+      auto &order = result.ordersByTarget[profile.target];
+      for (const auto &native : profile.units) {
+        size_t index = 0;
+        while (index < representatives.size() &&
+               (!matches(*representatives[index], native) || result.units[index].pathsByTarget.count(profile.target))) ++index;
+        if (index == representatives.size()) {
+          representatives.push_back(&native);
+          result.units.push_back({{}, native.optimization, native.archiveMemberName});
+        }
+        result.units[index].pathsByTarget[profile.target].push_back(native.capture);
+        order.push_back(index);
+      }
+    }
+    return result;
   }
   // The merger must prove shared definitions and reconstruct every original
   // native optimization unit; matching build paths alone never establishes it.
@@ -837,8 +866,20 @@ llvm::Expected<CapturedBuild> selectRetainedBuild(const fs::path &scratch,
     return fail("retained selected output must stay inside each private build lane");
   const auto root = absolutePath(scratch);
   if (!fs::is_directory(root)) return fail("retained private build root does not exist");
+  auto receipt = readJson(root / "capture-targets.json");
+  if (!receipt) return receipt.takeError();
+  auto *record = receipt->getAsObject();
+  if (!record || record->size() != 1) return fail("invalid retained publication target receipt");
+  auto ids = strings(*record, "architectures");
+  if (!ids || ids->empty()) {
+    if (!ids) return ids.takeError();
+    return fail("empty retained publication target receipt");
+  }
+  auto architectures = publicationTargets(*ids);
+  if (!architectures) return architectures.takeError();
   std::vector<SelectedBuild> selected;
   for (const auto &target : sela::targets::all()) {
+    if (!llvm::is_contained(*architectures, target.id.str())) continue;
     const auto lane = absolutePath(root / ("build-" + target.id.str()));
     const auto metadata = absolutePath(lane / "metadata");
     const auto output = absolutePath(lane / relative);
@@ -862,14 +903,20 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
   const auto source = absolutePath(request.sourceDirectory);
   if (!fs::is_directory(source)) return fail("build source directory does not exist");
   if (inside(absolutePath(scratch), source)) return fail("scratch cannot be inside copied sources");
-  for (const auto &target : request.targets)
+  for (const auto &target : request.buildTargets)
     if (target.empty() || target.front() == '-') return fail("build target must be a name, not an option");
   const auto recorder = fs::read_symlink("/proc/self/exe").parent_path() / "sela-native-ld";
   if (!fs::is_regular_file(recorder)) return fail("publisher SDK lacks sela-native-ld");
-  auto emulators = preflightNativeExecution(sdk, scratch);
+  auto architectures = publicationTargets(request.architectures);
+  if (!architectures) return architectures.takeError();
+  llvm::json::Array captureTargets;
+  for (const auto &target : *architectures) captureTargets.push_back(target);
+  if (auto error = write(scratch / "capture-targets.json", jsonText(llvm::json::Object{{"architectures", std::move(captureTargets)}}))) return error;
+  auto emulators = preflightNativeExecution(sdk, scratch, *architectures);
   if (!emulators) return emulators.takeError();
   std::vector<SelectedBuild> selected;
   for (const auto &target : sela::targets::all()) {
+    if (!llvm::is_contained(*architectures, target.id.str())) continue;
     const auto profile = target.id.str();
     const auto lane = absolutePath(scratch) / ("build-" + profile);
     if (fs::exists(lane)) return fail("private native build lane already exists");
@@ -952,8 +999,8 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
       command.insert(command.end(), request.configureArgs.begin(), request.configureArgs.end());
       if (auto error = runBuild(command, lane)) return error;
       command = {(sdk.root / "host/usr/bin/cmake").string(), "--build", outputDirectory.string(), "--parallel", "2"};
-      if (!request.targets.empty()) {
-        command.push_back("--target"); command.insert(command.end(), request.targets.begin(), request.targets.end());
+      if (!request.buildTargets.empty()) {
+        command.push_back("--target"); command.insert(command.end(), request.buildTargets.begin(), request.buildTargets.end());
       }
       if (auto error = runBuild(command, lane)) return error;
     } else {
@@ -974,7 +1021,7 @@ llvm::Expected<CapturedBuild> captureBuild(const BuildRequest &request,
       } else if (!request.configureArgs.empty()) return fail("configure arguments supplied without a configure script");
       std::vector<std::string> command{"make", "-B", "-j2", "CC=" + compilerCommand,
         "AR=" + sdk.tool("llvm-ar").string(), "RANLIB=" + sdk.tool("llvm-ranlib").string(), "LD=" + recorder.string()};
-      command.insert(command.end(), request.targets.begin(), request.targets.end());
+      command.insert(command.end(), request.buildTargets.begin(), request.buildTargets.end());
       if (auto error = runBuild(command, outputDirectory)) return error;
     }
     auto result = selectOutput(lane / "metadata", absolutePath(outputDirectory / relativeOutput));

@@ -136,7 +136,7 @@ if [[ $selected_project != zlib ]]; then
     mkdir -p "$pack/artifacts"
     printf '%s\n' "${cjson_programs[@]}" > "$pack/programs.list"
     cjson_args=(--system cmake --source "$cjson_source" --configure-arg -C
-      --configure-arg "$corpus_root/cjson-$mode.cmake" --target all --target check)
+      --configure-arg "$corpus_root/cjson-$mode.cmake" --build-target all --build-target check)
     library=libcjson.a
     if [[ $mode == shared ]]; then library=libcjson.so.1.7.19; fi
     publish "cjson-$mode-library" "$pack/artifacts/library.sela" "${cjson_args[@]}" --output "$library"
@@ -171,7 +171,7 @@ if [[ $selected_project != cjson ]]; then
   # Upstream's documented input is shared by all untouched native references.
   export CFLAGS=-O3
   zlib_args=(--system make --source "$zlib_source" --configure-arg --shared
-    --target all --target test --target test64)
+    --build-target all --build-target test --build-target test64)
   publish zlib-static-library "$pack/artifacts/static-library.sela" "${zlib_args[@]}" --output libz.a
   publish zlib-library "$pack/artifacts/library.sela" "${zlib_args[@]}" --output libz.so.1.3.2
   for program in example minigzip examplesh minigzipsh example64 minigzip64; do

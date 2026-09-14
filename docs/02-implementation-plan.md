@@ -30,7 +30,7 @@ artifacts after a failed first VM boot. The original failed cJSON report is
 preserved, so this is staged coverage of all required outputs, not a claimed
 single-command pass or renamed historical evidence.
 
-**Current implementation:** generic, finite target domains and four equal
+**Previous four-target checkpoint:** generic, finite target domains and four equal
 Linux/glibc products are implemented: `x86_64`, `i686`, `armv7`, and `aarch64`.
 The final publisher passes all 44 tests, each native consumer passes its 11
 component tests, and all four matching-kernel devices pass both the common
@@ -40,6 +40,17 @@ the [four-target qualification record](reference/compiler-distribution.md#four-t
 separates fresh publication, device receipts, and initial failed attempts
 from passing unchanged-input continuations. The older checkpoints below
 remain historical evidence, not automatic qualification of later builds.
+
+**Active target-specific C increment:** publication now imports each LLVM
+observation independently into Sela Code; sharing is optional, with explicit
+target-scoped definitions and translation units where needed. Selected target
+sets, differing native build/link graphs, fixed vectors, wide integers, a
+closed intrinsic registry, inline assembly/asm goto, and constructors have
+regression coverage. The current builds pass 50 publisher CTests and 14
+component CTests per consumer. Section 17.4 records this partial delivery and
+the unfinished assembly, CPU compatibility, and corpus acceptance work.
+This does not complete the Clang-level C goal or supersede historical corpus
+receipts with an unrun claim about the new compiler.
 
 **Pre-alpha policy:** there are no backward-compatibility obligations anywhere.
 Formats, commands, APIs, and configuration may change between commits. Remove
@@ -76,8 +87,9 @@ Publisher's private workspace
   ordinary source + normal project build
     -> existing compiler/build components for each captured native profile
     -> private native-profile LLVM IR and capture evidence
-    -> one shared LLVM-to-common-IR merger
-    -> common, target-parametric MLIR dialect
+    -> independent LLVM-to-Sela import for each observation
+    -> optional factoring into shared, target-parametric definitions
+       or explicit target-scoped Sela definitions/units
     -> common optimization and publication minimization
     -> versioned experimental publication artifact
 
@@ -161,10 +173,13 @@ independence. Its data layout also governs subsequent LLVM optimization.
 [LLVM target independence](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/LangImpl10.html#target-independence),
 [LLVM data layout](https://llvm.org/docs/LangRef.html#data-layout).
 
-The permitted result is one common program with symbolic native properties
-and explicit conditional semantics where necessary. It is not four ordinary
-native programs, four target-fixed bitcode modules, or a compressed selector
-over such modules.
+The permitted result is one Sela artifact with shared and/or target-scoped
+Sela Code. Symbolic native properties and conditional regions save duplication
+where their equivalence is proved. Different functions, CFGs, signatures,
+globals, or source sets may instead use explicit target domains. Every body
+still consists of defined, validated Sela operations. Original LLVM modules,
+opaque LLVM IR capsules, and native object fallbacks are not admitted by this
+increment. A factoring failure must not become a language capability limit.
 
 ## 3. C MVP contract
 
@@ -203,7 +218,7 @@ redefinition of the agreed C MVP.
 | Aggregates passed and returned by value | Advanced floating-point environment behavior |
 | Function pointers, indirect calls, and native callbacks | Variable-length arrays |
 | Variadic calls, scalar/pointer bodies, va_copy and native va_list forwarding | Additional nonlocal-jump extensions |
-| Target-conditional sharing and differing profile source sets | Inline assembly and architecture intrinsics |
+| Target-conditional sharing and differing profile source sets | Full general-C coverage beyond the qualified operations |
 | Multiple TUs, static archives, executable and shared-library outputs | The remaining general-C and full-product matrix |
 | Make and CMake integration | Production installation/update services |
 
@@ -211,6 +226,12 @@ The inclusion of a category is a test obligation, not a statement that the
 initial compiler handles every instance. Each stage names its supported
 operations and rejects unsupported constructs rather than silently emitting
 incorrect native code.
+
+The next target-specific C increment extends this historical MVP: fixed
+vectors, wide integers, architecture intrinsics, inline assembly/asm goto,
+file-scope assembly, and `.s`/`.S` inputs are in scope. Section 17.4 distinguishes
+implemented portions from remaining work; they are not permanently deferred
+to the native-payload exception.
 
 Deferred ordinary features remain required where they fall under 01. The
 native-payload exception is not a way to exempt difficult ordinary application
@@ -463,23 +484,24 @@ Public identities should be opaque where names are unnecessary. Preserve
 required exported/imported symbol names, runtime-required facts, strings, and
 resources; removing a spelling must not remove program semantics.
 
-### 6.2 Shared graphs, not disguised fat IR
+### 6.2 Optional sharing, explicit target domains
 
-The merger matches corresponding translation units, functions, globals, and
-control-flow regions across the private profiles. It factors common structure
-and replaces supported differences with explicit symbolic values, types,
-layouts, or guarded regions.
+The importer first translates each target independently into owned Sela
+operations. The optional factoring pass matches corresponding translation
+units, functions, globals, and control-flow regions, replacing supported
+differences with explicit symbolic values, types, layouts, or guarded regions.
 
 For example, the pointer-size sequence 8/4 can become a native-pointer-size
 expression, while a literal 8/8 remains fixed. Tests must include the literal
 control; matching by a fixture's function name is not an implementation.
 
-Target-dependent source behavior can require conditional common IR. A branch
-on native properties is not inherently a fat artifact. Nevertheless, the
-merger must not use an opaque original-module payload or wholesale
-profile-selected function/module copies as its universal fallback. Sharing
-must be real and inspectable, and original capture modules must be absent
-from the publication.
+Target-dependent source behavior may use conditional regions or distinct
+Sela definitions with disjoint target domains. Whole target-specific Sela
+translation units are valid when needed to preserve native compilation
+boundaries. This does not admit opaque original LLVM modules or native
+objects: each operation, type, attribute and symbol remains governed by the
+Sela contract and native inverse check. Sharing is inspectable where applied,
+but is an optimization, not a precondition for representing a valid program.
 
 Start with corresponding graphs, then add target-conditional sharing and
 correspondence across differing source inventories. Tests must exercise real
@@ -557,7 +579,7 @@ it remains unfinished scope if required by the current milestone.
 
 ### 7.1 Package format
 
-Use shared common MLIR fragments in a standard tar archive with
+Use shared and/or target-scoped Sela MLIR fragments in a standard tar archive with
 a JSON manifest. Use libarchive and LLVM JSON support rather than inventing
 archive or JSON parsers.
 
@@ -581,10 +603,10 @@ the declared native SDK/dependency contract. Preserve archive membership and
 link ordering separately from portable code modules.
 
 The current kinds are `object`, `executable`, `shared`, and `static`. Module
-records carry only bytecode paths and digests. A mandatory `compilation_units`
+records carry bytecode paths, digests and explicit target availability. A mandatory `compilation_units`
 table lists each qualified target's ordered native units: each unit names its
-ordered fragment indices and optimization setting. Every fragment occurs once
-per target. The usual one-fragment-per-TU case uses singleton units; genuine
+ordered fragment indices and optimization setting. Every active fragment occurs
+once per target; inactive fragments are omitted. The usual one-fragment-per-TU case uses singleton units; genuine
 source repartitioning can group shared fragments differently. Reassemble each
 original unit before invoking stock optimization; do not silently enable LTO.
 
@@ -598,6 +620,11 @@ Qualified link metadata includes SONAME, dynamic exports, GNU/both hash styles,
 and a bounded, digest-checked C symbol version script with comments removed.
 The native SDK explicitly uses LLD's `--undefined-version` to retain ordinary
 GNU-linker behavior for version maps naming optional absent definitions.
+
+When native link settings differ, `target_links` carries an exact record for
+every declared target, including libraries, options and any digest-bound
+`link/TARGET.version.script`. Common link fields must then be empty. This keeps
+one target's dependencies and scripts out of another target's native link.
 
 Serialize deterministically where practical: stable entry ordering, canonical
 field ordering defined by this schema, normalized archive metadata, bounded
@@ -1642,13 +1669,14 @@ or overlapping cases, missing active values, and malformed inactive
 semantics before native output staging. Adding a target to the registry
 does not retroactively qualify old artifacts for that target.
 
-Publication privately normalizes each native observation into a common
-semantic vocabulary, then factors one N-target graph. Corresponding code is
-shared; supported local differences become explicit relationships or guarded
-regions. Every declared target must reproduce its original normalized
-native program through a strict inverse check. No per-target whole-program
-payload, wholesale-function fallback, dropped comparison, or publisher call
-to a distributed `selac` is permitted. The publisher's validation library can
+At this historical checkpoint, publication privately normalized each native observation into a common
+semantic vocabulary, then factored one N-target graph. Corresponding code was
+shared; supported local differences became explicit relationships or guarded
+regions. Section 17.4 replaces mandatory graph factoring with independent
+import and optional factoring. Every declared target must still reproduce
+its original normalized native program through a strict inverse check. No
+opaque LLVM/native payload, dropped comparison, or publisher call to a
+distributed `selac` is permitted. The publisher's validation library can
 contain all ABI adapters without making any destination compiler universal.
 
 ARM ABI adapters explicitly handle ordinary and explicit-layout records,
@@ -1697,6 +1725,91 @@ exact package sizes, component/core/corpus results, and retained failure
 evidence are recorded in the [distribution reference](reference/compiler-distribution.md).
 CI wiring and bounded diagnostic retention are implemented and locally
 checked; this is not a claim that a remote GitHub Actions run completed.
+
+### 17.4 Target-specific C: implementation and remaining gates
+
+The delivery target is ordinary Clang C capability for every requested native
+target the original project supports. It is not one shared CFG at all costs,
+nor permission to put LLVM bitcode or native objects inside Sela Code.
+Prebuilt native dependency publication is a subsequent increment.
+
+Implemented in this increment:
+
+- `LLVMImporter::importModule` imports one native observation at a time.
+  `mergeProfiles` optionally factors those Sela projections. If normalization
+  cannot prove a common ABI form, it starts again from the untouched capture
+  and represents the concrete signature using ordinary Sela types/operations.
+  If graph or source-unit factoring fails, scoped Sela definitions or complete
+  original translation units preserve the native program. Neither path skips
+  native reconstruction/comparison or accepts an unsupported operation.
+- The `sela-prealpha-2` artifact has explicit module target domains. Functions
+  and globals may have disjoint availability domains. Overlapping definitions,
+  missing active symbols, and incomplete compilation plans fail validation.
+  A device structurally validates all domains but links only its own native
+  adapter; it never needs a foreign LLVM backend to inspect an artifact.
+- `SELA_ARCHS` is the stock-Clang CSV selection; Make uses the same spelling,
+  CMake uses `ARCHS`, and the coordinator accepts repeated `--arch ID` options.
+  Build goals are independently named `SELA_BUILD_TARGETS`, `BUILD_TARGETS`,
+  and `--build-target`. Unknown, duplicate, and empty selections fail.
+- Native build lanes may differ in source files, flags, archive members,
+  libraries, link options, and version scripts. Module domains, per-target
+  compilation-unit ordering, and `target_links` preserve those differences.
+  `capture-targets.json` binds retained replay to the original explicit lanes.
+- Fixed vectors, integers through 128 bits, aggregate SSA insert/extract,
+  vector operations, typed ABI attributes, and selected generic/X86/AArch64
+  intrinsics have owned Sela representations and closed signature validation.
+  The registry is deliberately finite; unknown intrinsics still fail.
+- Inline assembly and `asm goto` preserve constraints, effects, dialect,
+  typed operand attributes, results, and control-flow edges. Assembly-sensitive
+  symbol names survive reconstruction. Global constructor/destructor lists
+  and meaningful loop options retain native behavior.
+- Per-function CPU/features/tuning survive native lowering. This preservation
+  is not yet a minimum-CPU compatibility mechanism: do not assume artifacts
+  built with above-baseline ISA flags run on baseline CPUs.
+
+Focused tests cover singleton, pair, triple and four-target selections,
+definition domains, malformed instruction contracts, differing build graphs,
+byte-identical retained replay, vectors/intrinsics, inline asm/asm goto and
+constructors. Publisher-only native reference lowering is separate from
+actual source-free device acceptance. The core device matrix includes the
+new vector, assembly and constructor fixtures at O0 and O2.
+
+`corpus/qualify-xxhash.sh` adds pinned, unmodified xxHash 0.8.3. It keeps the
+upstream default x86 dispatch translation unit and ARM SIMD choices, publishes
+the CLI, static/shared libraries and upstream sanity executable, and exercises
+library ABI/streaming calls. Its guest receives artifacts, native reference
+binaries and data only. `--version` runs upstream CLI sanity checks; this
+qualification is not the complete upstream `make check` suite or a benchmark.
+The unchanged cJSON/zlib corpus remains a regression obligation. The
+[target-specific C checkpoint](reference/target-c-checkpoint.md) records fresh
+core and xxHash runs on all four devices, including an unexplained ARM64 LLVM
+parser failure followed by a passing unchanged-input full retry.
+
+Remaining before this agreed increment can be called complete:
+
+- Implement file-scope and standalone `.s`/`.S` publication. Stock Clang must
+  select an internal external-assembler helper with `-fno-integrated-as` and
+  `-B`; `.S` preprocessing remains target-specific. Use LLVM MC parsing to
+  record structured instructions, expressions and directives in Sela, not
+  assembler source files or already assembled objects. Resolve includes,
+  binary inclusion and macros on the publisher; preserve sections, symbols,
+  relocations, CFI, modes and inline-assembly file dependencies. The consumer
+  replays only the selected target's validated MC semantics.
+- Define explicit minimum-CPU/feature metadata and admission, separately from
+  optional function-level dispatch/tuning. Validate that unsupported devices
+  fail before native output, while baseline dispatch programs remain admitted.
+- Complete the required symbol/ABI surface, including aliases, ifunc, TLS,
+  COMDAT/sections and additional calling conventions. Track atomics, dynamic
+  alloca/VLAs, scalable vectors, long double/complex and remaining intrinsics
+  as explicit Clang-level coverage gaps, not permanent exclusions.
+- Resolve the intermittent ARM64 LLVM failure despite the passing unchanged
+  retry; finish the full existing-corpus regression for this exact compiler.
+  Preserve failed attempts and report staged continuations honestly. The new
+  corpus is wired into all four main/manual CI lanes with bounded preparation,
+  VM execution and retained diagnostics; prove stable runs of that workflow.
+
+No SES policy, native binary embedding, new libc/platform, language-specific
+consumer, LLVM patch, or full performance/RE acceptance is introduced here.
 
 ## 18. Requirement traceability
 

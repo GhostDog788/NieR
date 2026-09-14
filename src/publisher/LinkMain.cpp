@@ -50,6 +50,8 @@ llvm::Error link(int argc, char **argv) {
   std::vector<std::string> libraries, linkOptions;
   std::vector<std::string> archiveNames;
   std::map<std::string, std::vector<size_t>> unitOrders;
+  std::map<size_t, std::vector<std::string>> inputDomains;
+  LinkPlan targetLinks, inputLinks;
   std::string versionScript, interpreter, emulation = "elf_x86_64";
   bool bothHashStyles = false;
   for (size_t i = 0; i < args.size(); ++i) {
@@ -72,6 +74,43 @@ llvm::Error link(int argc, char **argv) {
         if (!contents) return contents.takeError();
         versionScript = std::move(*contents);
       }
+    } else if (arg.consume_front("--sela-target-links=")) {
+      if (!targetLinks.empty()) return fail("duplicate native target link settings");
+      auto contents = read(arg.str(), 1024 * 1024);
+      if (!contents) return contents.takeError();
+      auto parsed = llvm::json::parse(*contents);
+      if (!parsed) return parsed.takeError();
+      auto *records = parsed->getAsObject();
+      if (!records || records->empty()) return fail("invalid native target link settings");
+      for (const auto &entry : *records) {
+        auto *record = entry.second.getAsObject();
+        if (!sela::targets::find(entry.first) || !record || record->size() != 3 ||
+            !record->getArray("libraries") || !record->getArray("link_options") || !record->getString("version_script"))
+          return fail("invalid native target link record");
+        auto &link = targetLinks[entry.first.str()];
+        for (const auto &library : *record->getArray("libraries")) {
+          if (!library.getAsString()) return fail("invalid target library declaration");
+          link.libraries.push_back(library.getAsString()->str());
+        }
+        const auto *options = record->getArray("link_options");
+        for (size_t index = 0; index < options->size(); ++index) {
+          auto option = (*options)[index].getAsString();
+          if (!option) return fail("invalid target link option");
+          if (*option == "-soname") {
+            if (++index == options->size() || !(*options)[index].getAsString()) return fail("missing target soname");
+            link.options.push_back("-soname=" + (*options)[index].getAsString()->str());
+          } else link.options.push_back(option->str());
+        }
+        link.versionScript = record->getString("version_script")->str();
+      }
+    } else if (arg.consume_front("--sela-input-domain=")) {
+      auto [indexText, ids] = arg.split(':');
+      unsigned index;
+      if (indexText.empty() || indexText.getAsInteger(10, index) || inputDomains.count(index))
+        return fail("invalid or duplicate target-scoped input index");
+      auto domain = parseTargetSelection(ids);
+      if (!domain) return domain.takeError();
+      inputDomains[index] = std::move(*domain);
     } else if (arg.starts_with("--sela-unit-order=")) {
       auto [target, order] = arg.drop_front(llvm::StringRef("--sela-unit-order=").size()).split(':');
       if (!sela::targets::find(target) || unitOrders.count(target.str()))
@@ -139,10 +178,28 @@ llvm::Error link(int argc, char **argv) {
   std::vector<ArtifactModule> modules;
   CompilationPlan compilationPlan;
   size_t aggregateBytes = 0;
-  std::vector<std::string> targets = defaultArtifactTargets();
+  auto requested = publicationTargets();
+  if (!requested) return requested.takeError();
+  const auto &targets = *requested;
+  if (!targetLinks.empty()) {
+    if (targetLinks.size() != targets.size() || !libraries.empty() || !linkOptions.empty() || !versionScript.empty())
+      return fail("native target link settings require the exact selected targets and no common override");
+    for (const auto &target : targets)
+      if (!targetLinks.count(target)) return fail("missing native target link settings");
+  }
+  for (const auto &[index, domain] : inputDomains) {
+    if (index >= inputs.size()) return fail("target-scoped input index is outside link inventory");
+    for (const auto &target : domain)
+      if (!llvm::is_contained(targets, target)) return fail("input scope is outside requested publication targets");
+  }
+  if (!archiveNames.empty() && (kind != "static" || archiveNames.size() != inputs.size()))
+    return fail("archive member-name count does not match input members");
   auto scratch = Scratch::create();
   if (!scratch) return scratch.takeError();
-  for (auto &input : inputs) {
+  for (size_t inputIndex = 0; inputIndex < inputs.size(); ++inputIndex) {
+    const auto &input = inputs[inputIndex];
+    const auto domainOverride = inputDomains.find(inputIndex);
+    const auto &requiredTargets = domainOverride == inputDomains.end() ? targets : domainOverride->second;
     auto files = readPackage(input);
     if (!files) return fail("expected a Sela object at " + input.string() + ": " + llvm::toString(files.takeError()));
     auto manifest = validatePackage(*files);
@@ -151,25 +208,28 @@ llvm::Error link(int argc, char **argv) {
     if (object.getString("kind") != "object") return fail("publication link requires relocatable Sela inputs: " + input.string());
     std::vector<std::string> admitted;
     for (auto &entry : *object.getArray("targets")) admitted.push_back(entry.getAsString()->str());
-    llvm::SmallVector<llvm::StringRef> domain;
-    for (auto &target : admitted) domain.push_back(target);
-    targets.erase(std::remove_if(targets.begin(), targets.end(), [&](auto &t) {
-      return std::find(admitted.begin(), admitted.end(), t) == admitted.end();
-    }), targets.end());
+    for (const auto &target : requiredTargets)
+      if (!llvm::is_contained(admitted, target))
+        return fail("requested target " + target + " is missing from input " + input.string() +
+                    "; publication never silently narrows its target selection");
     auto inputPlan = readCompilationPlan(object);
     if (!inputPlan) return inputPlan.takeError();
-    for (const auto &target : targets) {
-      auto &units = inputPlan->at(target);
-      if (kind == "static" && units.size() != 1)
-        return fail("static output requires one native compilation unit per archive input member");
-      for (auto unit : units) {
-        for (auto &index : unit.modules) index += modules.size();
-        compilationPlan[target].push_back(std::move(unit));
-      }
+    std::vector<std::optional<size_t>> moduleIndices;
+    auto dependencies = readLinkPlan(object, *files);
+    for (const auto &target : requiredTargets) {
+      auto &destination = inputLinks[target].libraries;
+      const auto &source = dependencies.at(target).libraries;
+      destination.insert(destination.end(), source.begin(), source.end());
     }
-    for (auto &library : *object.getArray("libraries")) libraries.push_back(library.getAsString()->str());
     for (auto &entry : *object.getArray("modules")) {
       auto &record = *entry.getAsObject();
+      llvm::SmallVector<llvm::StringRef> domain;
+      std::vector<std::string> selectedDomain;
+      for (auto &value : *record.getArray("targets")) {
+        domain.push_back(*value.getAsString());
+        if (llvm::is_contained(requiredTargets, value.getAsString()->str()))
+          selectedDomain.push_back(value.getAsString()->str());
+      }
       auto &bytes = files->at(record.getString("path")->str());
       if (modules.size() >= 510 || bytes.size() > 64 * 1024 * 1024 - aggregateBytes)
         return fail("linked Sela artifact exceeds module or byte limits");
@@ -178,22 +238,31 @@ llvm::Error link(int argc, char **argv) {
       if (auto error = write(staged, bytes)) return error;
       sela::ArtifactSummary summary;
       if (auto error = sela::inspectArtifact(staged.string(), summary, domain)) return error;
-      modules.push_back({bytes});
+      if (selectedDomain.empty()) moduleIndices.push_back(std::nullopt);
+      else {
+        moduleIndices.push_back(modules.size());
+        modules.push_back({bytes, "O2", {}, std::move(selectedDomain)});
+      }
+    }
+    for (const auto &target : requiredTargets) {
+      auto &units = inputPlan->at(target);
+      if (kind == "static" && units.size() != 1)
+        return fail("static output requires one native compilation unit per archive input member");
+      for (auto unit : units) {
+        if (kind == "static") unit.archiveMember = archiveNames.empty()
+            ? "m" + std::to_string(compilationPlan[target].size()) + ".o" : archiveNames[inputIndex];
+        for (auto &index : unit.modules) {
+          if (!moduleIndices[index]) return fail("active compilation unit references an inactive input fragment");
+          index = *moduleIndices[index];
+        }
+        compilationPlan[target].push_back(std::move(unit));
+      }
     }
   }
-  if (targets.empty()) return fail("input target domains do not intersect");
   for (auto it = compilationPlan.begin(); it != compilationPlan.end();)
     if (std::find(targets.begin(), targets.end(), it->first) == targets.end()) it = compilationPlan.erase(it);
     else ++it;
   for (const auto &target : targets) compilationPlan.try_emplace(target);
-  if (kind == "static") {
-    for (auto &[target, units] : compilationPlan) {
-      if (!archiveNames.empty() && archiveNames.size() != units.size())
-        return fail("static archive member-name count does not match input members");
-      for (size_t i = 0; i < units.size(); ++i)
-        units[i].archiveMember = archiveNames.empty() ? "m" + std::to_string(i) + ".o" : archiveNames[i];
-    }
-  } else if (!archiveNames.empty()) return fail("archive member names require --sela-static");
   for (const auto &[target, indices] : unitOrders) {
     auto plan = compilationPlan.find(target);
     if (plan == compilationPlan.end() || indices.size() != plan->second.size())
@@ -207,7 +276,14 @@ llvm::Error link(int argc, char **argv) {
     }
     plan->second = std::move(ordered);
   }
-  auto artifact = createArtifact(kind, modules, libraries, linkOptions, targets, versionScript, compilationPlan);
+  LinkPlan finalLinks;
+  for (const auto &target : targets) {
+    auto &link = finalLinks[target];
+    link = targetLinks.empty() ? ArtifactLink{libraries, linkOptions, versionScript} : targetLinks.at(target);
+    const auto &dependencies = inputLinks[target].libraries;
+    link.libraries.insert(link.libraries.end(), dependencies.begin(), dependencies.end());
+  }
+  auto artifact = createArtifact(kind, modules, {}, {}, targets, {}, compilationPlan, finalLinks);
   if (!artifact) return artifact.takeError();
   for (const auto &input : inputs)
     if (auto error = rejectInputAlias(input, output)) return error;

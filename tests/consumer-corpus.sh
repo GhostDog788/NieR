@@ -126,6 +126,48 @@ while IFS= read -r project; do
             grep -F "calling init: $destination/libz.so.1" "$destination/loader.log"
             count=$((count + 8))
             ;;
+        xxhash)
+            "$compiler" "$pack/artifacts/static-library.sela" -o "$destination/libxxhash.a"
+            archive_tool t "$destination/libxxhash.a" > "$destination/archive-members.txt"
+            cmp "$native/archive-members.txt" "$destination/archive-members.txt"
+            "$compiler" "$pack/artifacts/library.sela" -o "$destination/libxxhash.so.0"
+            record_output "$destination/libxxhash.so.0"
+            test_tool readelf -d "$destination/libxxhash.so.0" > "$destination/dynamic.txt"
+            grep 'SONAME.*libxxhash.so.0' "$destination/dynamic.txt"
+            for program in xxhsum sanity static-api shared-api; do
+                "$compiler" "$pack/artifacts/$program.sela" --library-dir "$destination" -o "$destination/$program"
+                record_output "$destination/$program"
+            done
+            # --version also executes upstream XSUM_sanityCheck(), including dispatch.
+            env -i PATH=/bin:/usr/bin LC_ALL=C "$loader" --library-path "$native:$runtime" \
+                "$native/xxhsum" --version > "$destination/native-version.txt" 2>&1
+            env -i PATH=/bin:/usr/bin LC_ALL=C "$destination/xxhsum" --version > "$destination/version.txt" 2>&1
+            cmp "$destination/native-version.txt" "$destination/version.txt"
+            for variant in 0 1 2 3; do
+                env -i PATH=/bin:/usr/bin LC_ALL=C "$loader" --library-path "$native:$runtime" \
+                    "$native/xxhsum" "-H$variant" "$pack/input.dat" > "$destination/native-H$variant.txt"
+                env -i PATH=/bin:/usr/bin LC_ALL=C "$destination/xxhsum" "-H$variant" \
+                    "$pack/input.dat" > "$destination/H$variant.txt"
+                cmp "$destination/native-H$variant.txt" "$destination/H$variant.txt"
+            done
+            env -i PATH=/bin:/usr/bin LC_ALL=C "$loader" --library-path "$native:$runtime" \
+                "$native/sanity" > "$destination/native-sanity.txt" 2>&1
+            env -i PATH=/bin:/usr/bin LC_ALL=C "$destination/sanity" > "$destination/sanity.txt" 2>&1
+            cmp "$destination/native-sanity.txt" "$destination/sanity.txt"
+            env -i PATH=/bin:/usr/bin LC_ALL=C "$loader" --library-path "$native:$runtime" \
+                "$native/native-api" > "$destination/native-api.txt"
+            for program in static-api shared-api; do
+                env -i PATH=/bin:/usr/bin LC_ALL=C "$destination/$program" > "$destination/$program.txt"
+                cmp "$destination/native-api.txt" "$destination/$program.txt"
+            done
+            # Unmodified native caller ABI against the device-produced DSO.
+            env -i PATH=/bin:/usr/bin LC_ALL=C LD_DEBUG=libs "$loader" \
+                --library-path "$destination:$runtime" "$native/native-api" \
+                > "$destination/native-caller.txt" 2> "$destination/loader.log"
+            cmp "$destination/native-api.txt" "$destination/native-caller.txt"
+            grep -F "calling init: $destination/libxxhash.so.0" "$destination/loader.log"
+            count=$((count + 6))
+            ;;
         *) printf 'Unexpected corpus selection: %s\n' "$project" >&2; exit 1 ;;
     esac
     printf 'SELA_CORPUS_PROJECT_PASS %s\n' "$project"

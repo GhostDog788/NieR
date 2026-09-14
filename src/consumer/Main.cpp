@@ -197,11 +197,12 @@ llvm::Error execute(const Options &options) {
     llvm::outs() << "Native archive: " << options.output.string() << '\n';
     return llvm::Error::success();
   }
-  for (auto &library : *object.getArray("libraries")) libraries.push_back(library.getAsString()->str());
-  for (auto &option : *object.getArray("link_options")) linkOptions.push_back(option.getAsString()->str());
-  if (object.get("version_script")) {
+  auto link = readLinkPlan(object, *files).at(options.target);
+  libraries = std::move(link.libraries);
+  linkOptions = std::move(link.options);
+  if (!link.versionScript.empty()) {
     auto script = scratch->path / "version.script";
-    if (auto error = write(script, files->at("link/version.script"))) return error;
+    if (auto error = write(script, link.versionScript)) return error;
     linkOptions.push_back("--version-script=" + script.string());
   }
   auto native = scratch->path / "native-output";

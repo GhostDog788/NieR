@@ -105,7 +105,7 @@ def run(compiler, valid_artifact, work):
         files = {entry.name: source.extractfile(entry).read() for entry in source}
     manifest = files["manifest.json"]
     record = json.loads(manifest)
-    if record["contract"] != "sela-prealpha-1" or not record["modules"]:
+    if record["contract"] != "sela-prealpha-2" or record["format_version"] != 2 or not record["modules"]:
         raise AssertionError("producer did not emit the Sela artifact contract")
     for index, module in enumerate(record["modules"]):
         if module["path"] != f"modules/{index}.selabc" or module["path"] not in files:
@@ -115,7 +115,7 @@ def run(compiler, valid_artifact, work):
     predecessor = bytes((0x6E, 0x69, 0x65, 0x72))
     old_contract = dict(files)
     old_contract["manifest.json"] = manifest.replace(
-        b'"sela-prealpha-1"', b'"' + predecessor + b'-prealpha-1"', 1)
+        b'"sela-prealpha-2"', b'"' + predecessor + b'-prealpha-1"', 1)
     tests.bad_archive("predecessor artifact contract rejected",
                       [(header(name, len(body)), body) for name, body in old_contract.items()],
                       ("unsupported experimental format/compiler contract",))

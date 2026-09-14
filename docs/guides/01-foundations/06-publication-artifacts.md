@@ -53,8 +53,8 @@ It is valid JSON for illustration, but not a complete accepted manifest because 
 
 ```json
 {
-  "contract": "sela-prealpha-1",
-  "format_version": 1,
+  "contract": "sela-prealpha-2",
+  "format_version": 2,
   "kind": "executable",
   "targets": ["x86_64", "i686", "armv7", "aarch64"],
   "runtime": "glibc-2.39-0ubuntu8.8",
@@ -68,7 +68,7 @@ The runtime field selects the currently supported supplied native runtime contra
 An empty `libraries` list does not mean the finished executable never uses libc: the SDK's native link arrangement supplies its baseline runtime.
 Additional application dependencies have their own declared linking requirements.
 
-Each module record names an exact archive member and its SHA-256 digest.
+Each module record names an exact archive member, its SHA-256 digest, and its target availability.
 A digest binds the manifest's module record to those bytes.
 It does not identify or authenticate a trusted publisher.
 Someone who can change both the module and manifest can recompute a digest; signing policy belongs to a different part of the intended platform.
@@ -105,7 +105,9 @@ Target two native units: [A + B]
 
 This describes grouping, not two embedded native programs.
 The consumer reconstructs the selected target's native units before their optimization.
-The current implementation only admits bounded cases it can prove; a plan shape does not grant arbitrary source-inventory correspondence.
+Some modules may instead contain target-specific Sela definitions or complete target-specific translation units.
+Only active modules appear in that target's plan, exactly once; sharing is optional and native reconstruction is still checked.
+These are Sela operations, not hidden LLVM modules or precompiled objects.
 Chapter 21 examines the actual checks.
 
 It is also not an instruction to enable whole-program link-time optimization.

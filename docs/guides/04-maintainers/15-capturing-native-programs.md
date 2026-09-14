@@ -65,7 +65,8 @@ The x86 and ARM invocations must not accidentally include the same host-specific
 The captured stock-driver arguments let each target regenerate its native driver defaults instead of copying the host's internal Clang arguments.
 The registry separates ISA/ABI build flags from publication policy flags, such as the explicit AArch64 outline-atomics and function-multiversioning policy.
 
-It also rejects explicit CPU, feature, or ABI tuning outside the qualified neutral producer contract.
+ABI-changing options outside the supported platform contract remain rejected.
+Explicit CPU/features and per-function tuning are preserved; minimum-CPU compatibility admission is still unfinished, so above-baseline flags do not establish baseline compatibility.
 Silently replacing `-march=native` with a baseline target would change the request.
 Silently accepting it would create evidence outside the merger's stated profile assumptions.
 A precise rejection is therefore the correct behavior until that configuration is supported.
@@ -75,7 +76,7 @@ Native lowering may turn a source aggregate argument into several scalar argumen
 Those records are hints to be checked against layouts and actual instructions, not authority to rewrite a program.
 They are not copied into the public Sela module as a source-language dependency.
 
-After all captures exist, the action calls the shared N-observation merger and packages the resulting common bytecode.
+After all captures exist, the action imports each observation into Sela, optionally factors common structure, checks every reconstruction, and packages the bytecode.
 The stock driver invokes the internal publication linker for normal separate compilation and final publication.
 The capture objects and private debug material do not become ordinary application payloads inside the `.sela` archive.
 

@@ -20,7 +20,7 @@ The SDK integration receives an unchanged source directory, a build system, sele
 The public CMake helper is `sela_add_publication`.
 The internal `sela-build` service runs the private builds and assembles publication commands; it is not a new C frontend or a replacement language compiler.
 
-Both private lanes use actual stock Clang with the appropriate SDK profile.
+Every selected private lane uses actual stock Clang with the appropriate SDK profile.
 Native preprocessing, configure probes and generators must still work as native operations.
 Replacing the compiler with a wrapper which emits Sela whenever it sees C would break probes that need to execute their result.
 The native capture observer therefore accompanies normal code generation; direct publication uses the distinct Clang publication action.
@@ -74,10 +74,11 @@ Third, the selector validates every selected object's provenance.
 Ordinary, thin, grouped and whole archives have tests, but none removes the need for exact correspondence.
 If repeated identical journal identities leave a member ambiguous, publication rejects instead of guessing from names or symbol-table convenience.
 
-Fourth, all target selections are related to one common source-unit inventory.
+Fourth, all target selections are related to an inventory with explicit target availability.
 Positional correspondence is the simple case.
 When order differs, a candidate pairing must be unique and match source or normalized compile role, effective flags, optimization and member identity.
-These checks propose correspondence; the LLVM merger must still prove the actual programs match the common contract.
+These checks propose opportunities for sharing; different source sets, flags or members may instead remain target-specific Sela units.
+The LLVM importer must still encode their actual semantics and prove the corresponding native reconstructions.
 
 Finally, the publication preserves each profile's observed physical unit order.
 Moving a whole paired unit also moves its optimization settings.
@@ -102,7 +103,7 @@ An empty static archive is admitted as an empty inventory; an empty executable d
 The static tests use competing definitions whose order affects selection, and an unused member with an unresolved reference.
 A test which merely checks that `ar t` prints two names cannot catch accidental eager linking.
 The behavioral test checks the archive's future native linking semantics as well as its container shape.
-General profile-dependent static member inventories remain a separate boundary rather than being silently renamed or flattened.
+Profile-dependent member inventories retain their own physical order and names in each target's compilation plan.
 
 ## Unequal translation-unit inventories without LTO
 
@@ -111,21 +112,24 @@ The common program can contain the same functions even though it has three nativ
 
 `src/ir/Partitions.cpp` handles a bounded version of this case.
 It establishes unique external definition ownership, intersects all targets' ownership partitions, and creates shared fragments.
-It does not store complete copies of every target's program.
 It proves that the appropriate private fragments reconstruct each original native translation unit before running the shared N-observation merger for each fragment.
+If this factoring proof fails, complete target-scoped Sela units preserve the original boundaries instead.
+These units contain validated Sela operations, not original LLVM modules.
 
 The artifact's `compilation_units` plan then says which shared fragment indices belong to each physical unit on each target.
-Every fragment must occur exactly once per target.
+Every active fragment must occur exactly once per target; inactive fragments must be absent.
 The consumer's `src/ir/CompilationUnits.cpp` reconstructs the declared unit before its normal optimization pipeline.
-LLVM linking here is part of reconstructing the original unit boundary, not permission to apply whole-program link-time optimization.
+The implementation assembles the specialized Sela symbol table and lowers that entire unit once, avoiding LLVM-linker collision renaming as an accidental semantic change.
+This is not permission to apply whole-program link-time optimization.
 
 The initial split proof requires matching effective settings and self-contained external scalar definitions.
-Cross-fragment function references, private/global identities and other unproved ownership cases reject.
+Cross-fragment function references, private/global identities and other unproved ownership cases fall back to whole original units rather than speculative splitting.
 Why? A file-local static object has identity, not merely a convenient name.
 Splitting or joining it can change which functions share the object.
 Likewise, combining native units and letting LLVM rename collisions is not a proof of original source semantics.
 
-The source-inventory test (`tests/source-inventory.sh`) checks both the three-versus-two positive case and unsupported identity cases.
+The source-inventory test (`tests/source-inventory.sh`) checks the three-versus-two case, cross references, private state and target-only definitions.
+`tests/target-build.sh` also covers different per-target flags, static inventories, libraries, and exact retained replay.
 An expected rejection is useful robustness evidence, but it does not complete the broader source-inventory product requirement.
 
 ## Shared libraries and publication transactions
@@ -157,7 +161,7 @@ build_lab=$(mktemp -d "${TMPDIR:-/tmp}/sela-guide-build-XXXXXX")
 make -f sdk/share/sela/Sela.mk \
   SELA_BUILD_TOOL="$PWD/build/prealpha/sela-build" \
   SELA_SOURCE_DIR="$PWD/tests/fixtures/link-order" \
-  SELA_NATIVE_OUTPUT=hello SELA_TARGETS=hello \
+  SELA_NATIVE_OUTPUT=hello SELA_BUILD_TARGETS=hello \
   SELA_ARTIFACT="$build_lab/order.sela"
 build/prealpha/sela_reference_lower lower "$build_lab/order.sela" \
   --target x86_64 --output-dir "$build_lab/wide"

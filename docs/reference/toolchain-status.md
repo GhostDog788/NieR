@@ -19,9 +19,9 @@ The development baseline is x86-64 Ubuntu 24.04 with the pinned LLVM 18.1.3 SDK.
 The current target registry defines four equal Linux/glibc products: x86-64, i686, ARMv7 hard-float, and AArch64.
 Each native compiler uses an unmodified, source-built LLVM/MLIR SDK registering its target's backend family and links only its own Sela native adapter.
 See [native targets](adding-native-targets.md) for exact ABIs and the new increment's qualification obligations.
-The four-target implementation passes all 44 publisher tests and all 11 consumer tests per target.
-Its common core fixture set passes in four source-free, matching-kernel VMs, including real 32-bit i686 and ARMv7 kernels.
-The complete configured cJSON/zlib corpus also passes on all four devices: 42 cJSON artifacts and eight zlib artifacts, supplied unchanged to every native compiler, with the original upstream tests and native-library checks.
+The previous four-target checkpoint passed all 44 publisher tests and all 11 consumer tests per target.
+Its common core fixture set passed in four source-free, matching-kernel VMs, including real 32-bit i686 and ARMv7 kernels.
+The complete configured cJSON/zlib corpus also passed on all four devices: 42 cJSON artifacts and eight zlib artifacts, supplied unchanged to every native compiler, with the original upstream tests and native-library checks.
 This is two complete fresh project preparations plus separate device receipts, not one combined command; initial VM failures and passing unchanged-input continuations remain explicitly recorded in the [four-target qualification evidence](compiler-distribution.md#four-target-corpus-checkpoint-on-2026-09-13).
 The pre-rename bundles passed the fresh matrix and complete dual-destination corpus at commits `63592ab` and `be63890`, including real 32-bit-kernel execution.
 The earlier two-target Sela builds separately passed all 40 publisher tests, all 11 component tests per device, their two-device matrix, and the complete dual-device zlib corpus.
@@ -31,7 +31,8 @@ The C publisher's private per-target reference builds and publisher-only diagnos
 See the [compiler distribution reference](compiler-distribution.md) for current source-SDK, packaging, VM, corpus commands, and qualification boundaries.
 
 The archive carries a manifest and Sela bytecode for separate translation units.
-It does not contain application source, original LLVM modules, native application objects, or whole per-target program copies.
+It does not contain application source, original LLVM modules, native application objects, or opaque target-specific LLVM/native capsules.
+Ordinary Sela definitions and translation units may be target-scoped; common factoring is optional, not a condition of publication.
 Separate compilation produces relocatable Sela artifacts; final publications do not retain references to those intermediates.
 This is source exclusion from the published artifact, not closed-source licensing of the Sela toolchain.
 
@@ -76,7 +77,19 @@ The independent-producer regression constructs an artifact without Clang, source
 The [ABI evidence reference](native-abi-matrix.md) records implemented native calling and storage rules alongside remaining gates.
 Regression coverage includes artifact validation, independent producers, CFG/SSA matching, native-width values, floating-point cases, aggregate storage, nonlocal jumps, promoted variadic arguments, build probes, source selection, and compiler/runtime access boundaries.
 Qualified aggregate calls include integer, mixed floating/integer, and larger native-width records across translation units and native shared-library boundaries.
-Union, packed, and bitfield records by value, aggregate `va_arg`, and general divergent function inventories remain qualification limits.
+Union, packed, and bitfield records by value and aggregate `va_arg` still need broader qualification.
+Divergent function inventories and complete target-specific translation units now have explicit Sela representations and regression coverage.
+
+The active target-specific C increment passes 50 publisher CTests and 14 component CTests in each of the four device builds.
+It adds explicit architecture selection, per-target files/flags/link settings, vectors and integers through 128 bits, a closed intrinsic registry, inline assembly/asm goto, and constructors/destructors.
+Artifacts use `sela-prealpha-2`; regenerate publications with matching tools.
+Per-function CPU attributes are preserved, but minimum-CPU compatibility admission is not implemented yet.
+Do not treat an artifact built with above-baseline ISA flags as runnable on every CPU in its architecture.
+File-scope assembly, standalone `.s`/`.S`, assembly file dependencies, aliases/ifunc/TLS, additional intrinsics, VLAs, and other general-C facilities remain unfinished.
+The pinned xxHash 0.8.3 runner produced six artifacts with passing source-free runs on all four devices.
+ARM64 required an unchanged-input retry after an LLVM parser crash; that initial intermittent failure remains unexplained and is retained in the checkpoint record.
+See [the active increment](../02-implementation-plan.md#174-target-specific-c-implementation-and-remaining-gates) for the implementation map and remaining gates.
+The [target-specific C checkpoint](target-c-checkpoint.md) records the fresh core, xxHash and existing-corpus results, including failed attempts and evidence paths.
 
 The [locked qualification corpus](qualification-corpus.md) passes at the four-target checkpoint recorded on 2026-09-13:
 cJSON's static and shared configurations each produced 21 artifacts and passed all 19 original CTests on every destination; zlib's eight outputs passed the original static, shared, and 64-bit-offset recipes on all four.

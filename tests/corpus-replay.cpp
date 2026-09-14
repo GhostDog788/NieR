@@ -31,9 +31,9 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   // This is a regression test over retained evidence, never a source rebuild.
   // Shared selection verifies native objects, immutable journals, dependencies,
   // final native witnesses and the exact existing source/settings pairing rule.
-  if (auto error = sdk.validate(true)) return error;
   auto captured = selectRetainedBuild(retained, laneOutput);
   if (!captured) return captured.takeError();
+  if (auto error = sdk.validate(true, captured->architectures)) return error;
   if (auto error = sameArtifact(retained / "linked.sela", published)) return error;
   std::set<std::string> expected;
   for (size_t i = 0; i < captured->units.size(); ++i)
@@ -65,6 +65,7 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   }
   auto environment = sdk.toolEnvironment();
   environment["SELA_SDK_ROOT"] = sdk.root.string();
+  environment["SELA_ARCHS"] = targetSelectionText(captured->architectures);
   environment["LD_PRELOAD"] = "";
   for (const auto *variable : {"SELA_BUILD_METADATA", "SELA_BUILD_LANE", "SELA_BUILD_PROFILE",
                                "SELA_CAPTURE_PATH", "SELA_CAPTURE_RECORD"})
@@ -92,6 +93,11 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
     if (!bytes) return bytes.takeError();
     receipt += "Byte-identical unit SHA256 " + digest(*bytes) + " " + name + "\n";
     link.push_back(artifact.string());
+    if (unit.pathsByTarget.size() != captured->architectures.size()) {
+      std::vector<std::string> domain;
+      for (const auto &[target, paths] : unit.pathsByTarget) domain.push_back(target);
+      link.insert(link.end(), {"-Xlinker", "--sela-input-domain=" + std::to_string(i) + ":" + targetSelectionText(domain)});
+    }
   }
   if (captured->kind == "shared") link.push_back("-shared");
   if (captured->kind == "static") {
@@ -101,11 +107,28 @@ llvm::Error replay(const fs::path &configuration, const Sdk &sdk,
   }
   for (const auto &library : captured->libraries) link.push_back("-l" + library);
   for (const auto &option : captured->linkOptions) link.insert(link.end(), {"-Xlinker", option});
+  if (!captured->linksByTarget.empty()) {
+    llvm::json::Object links;
+    for (const auto &[target, plan] : captured->linksByTarget) {
+      llvm::json::Array libraries, options;
+      for (const auto &library : plan.libraries) libraries.push_back(library);
+      for (const auto &option : plan.options) options.push_back(option);
+      links[target] = llvm::json::Object{{"libraries", std::move(libraries)}, {"link_options", std::move(options)},
+          {"version_script", plan.versionScript}};
+    }
+    auto settings = scratch->path / "target-links.json";
+    if (auto error = write(settings, jsonText(std::move(links)))) return error;
+    link.insert(link.end(), {"-Xlinker", "--sela-target-links=" + settings.string()});
+  }
   for (const auto &[target, indices] : captured->ordersByTarget) {
     std::string order;
+    std::map<size_t, size_t> targetIndices;
+    for (size_t index = 0; index < captured->units.size(); ++index)
+      if (captured->units[index].pathsByTarget.count(target)) targetIndices.emplace(index, targetIndices.size());
     for (size_t index : indices) {
       if (!order.empty()) order += ',';
-      order += std::to_string(index);
+      if (!targetIndices.count(index)) return fail("native replay order references an inactive unit");
+      order += std::to_string(targetIndices.at(index));
     }
     link.insert(link.end(), {"-Xlinker", "--sela-unit-order=" + target + ":" + order});
   }

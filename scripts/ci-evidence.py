@@ -10,7 +10,7 @@ import tarfile
 
 
 TEMP_PREFIXES = ("sela-private-", "sela-corpus-", "sela-multi-consumer-",
-                 "sela-consumer-vm-", "sela-consumer-test-")
+                 "sela-consumer-vm-", "sela-consumer-test-", "sela-xxhash-")
 REPORTS = {"qualification.txt", "publication-inputs.sha256", "host-settings.txt",
            "CMakeCache.txt", "CMakeConfigureLog.yaml", "native.cfg", ".ninja_log",
            "receipt-token", "trace-policy.txt"}

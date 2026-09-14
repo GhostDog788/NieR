@@ -173,10 +173,17 @@ int main(int argc, char **argv) {
       });
   for (bool sharedLeft : {false, true}) {
     passed &= write(left, native(true, sharedLeft)) && write(right, native(false, !sharedLeft));
-    const auto rejectedArtifact = directory + (sharedLeft ? "/split.selabc" : "/coalesced.selabc");
-    passed &= rejected(sela::mergeProfiles({{"x86_64", left}, {"i686", right}}, rejectedArtifact),
-        "native loop identity correspondence differs between profiles", "cross-profile loop identity");
-    passed &= !std::filesystem::exists(rejectedArtifact);
+    const auto scopedArtifact = directory + (sharedLeft ? "/split.selabc" : "/coalesced.selabc");
+    if (auto error = sela::mergeProfiles({{"x86_64", left}, {"i686", right}}, scopedArtifact)) {
+      llvm::logAllUnhandledErrors(std::move(error), llvm::errs(), "scoped loop identities: ");
+      passed = false;
+    } else for (auto target : {"x86_64", "i686"}) {
+      const auto output = directory + "/" + target + ".ll";
+      if (auto error = sela::lowerArtifact(scopedArtifact, target, output)) {
+        llvm::logAllUnhandledErrors(std::move(error), llvm::errs()); passed = false;
+      } else passed &= checkNativeIdentity(output, std::string(target) == "x86_64" ? sharedLeft : !sharedLeft);
+    }
+    llvm::sys::fs::remove(scopedArtifact);
   }
   if (!passed) {
     llvm::errs() << "Loop identity evidence retained at " << directory << '\n'; return 1;

@@ -19,6 +19,8 @@ The examples include the current pre-alpha limitations and runtime requirements.
 For a small project you can work through first, follow the [Hello project walkthrough](02-toolchain-users/hello-project-walkthrough.md).
 It starts with the ordinary Make/CMake project in `examples/hello/hello/` and follows publication through native execution.
 
+For architecture selection, native target macros, intrinsics and inline assembly, read [Publish target-specific C](02-toolchain-users/target-specific-c.md).
+
 ## Choose how far to go
 
 | Reading path | Chapters | You should be able to… |
@@ -123,9 +125,9 @@ Throughout the course, distinguish:
 - **Planned capability:** an objective that still requires implementation and acceptance evidence.
 
 For example, language-independent input is implemented, but supporting every source language is not.
-The current semantic target domain is x86-64/i686, and separate native compiler bundles exist for both devices.
+The current semantic target registry contains x86-64, i686, ARMv7 hard-float and AArch64, with a separate native compiler bundle for each device.
 The [distribution reference](../reference/compiler-distribution.md) records their real-device and full-corpus qualification separately from private producer tests.
-The C producer's two private profiles do not establish ARM support.
+Private producer captures alone do not establish device support; matching-kernel compiler and execution tests are separate evidence.
 Native program execution needs no Sela interpreter, but ordinary native dependencies still exist.
 
 Source exclusion is not encryption or proof of native-equivalent reverse-engineering resistance.

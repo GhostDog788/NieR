@@ -16,6 +16,8 @@ Follow either the Make section or the CMake section below; you do not need both 
 That configuration tells the SDK where your project is, what to build, and which native output to publish.
 Stock Clang still performs C publication; the SDK adapter coordinates the existing build around it.
 
+For selecting architectures or retaining target-dependent files, flags and inline assembly, see [Publish target-specific C](target-specific-c.md).
+
 ## Prepare the toolchain and check the native project
 
 These instructions describe the current pre-alpha development checkout, not a released system-wide SDK.
@@ -71,7 +73,7 @@ endif
 
 SELA_BUILD_TOOL ?= $(SELA_ROOT)/build/prealpha/sela-build
 SELA_SOURCE_DIR := $(CURDIR)
-SELA_TARGETS := all
+SELA_BUILD_TARGETS := all
 SELA_NATIVE_OUTPUT := bin/myapp
 SELA_ARTIFACT := $(CURDIR)/build/sela/myapp.sela
 
@@ -124,10 +126,10 @@ sela_add_publication(publish
   NATIVE_OUTPUT bin/myapp
   OUTPUT myapp.sela
   BUILD_TOOL "${SELA_BUILD_TOOL}"
-  TARGETS myapp)
+  BUILD_TARGETS myapp)
 ```
 
-Replace `TARGETS myapp` and `NATIVE_OUTPUT bin/myapp` with your native project's target and output.
+Replace `BUILD_TARGETS myapp` and `NATIVE_OUTPUT bin/myapp` with your native project's target and output.
 The relative source path points to your own application one directory above `sela/`; it makes no assumption about where the Sela toolchain lives.
 Configure and build the coordinator from your application root:
 

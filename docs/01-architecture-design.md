@@ -76,6 +76,15 @@ application logic or per-target build rules. The acceptance target is at most
 15 minutes of developer integration effort with an installed SDK and a working
 native build, excluding automated build duration.
 
+The C support goal is Clang-level capability: every C program accepted by the
+supported Clang toolchain must be publishable through Sela for each declared
+target on which that program supports a direct Clang build. Sela must not
+impose a permanent C subset or require disabling native capabilities to pass
+through its publication format. This includes target-conditioned source and
+build choices, CPU intrinsics, inline assembly, assembly with control-flow
+effects, file-scope assembly, and separately assembled source files.
+These are product requirements, not claims of current implementation coverage.
+
 The toolchain must preserve each language's normal semantics and runtime
 facilities. This includes memory management, concurrency, error handling, and
 reflection where the language normally provides it. Go's collector and
@@ -106,6 +115,20 @@ The developer must be able to publish one application package for the supported
 Linux targets. Ordinary application code must be architecture-neutral when
 published, with its native compilation performed on the destination before
 application execution.
+
+Architecture neutrality describes the publication format, not a requirement
+that every target execute the same operations or share every definition.
+Explicit target-specific program semantics and differing compilation units
+must be representable within Sela Code. Sharing equivalent code is desirable,
+but failure to share must not by itself make an otherwise supported program
+unpublishable. Every requested target must be preserved or publication must
+fail; silently dropping a target is not permitted.
+
+Compatibility must distinguish a program's minimum CPU requirements from
+optional accelerated implementations selected by its normal runtime dispatch.
+A package requiring extra CPU features must not be presented as runnable on
+every CPU of that architecture. Optional acceleration must not unnecessarily
+raise the minimum requirements of an otherwise baseline-compatible program.
 
 The package may also contain architecture-specific native **libraries and
 executables**, including executable helpers, for code that needs a native

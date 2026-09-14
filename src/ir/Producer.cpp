@@ -7,7 +7,9 @@
 #include "AggregateNormalize.h"
 #include "sela/IR/Dialect.h"
 #include "sela/IR/Domains.h"
+#include "sela/IR/Intrinsics.h"
 #include "CommonMerge.h"
+#include "InstructionContracts.h"
 
 #include "mlir/Bytecode/BytecodeWriter.h"
 #include "mlir/Bytecode/BytecodeReader.h"
@@ -22,6 +24,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/NoFolder.h"
 #include "llvm/IR/Operator.h"
@@ -105,6 +108,13 @@ bool debugInstruction(const llvm::Instruction &instruction) {
   return llvm::isa<llvm::DbgInfoIntrinsic>(instruction);
 }
 
+bool hasAssembly(const llvm::Module &module) {
+  if (!module.getModuleInlineAsm().empty()) return true;
+  for (const auto &function : module) for (const auto &instruction : llvm::instructions(function))
+    if (auto *call = llvm::dyn_cast<llvm::CallBase>(&instruction); call && call->isInlineAsm()) return true;
+  return false;
+}
+
 std::vector<const llvm::Instruction *> captureInstructions(const llvm::Function &f) {
   std::vector<const llvm::Instruction *> result;
   for (const auto &instruction : llvm::instructions(f))
@@ -130,7 +140,8 @@ bool permittedMetadata(const llvm::Instruction &instruction) {
     if (entry.first != llvm::LLVMContext::MD_tbaa &&
         entry.first != llvm::LLVMContext::MD_tbaa_struct &&
         entry.first != llvm::LLVMContext::MD_DIAssignID &&
-        entry.first != llvm::LLVMContext::MD_loop)
+        entry.first != llvm::LLVMContext::MD_loop &&
+        entry.first != instruction.getContext().getMDKindID("srcloc"))
       return false;
   return true;
 }
@@ -177,15 +188,11 @@ llvm::Error validateCapture(const llvm::Module &module, const targets::TargetInf
   if (!module.getModuleInlineAsm().empty() || !module.alias_empty() ||
       !module.ifunc_empty())
     return failure("module assembly, aliases and ifuncs are not supported yet");
-  const std::map<std::string, std::string> targetAttributes = {
-      {"target-cpu", target.cpu.str()},
-      {"target-features", target.features.str()},
-      {"tune-cpu", "generic"}, {"min-legal-vector-width", "0"}};
   for (const auto &function : module)
-    for (const auto &[name, expected] : targetAttributes) {
+    for (const auto *name : {"target-cpu", "target-features", "tune-cpu", "min-legal-vector-width"}) {
       auto value = function.getFnAttribute(name);
-      if (value.isValid() && (!value.isStringAttribute() || value.getValueAsString() != expected))
-        return failure("capture changes a pinned CPU/profile attribute: " + llvm::Twine(name));
+      if (value.isValid() && !value.isStringAttribute())
+        return failure("invalid capture code-generation attribute: " + llvm::Twine(name));
     }
   const std::map<std::string, uint64_t> expected = {
       {"NumRegisterParameters", 0}, {"wchar_size", 4}, {"PIC Level", 2},
@@ -217,6 +224,7 @@ llvm::Error validateCapture(const llvm::Module &module, const targets::TargetInf
 // Full instruction semantics remain in this comparison; source spellings,
 // debug/TBAA and the explicitly pinned target configuration do not.
 void canonicalize(llvm::Module &module, const targets::TargetInfo &target) {
+  const bool retainSymbolNames = hasAssembly(module);
   llvm::StripDebugInfo(module);
   if (auto *ident = module.getNamedMetadata("llvm.ident"))
     module.eraseNamedMetadata(ident);
@@ -230,12 +238,14 @@ void canonicalize(llvm::Module &module, const targets::TargetInfo &target) {
     }
     if (function.isDeclaration() && function.isIntrinsic()) intrinsicDeclarations.push_back(&function);
     if (byteSwapPrimitive(function)) continue;
-    if (function.hasLocalLinkage())
+    if (function.hasLocalLinkage() && !retainSymbolNames)
       function.setName("f" + std::to_string(functionIndex));
     if (!function.isDeclaration()) ++functionIndex;
-    for (StringRef name : {"target-cpu", "target-features", "tune-cpu",
-                           "min-legal-vector-width"})
-      function.removeFnAttr(name);
+    for (const auto &[name, baseline] : std::vector<std::pair<StringRef, StringRef>>{
+           {"target-cpu", target.cpu}, {"target-features", target.features},
+           {"tune-cpu", "generic"}, {"min-legal-vector-width", "0"}})
+      if (auto value = function.getFnAttribute(name); value.isStringAttribute() && value.getValueAsString() == baseline)
+        function.removeFnAttr(name);
     for (auto &argument : function.args())
       argument.setName("");
     llvm::DenseMap<const llvm::BasicBlock *, unsigned> blockOrder;
@@ -247,6 +257,7 @@ void canonicalize(llvm::Module &module, const targets::TargetInfo &target) {
         instruction.setName("");
         instruction.setMetadata(llvm::LLVMContext::MD_tbaa, nullptr);
         instruction.setMetadata(llvm::LLVMContext::MD_tbaa_struct, nullptr);
+        instruction.setMetadata("srcloc", nullptr);
         if (auto *loop = instruction.getMetadata(llvm::LLVMContext::MD_loop);
             loop && loop->getNumOperands() == 1 && loop->getOperand(0).get() == loop)
           instruction.setMetadata(llvm::LLVMContext::MD_loop, nullptr);
@@ -279,7 +290,7 @@ void canonicalize(llvm::Module &module, const targets::TargetInfo &target) {
     module.getFunctionList().splice(module.end(), module.getFunctionList(), function->getIterator());
   unsigned globalIndex = 0;
   for (auto &global : module.globals()) {
-    if (global.hasLocalLinkage()) global.setName("g" + std::to_string(globalIndex));
+    if (global.hasLocalLinkage() && !retainSymbolNames) global.setName("g" + std::to_string(globalIndex));
     ++globalIndex;
   }
   configureModule(module, target);
@@ -293,7 +304,7 @@ std::string moduleText(const llvm::Module &module) {
   return result;
 }
 
-class Merger {
+class LLVMImporter {
 public:
   mlir::MLIRContext context;
   mlir::OpBuilder builder;
@@ -319,21 +330,21 @@ public:
   llvm::DenseMap<const llvm::Function *, llvm::FunctionType *> leftNativeABIs, rightNativeABIs;
   const targets::TargetInfo &leftTarget, &rightTarget;
 
-  Merger(const detail::NativeVarargs &leftVA, const detail::NativeVarargs &rightVA,
-         const detail::NativeOverlaps &leftOverlap, const detail::NativeOverlaps &rightOverlap,
-         const detail::NormalizedAggregateModule &leftABI, const detail::NormalizedAggregateModule &rightABI,
-         const targets::TargetInfo &leftTarget, const targets::TargetInfo &rightTarget)
-      : builder(&context), leftVarargs(leftVA), rightVarargs(rightVA),
-        leftOverlaps(leftOverlap), rightOverlaps(rightOverlap), leftAggregates(leftABI), rightAggregates(rightABI),
-        leftTarget(leftTarget), rightTarget(rightTarget) {
+  LLVMImporter(const detail::NativeVarargs &varargs, const detail::NativeOverlaps &overlaps,
+         const detail::NormalizedAggregateModule &aggregates, const targets::TargetInfo &target)
+      : builder(&context), leftVarargs(varargs), rightVarargs(varargs),
+        leftOverlaps(overlaps), rightOverlaps(overlaps), leftAggregates(aggregates), rightAggregates(aggregates),
+        leftTarget(target), rightTarget(target) {
     context.getOrLoadDialect<ir::SelaDialect>();
     module = mlir::ModuleOp::create(builder.getUnknownLoc());
     (*module)->setAttr("sela.schema", builder.getI32IntegerAttr(1));
     (*module)->setAttr("sela.targets", ir::targetSet(&context, leftTarget.id == rightTarget.id
         ? llvm::ArrayRef<StringRef>{leftTarget.id} : llvm::ArrayRef<StringRef>{leftTarget.id, rightTarget.id}));
     builder.setInsertionPointToEnd(module->getBody());
-    for (const auto &function : leftABI.functions) leftNativeABIs[function.function] = function.logicalType;
-    for (const auto &function : rightABI.functions) rightNativeABIs[function.function] = function.logicalType;
+    for (const auto &function : aggregates.functions) {
+      leftNativeABIs[function.function] = function.logicalType;
+      rightNativeABIs[function.function] = function.logicalType;
+    }
   }
 
   void fail(const llvm::Twine &message) {
@@ -389,6 +400,15 @@ public:
       return ir::PointerType::get(&context);
     if (left->isFloatTy() && right->isFloatTy()) return builder.getF32Type();
     if (left->isDoubleTy() && right->isDoubleTy()) return builder.getF64Type();
+    if (auto *vector = llvm::dyn_cast<llvm::FixedVectorType>(left)) {
+      auto *other = llvm::dyn_cast<llvm::FixedVectorType>(right);
+      if (!other || vector->getNumElements() != other->getNumElements() || vector->getNumElements() > 1024) {
+        fail("unsupported vector type correspondence"); return {};
+      }
+      auto element = type(vector->getElementType(), other->getElementType());
+      if (!element) return {};
+      return mlir::VectorType::get({int64_t(vector->getNumElements())}, element);
+    }
     if (auto *array = llvm::dyn_cast<llvm::ArrayType>(left)) {
       auto *other = llvm::dyn_cast<llvm::ArrayType>(right);
       if (!other) { fail("array storage kinds differ between profiles"); return {}; }
@@ -448,7 +468,7 @@ public:
     }
     if (left->isIntegerTy() && right->isIntegerTy()) {
       unsigned lw = left->getIntegerBitWidth(), rw = right->getIntegerBitWidth();
-      if (lw == rw && (lw == 1 || lw == 8 || lw == 16 || lw == 32 || lw == 64))
+      if (lw == rw && lw >= 1 && lw <= 128)
         return builder.getIntegerType(lw);
       if (lw == leftTarget.wordBits && rw == rightTarget.wordBits && lw != rw)
         return ir::WordType::get(&context);
@@ -494,6 +514,11 @@ public:
             llvm::Attribute::getNameFromAttrKind(attribute.getKindAsEnum()))));
         if (attribute.isIntAttribute())
           fields.push_back(attr("integer", builder.getI64IntegerAttr(attribute.getValueAsInt())));
+      } else if (attribute.isTypeAttribute()) {
+        auto value = type(attribute.getValueAsType(), attribute.getValueAsType());
+        if (!value) return {};
+        fields.push_back(attr("name", builder.getStringAttr(llvm::Attribute::getNameFromAttrKind(attribute.getKindAsEnum()))));
+        fields.push_back(attr("type", mlir::TypeAttr::get(value)));
       } else {
         fail("type/range ABI attributes are not supported in the first checkpoint");
         return {};
@@ -576,6 +601,12 @@ public:
     if (auto *integer = llvm::dyn_cast<llvm::ConstantInt>(left)) {
       auto *other = llvm::dyn_cast<llvm::ConstantInt>(right);
       if (!other) { fail("initializer kinds differ"); return {}; }
+      if (integer->getBitWidth() > 64 || other->getBitWidth() > 64) {
+        auto encode = [&](const llvm::ConstantInt *value) {
+          return builder.getIntegerAttr(builder.getIntegerType(value->getBitWidth()), value->getValue());
+        };
+        return choice(encode(integer), encode(other));
+      }
       auto a = integer->getValue().sextOrTrunc(64), b = other->getValue().sextOrTrunc(64);
       if (a == b) return builder.getIntegerAttr(builder.getI64Type(), a);
       return expression(integer->getZExtValue(), other->getZExtValue());
@@ -603,12 +634,15 @@ public:
       }
       return builder.getDictionaryAttr({attr("symbol", builder.getStringAttr(symbols.lookup(global)))});
     }
-    if (left->getType()->isAggregateType() && right->getType()->isAggregateType()) {
+    if ((left->getType()->isAggregateType() && right->getType()->isAggregateType()) ||
+        (left->getType()->isVectorTy() && right->getType()->isVectorTy())) {
       uint64_t count = left->getType()->isArrayTy()
           ? llvm::cast<llvm::ArrayType>(left->getType())->getNumElements()
+          : left->getType()->isVectorTy() ? llvm::cast<llvm::FixedVectorType>(left->getType())->getNumElements()
           : llvm::cast<llvm::StructType>(left->getType())->getNumElements();
       uint64_t otherCount = right->getType()->isArrayTy()
           ? llvm::cast<llvm::ArrayType>(right->getType())->getNumElements()
+          : right->getType()->isVectorTy() ? llvm::cast<llvm::FixedVectorType>(right->getType())->getNumElements()
           : llvm::cast<llvm::StructType>(right->getType())->getNumElements();
       if (std::max(count, otherCount) > 1024 * 1024 ||
           (count != otherCount && (!left->getType()->isArrayTy() || !right->getType()->isArrayTy()))) {
@@ -661,7 +695,10 @@ public:
       }
       Attribute value;
       const llvm::APInt &av = a->getValue(), &bv = b->getValue();
-      if (av.sextOrTrunc(64) == bv.sextOrTrunc(64))
+      if (av.getBitWidth() > 64 || bv.getBitWidth() > 64)
+        value = choice(builder.getIntegerAttr(builder.getIntegerType(av.getBitWidth()), av),
+                       builder.getIntegerAttr(builder.getIntegerType(bv.getBitWidth()), bv));
+      else if (av.sextOrTrunc(64) == bv.sextOrTrunc(64))
         value = builder.getIntegerAttr(builder.getI64Type(), av.sextOrTrunc(64));
       else if (av.zextOrTrunc(64) == bv.zextOrTrunc(64))
         value = builder.getIntegerAttr(builder.getI64Type(), av.zextOrTrunc(64));
@@ -809,6 +846,51 @@ public:
     return operand(left->getArgOperand(index), right->getArgOperand(index));
   }
 
+  Operation *inlineAssembly(const llvm::CallBase &call) {
+    auto *assembly = llvm::dyn_cast<llvm::InlineAsm>(call.getCalledOperand());
+    auto *branch = llvm::dyn_cast<llvm::CallBrInst>(&call);
+    if (!assembly || call.hasOperandBundles() || call.getCallingConv() || assembly->getFunctionType()->isVarArg()) {
+      fail("inline assembly requires a fixed single-target call signature"); return nullptr;
+    }
+    llvm::SmallVector<mlir::Value> arguments;
+    for (auto &argument : call.args()) {
+      auto value = operand(argument, argument);
+      if (!value) return nullptr;
+      arguments.push_back(value);
+    }
+    mlir::OperationState state(builder.getUnknownLoc(), branch ? "sela.inline_asm_br" : "sela.inline_asm");
+    if (!call.getType()->isVoidTy()) {
+      auto resultType = type(call.getType(), call.getType());
+      if (!resultType) return nullptr;
+      state.addTypes(resultType);
+    }
+    state.addAttributes({
+      attr("template", builder.getStringAttr(assembly->getAsmString())),
+      attr("constraints", builder.getStringAttr(assembly->getConstraintString())),
+      attr("backend", builder.getStringAttr(leftTarget.llvmBackend)),
+      attr("side_effects", builder.getBoolAttr(assembly->hasSideEffects())),
+      attr("align_stack", builder.getBoolAttr(assembly->isAlignStack())),
+      attr("can_throw", builder.getBoolAttr(assembly->canThrow())),
+      attr("dialect", builder.getStringAttr(assembly->getDialect() == llvm::InlineAsm::AD_ATT ? "att" : "intel")),
+      attr("attributes", attributeList(call.getAttributes(), call.getAttributes(), call.arg_size())),
+      attr("tail", builder.getI32IntegerAttr(branch ? 0 : llvm::cast<llvm::CallInst>(call).getTailCallKind()))});
+    if (branch) {
+      state.addAttribute("argument_count", builder.getI32IntegerAttr(arguments.size()));
+      llvm::SmallVector<int32_t> counts;
+      for (unsigned index = 0; index < branch->getNumSuccessors(); ++index) {
+        auto *destination = branch->getSuccessor(index);
+        size_t before = arguments.size();
+        if (!edgeArguments(destination, destination, branch->getParent(), branch->getParent(), arguments)) return nullptr;
+        counts.push_back(arguments.size() - before);
+        state.addSuccessors(blocks.lookup(destination));
+      }
+      state.addAttribute("argument_counts", builder.getDenseI32ArrayAttr(counts));
+    }
+    if (!error.empty()) return nullptr;
+    state.addOperands(arguments);
+    return builder.create(state);
+  }
+
   void mergeInstruction(const llvm::Instruction &left,
                          const llvm::Instruction &right) {
     if (!error.empty())
@@ -906,9 +988,36 @@ public:
         return;
       result = op("sela.store", {}, {value, pointer}, {attr("alignment", alignment),
           attr("volatile", builder.getBoolAttr(a->isVolatile()))});
+    } else if (auto *branch = llvm::dyn_cast<llvm::CallBrInst>(&left)) {
+      if (&left != &right) { fail("assembly branch requires a single-target import"); return; }
+      result = inlineAssembly(*branch);
+      if (!result) return;
     } else if (auto *a = llvm::dyn_cast<llvm::CallInst>(&left)) {
       auto *b = llvm::cast<llvm::CallInst>(&right);
-      if (a->getIntrinsicID() == llvm::Intrinsic::bswap || b->getIntrinsicID() == llvm::Intrinsic::bswap) {
+      if (auto *assembly = llvm::dyn_cast<llvm::InlineAsm>(a->getCalledOperand())) {
+        if (a != b) { fail("inline assembly requires a single-target import"); return; }
+        result = inlineAssembly(*a);
+        if (!result) return;
+      } else if (auto *intrinsic = ir::findIntrinsic(a->getIntrinsicID())) {
+        if (a->getIntrinsicID() != b->getIntrinsicID() || a->hasOperandBundles() || b->hasOperandBundles() ||
+            a->arg_size() != intrinsic->operands || b->arg_size() != intrinsic->operands)
+          { fail("invalid registered intrinsic operands"); return; }
+        llvm::SmallVector<mlir::Value> arguments;
+        for (unsigned index = 0; index < a->arg_size(); ++index) {
+          auto value = operand(a->getArgOperand(index), b->getArgOperand(index));
+          if (!value) return;
+          arguments.push_back(value);
+        }
+        llvm::SmallVector<mlir::Type> results;
+        if (!a->getType()->isVoidTy()) {
+          auto resultType = type(a->getType(), b->getType());
+          if (!resultType) return;
+          results.push_back(resultType);
+        }
+        result = op("sela.intrinsic", results, arguments, {attr("name", builder.getStringAttr(intrinsic->name)),
+            attr("attributes", attributeList(a->getAttributes(), b->getAttributes(), a->arg_size())),
+            attr("tail", builder.getI32IntegerAttr(a->getTailCallKind()))});
+      } else if (a->getIntrinsicID() == llvm::Intrinsic::bswap || b->getIntrinsicID() == llvm::Intrinsic::bswap) {
         if (!a->getCalledFunction() || !b->getCalledFunction() ||
             !byteSwapPrimitive(*a->getCalledFunction()) || !byteSwapPrimitive(*b->getCalledFunction()) ||
             a->hasOperandBundles() || b->hasOperandBundles() ||
@@ -1139,6 +1248,35 @@ public:
         return;
       result = op("sela.cast", valueType, value,
                   {attr("opcode", choice(builder.getStringAttr(a->getOpcodeName()), builder.getStringAttr(b->getOpcodeName())))});
+    } else if (auto *a = llvm::dyn_cast<llvm::ExtractValueInst>(&left)) {
+      auto *b = llvm::cast<llvm::ExtractValueInst>(&right);
+      auto value = operand(a->getAggregateOperand(), b->getAggregateOperand());
+      auto resultType = type(a->getType(), b->getType());
+      if (!value || !resultType || a->getIndices() != b->getIndices()) { fail("aggregate extraction indices differ"); return; }
+      llvm::SmallVector<int32_t> indices(a->getIndices().begin(), a->getIndices().end());
+      result = op("sela.extract_value", resultType, value, {attr("indices", builder.getDenseI32ArrayAttr(indices))});
+    } else if (auto *a = llvm::dyn_cast<llvm::InsertValueInst>(&left)) {
+      auto *b = llvm::cast<llvm::InsertValueInst>(&right);
+      auto aggregate = operand(a->getAggregateOperand(), b->getAggregateOperand());
+      auto value = operand(a->getInsertedValueOperand(), b->getInsertedValueOperand());
+      auto resultType = type(a->getType(), b->getType());
+      if (!aggregate || !value || !resultType || a->getIndices() != b->getIndices()) { fail("aggregate insertion indices differ"); return; }
+      llvm::SmallVector<int32_t> indices(a->getIndices().begin(), a->getIndices().end());
+      result = op("sela.insert_value", resultType, {aggregate, value}, {attr("indices", builder.getDenseI32ArrayAttr(indices))});
+    } else if (llvm::isa<llvm::ExtractElementInst, llvm::InsertElementInst, llvm::ShuffleVectorInst>(&left)) {
+      llvm::SmallVector<mlir::Value> operands;
+      for (unsigned i = 0; i < left.getNumOperands(); ++i) {
+        auto value = operand(left.getOperand(i), right.getOperand(i));
+        if (!value) return;
+        operands.push_back(value);
+      }
+      auto resultType = type(left.getType(), right.getType());
+      if (!resultType) return;
+      if (auto *shuffle = llvm::dyn_cast<llvm::ShuffleVectorInst>(&left)) {
+        auto *other = llvm::cast<llvm::ShuffleVectorInst>(&right);
+        if (shuffle->getShuffleMask() != other->getShuffleMask()) { fail("vector shuffle masks differ"); return; }
+        result = op("sela.shuffle", resultType, operands, {attr("mask", builder.getDenseI32ArrayAttr(shuffle->getShuffleMask()))});
+      } else result = op(llvm::isa<llvm::ExtractElementInst>(left) ? "sela.extract_element" : "sela.insert_element", resultType, operands);
     } else if (auto *a = llvm::dyn_cast<llvm::CmpInst>(&left)) {
       auto *b = llvm::cast<llvm::CmpInst>(&right);
       if (llvm::isa<llvm::FCmpInst>(a) &&
@@ -1149,7 +1287,9 @@ public:
       auto y = operand(a->getOperand(1), b->getOperand(1));
       if (!x || !y)
         return;
-      result = op("sela.compare", builder.getI1Type(), {x, y},
+      auto resultType = type(a->getType(), b->getType());
+      if (!resultType) return;
+      result = op("sela.compare", resultType, {x, y},
                   {attr("predicate", choice(builder.getI32IntegerAttr(a->getPredicate()), builder.getI32IntegerAttr(b->getPredicate())))});
     } else {
       fail("unsupported first-checkpoint instruction: " + StringRef(left.getOpcodeName()));
@@ -1169,14 +1309,19 @@ public:
         // same operands in the private native reconstruction comparison.
         if (llvm::isa_and_nonnull<llvm::DILocation>(node->getOperand(i))) continue;
         auto *entry = llvm::dyn_cast_or_null<llvm::MDNode>(node->getOperand(i));
-        auto *name = entry && entry->getNumOperands() == 1
+        auto *name = entry && entry->getNumOperands() >= 1
             ? llvm::dyn_cast_or_null<llvm::MDString>(entry->getOperand(0)) : nullptr;
-        if (!name || (name->getString() != "llvm.loop.mustprogress" &&
-                      name->getString() != "llvm.loop.unroll.disable" &&
-                      name->getString() != "llvm.loop.unroll.enable")) {
-          fail("loop metadata requires an unsupported semantic option"); return {};
+        if (!name) { fail("invalid loop option name"); return {}; }
+        Attribute option;
+        if (entry->getNumOperands() == 1) option = builder.getStringAttr(name->getString());
+        else if (entry->getNumOperands() == 2) {
+          auto *number = llvm::mdconst::dyn_extract_or_null<llvm::ConstantInt>(entry->getOperand(1));
+          if (number && number->getType()->isIntegerTy(32)) option = builder.getDictionaryAttr({
+              attr("name", builder.getStringAttr(name->getString())), attr("value", builder.getI32IntegerAttr(number->getZExtValue()))});
         }
-        options.push_back(builder.getStringAttr(name->getString()));
+        if (!option) { fail("loop metadata requires an unsupported semantic option"); return {}; }
+        if (auto error = detail::validateLoopOption(option)) { fail(llvm::toString(std::move(error))); return {}; }
+        options.push_back(option);
       }
       return options.empty() ? mlir::ArrayAttr() : builder.getArrayAttr(options);
     };
@@ -1206,293 +1351,163 @@ public:
     }
   }
 
-  void merge(llvm::Module &left, llvm::Module &right) {
-    auto lf = moduleFlags(left), rf = moduleFlags(right);
+  // A single-observation traversal: no peer module, definition matching,
+  // block pairing, or cross-target proof is needed to import a native unit.
+  // The instruction/type encoding primitives below are also used by the
+  // optional correspondence prover; identical operands select literal forms.
+  void importModule(llvm::Module &input) {
     llvm::SmallVector<Attribute> flags;
-    auto flag = [&](StringRef name, std::pair<unsigned, uint64_t> value, unsigned mask) {
+    for (const auto &[name, value] : moduleFlags(input))
       flags.push_back(builder.getDictionaryAttr({
           attr("name", builder.getStringAttr(name)),
           attr("behavior", builder.getI32IntegerAttr(value.first)),
           attr("value", builder.getI32IntegerAttr(value.second)),
-          attr("targets", domain(mask))}));
-    };
-    for (const auto &[name, value] : lf) {
-      auto peer = rf.find(name);
-      bool common = peer != rf.end() && peer->second == value;
-      flag(name, value, common ? 3 : 1);
-      if (common) rf.erase(peer);
-    }
-    for (const auto &[name, value] : rf) flag(name, value, 2);
+          attr("targets", domain(1))}));
     (*module)->setAttr("sela.module_flags", builder.getArrayAttr(flags));
-    unsigned globalIndex = 0;
-    std::vector<std::pair<llvm::GlobalVariable *, llvm::GlobalVariable *>> globals;
-    for (auto &a : left.globals()) {
-      auto *b = right.getNamedGlobal(a.getName());
-      auto linkage = a.getLinkage();
-      if (!b || a.isConstant() != b->isConstant() ||
-          a.isDeclaration() != b->isDeclaration() || linkage != b->getLinkage() ||
-          a.isDSOLocal() != b->isDSOLocal() || a.getAddressSpace() || b->getAddressSpace() ||
-          a.isThreadLocal() || b->isThreadLocal() || a.isExternallyInitialized() || b->isExternallyInitialized() ||
-          a.hasSection() || b->hasSection() || a.hasComdat() || b->hasComdat() ||
-          a.getVisibility() != b->getVisibility() ||
-          a.getUnnamedAddr() != b->getUnnamedAddr() ||
+    unsigned globalIndex = 0, functionIndex = 0;
+    // Assembly templates may name a local symbol without an LLVM SSA use.
+    // Renaming only the SSA graph would silently break that native reference.
+    const bool retainSymbolNames = hasAssembly(input);
+    for (auto &global : input.globals()) {
+      const auto linkage = global.getLinkage();
+      if (global.getAddressSpace() || global.isThreadLocal() || global.isExternallyInitialized() ||
+          global.hasSection() || global.hasComdat() ||
           (linkage != llvm::GlobalValue::PrivateLinkage && linkage != llvm::GlobalValue::InternalLinkage &&
            linkage != llvm::GlobalValue::ExternalLinkage && linkage != llvm::GlobalValue::CommonLinkage &&
-           linkage != llvm::GlobalValue::WeakAnyLinkage)) {
-        fail("global storage/linkage inventory needs additional normalization"); return;
+           linkage != llvm::GlobalValue::WeakAnyLinkage &&
+           !(linkage == llvm::GlobalValue::AppendingLinkage &&
+             (global.getName() == "llvm.global_ctors" || global.getName() == "llvm.global_dtors")))) {
+        fail("unsupported single-target global storage/linkage: " + global.getName()); return;
       }
-      symbols[&a] = a.hasLocalLinkage() ? "g" + std::to_string(globalIndex) : a.getName().str();
-      symbols[b] = symbols.lookup(&a);
+      symbols[&global] = global.hasLocalLinkage() && !retainSymbolNames ? "g" + std::to_string(globalIndex) : global.getName().str();
       ++globalIndex;
-      pairs[&a] = b;
-      globals.emplace_back(&a, b);
+      pairs[&global] = &global;
     }
-    if (globalIndex != right.global_size()) {
-      fail("global inventory differs between profiles"); return;
-    }
-    unsigned index = 0;
-    std::vector<std::pair<llvm::Function *, llvm::Function *>> functions;
-    for (auto &a : left) {
-      if (debugFunction(a) || byteSwapPrimitive(a))
-        continue;
-      auto *b = right.getFunction(a.getName());
-      if (!b && memoryIntrinsic(a)) {
-        // Memory intrinsic overloads name their native length type. Match
-        // only the exact pinned native-word substitution, not another
-        // overload chosen by function order or a lossy name prefix.
-        auto name = a.getName();
-        if (name.ends_with(".i64"))
-          b = right.getFunction(name.drop_back(4).str() + ".i32");
-        else if (name.ends_with(".i32"))
-          b = right.getFunction(name.drop_back(4).str() + ".i64");
+    for (auto &function : input) {
+      if (debugFunction(function) || byteSwapPrimitive(function) || ir::findIntrinsic(function.getIntrinsicID())) continue;
+      if (function.getCallingConv() || function.hasPersonalityFn() || function.hasPrefixData() ||
+          function.hasPrologueData() || function.hasComdat() || function.hasSection() ||
+          (function.getLinkage() != llvm::GlobalValue::ExternalLinkage &&
+           function.getLinkage() != llvm::GlobalValue::InternalLinkage &&
+           function.getLinkage() != llvm::GlobalValue::AvailableExternallyLinkage &&
+           function.getLinkage() != llvm::GlobalValue::WeakAnyLinkage)) {
+        fail("unsupported single-target function ABI/linkage: " + function.getName()); return;
       }
-      if (!b || a.isDeclaration() != b->isDeclaration() ||
-          a.arg_size() != b->arg_size() || a.isVarArg() != b->isVarArg() ||
-          a.getLinkage() != b->getLinkage() ||
-          a.isDSOLocal() != b->isDSOLocal() ||
-          a.getCallingConv() || b->getCallingConv() ||
-          a.hasPersonalityFn() || b->hasPersonalityFn() ||
-          a.hasPrefixData() || b->hasPrefixData() ||
-          a.hasPrologueData() || b->hasPrologueData() ||
-          a.hasComdat() || b->hasComdat() || a.hasSection() || b->hasSection() ||
-          a.getVisibility() != b->getVisibility() ||
-          (a.getLinkage() != llvm::GlobalValue::ExternalLinkage &&
-           a.getLinkage() != llvm::GlobalValue::InternalLinkage &&
-           a.getLinkage() != llvm::GlobalValue::AvailableExternallyLinkage &&
-           a.getLinkage() != llvm::GlobalValue::WeakAnyLinkage)) {
-        fail("unsupported function inventory, linkage or ABI difference: " + a.getName());
-        return;
+      if (function.isIntrinsic() && !memoryIntrinsic(function) &&
+          function.getName() != "llvm.lifetime.start.p0" && function.getName() != "llvm.lifetime.end.p0" &&
+          function.getName() != "llvm.va_start" && function.getName() != "llvm.va_end" && function.getName() != "llvm.va_copy" &&
+          function.getName() != "llvm.fabs.f32" && function.getName() != "llvm.fabs.f64" &&
+          function.getName() != "llvm.fmuladd.f32" && function.getName() != "llvm.fmuladd.f64" &&
+          function.getName() != "llvm.fma.f32" && function.getName() != "llvm.fma.f64") {
+        fail("unsupported Sela intrinsic import: " + function.getName()); return;
       }
-      if (a.isDeclaration() && a.isIntrinsic() &&
-          a.getName() != "llvm.lifetime.start.p0" &&
-          a.getName() != "llvm.lifetime.end.p0" &&
-          !memoryIntrinsic(a) &&
-          a.getName() != "llvm.va_start" && a.getName() != "llvm.va_end" &&
-          a.getName() != "llvm.va_copy" &&
-          a.getName() != "llvm.fabs.f32" && a.getName() != "llvm.fabs.f64" &&
-          a.getName() != "llvm.fmuladd.f32" && a.getName() != "llvm.fmuladd.f64" &&
-          a.getName() != "llvm.fma.f32" && a.getName() != "llvm.fma.f64") {
-        fail("unsupported first-checkpoint import: " + a.getName());
-        return;
-      }
-      std::string id = (!a.hasLocalLinkage())
-                           ? a.getName().str() : "f" + std::to_string(index);
-      if (memoryIntrinsic(a) && a.arg_size() >= 3 &&
-          a.getArg(2)->getType()->isIntegerTy(leftTarget.wordBits) &&
-          b->getArg(2)->getType()->isIntegerTy(rightTarget.wordBits))
-        id = a.getName().drop_back(4).str() + ".word";
-      // Private identities follow definition order, never the position of
-      // an intrinsic/import declaration first used by a target ABI shim.
-      if (!a.isDeclaration()) ++index;
-      symbols[&a] = id;
-      symbols[b] = id;
-      pairs[&a] = b;
-      functions.emplace_back(&a, b);
+      auto identity = function.hasLocalLinkage() && !retainSymbolNames ? "f" + std::to_string(functionIndex) : function.getName().str();
+      if (memoryIntrinsic(function) && function.arg_size() >= 3 &&
+          function.getArg(2)->getType()->isIntegerTy(leftTarget.wordBits))
+        identity = function.getName().drop_back(4).str() + ".word";
+      if (!function.isDeclaration()) ++functionIndex;
+      symbols[&function] = identity;
+      pairs[&function] = &function;
     }
-    unsigned rightCount = 0;
-    for (auto &f : right)
-      rightCount += !debugFunction(f) && !byteSwapPrimitive(f);
-    if (functions.size() != rightCount) {
-      fail("function inventory differs between profiles");
-      return;
-    }
-    for (auto [a, b] : globals) {
-      auto *ad = a->hasInitializer() ? llvm::dyn_cast<llvm::ConstantDataSequential>(a->getInitializer()) : nullptr;
-      auto *bd = b->hasInitializer() ? llvm::dyn_cast<llvm::ConstantDataSequential>(b->getInitializer()) : nullptr;
-      auto alignment = expression(a->getAlign() ? a->getAlign()->value() : 0,
-                                  b->getAlign() ? b->getAlign()->value() : 0);
-      if (ad && bd && ad->isString() && bd->isString() && ad->getAsString() == bd->getAsString() &&
-          a->isConstant() && a->hasPrivateLinkage() && a->getAlign() && b->getAlign()) {
-        op("sela.global", {}, {}, {
-            attr("id", builder.getStringAttr(symbols.lookup(a))),
-            attr("bytes", builder.getStringAttr(ad->getAsString())),
-            attr("alignment", alignment),
-            attr("unnamed", builder.getI32IntegerAttr(unsigned(a->getUnnamedAddr())))});
+    auto visibility = [&](const llvm::GlobalValue &value) {
+      return builder.getStringAttr(value.getVisibility() == llvm::GlobalValue::HiddenVisibility ? "hidden" :
+          value.getVisibility() == llvm::GlobalValue::ProtectedVisibility ? "protected" : "default");
+    };
+    for (auto &global : input.globals()) {
+      auto *data = global.hasInitializer() ? llvm::dyn_cast<llvm::ConstantDataSequential>(global.getInitializer()) : nullptr;
+      auto alignment = builder.getI64IntegerAttr(global.getAlign() ? global.getAlign()->value() : 0);
+      if (data && data->isString() && global.isConstant() && global.hasPrivateLinkage() && global.getAlign()) {
+        op("sela.global", {}, {}, {attr("id", builder.getStringAttr(symbols.lookup(&global))),
+            attr("bytes", builder.getStringAttr(data->getAsString())), attr("alignment", alignment),
+            attr("unnamed", builder.getI32IntegerAttr(unsigned(global.getUnnamedAddr())))});
         continue;
       }
-      auto element = type(a->getValueType(), b->getValueType());
+      auto element = type(global.getValueType(), global.getValueType());
       if (!element) return;
-      Attribute value = a->hasInitializer() ? initializer(a->getInitializer(), b->getInitializer()) : builder.getUnitAttr();
+      Attribute value = global.hasInitializer() ? initializer(global.getInitializer(), global.getInitializer()) : builder.getUnitAttr();
       if (!value) return;
-      StringRef linkage = a->hasPrivateLinkage() ? "private" : a->hasInternalLinkage() ? "internal" :
-          a->hasCommonLinkage() ? "common" : a->hasWeakAnyLinkage() ? "weak" : "external";
-      op("sela.global", {}, {}, {
-          attr("id", builder.getStringAttr(symbols.lookup(a))), attr("element", mlir::TypeAttr::get(element)),
-          attr("initializer", value), attr("constant", builder.getBoolAttr(a->isConstant())),
-          attr("declaration", builder.getBoolAttr(a->isDeclaration())),
-          attr("linkage", builder.getStringAttr(linkage)), attr("dso_local", builder.getBoolAttr(a->isDSOLocal())),
-          attr("visibility", builder.getStringAttr(a->getVisibility() == llvm::GlobalValue::HiddenVisibility ? "hidden" :
-              a->getVisibility() == llvm::GlobalValue::ProtectedVisibility ? "protected" : "default")),
-          attr("alignment", alignment), attr("unnamed", builder.getI32IntegerAttr(unsigned(a->getUnnamedAddr())))});
+      StringRef linkage = global.hasPrivateLinkage() ? "private" : global.hasInternalLinkage() ? "internal" :
+          global.hasCommonLinkage() ? "common" : global.hasWeakAnyLinkage() ? "weak" :
+          global.hasAppendingLinkage() ? "appending" : "external";
+      op("sela.global", {}, {}, {attr("id", builder.getStringAttr(symbols.lookup(&global))),
+          attr("element", mlir::TypeAttr::get(element)), attr("initializer", value),
+          attr("constant", builder.getBoolAttr(global.isConstant())), attr("declaration", builder.getBoolAttr(global.isDeclaration())),
+          attr("linkage", builder.getStringAttr(linkage)), attr("dso_local", builder.getBoolAttr(global.isDSOLocal())),
+          attr("visibility", visibility(global)), attr("alignment", alignment),
+          attr("unnamed", builder.getI32IntegerAttr(unsigned(global.getUnnamedAddr())))});
     }
-    for (auto [a, b] : functions) {
+    for (auto &native : input) {
+      if (debugFunction(native) || byteSwapPrimitive(native) || ir::findIntrinsic(native.getIntrinsicID())) continue;
       builder.setInsertionPointToEnd(module->getBody());
       llvm::SmallVector<mlir::Type> parameters, returns;
-      for (unsigned i = 0; i < a->arg_size(); ++i) {
-        bool leftCursor = leftVarargs.forwardedParameters.lookup(a).contains(i);
-        bool rightCursor = rightVarargs.forwardedParameters.lookup(b).contains(i);
-        if (leftCursor != rightCursor) { fail("native cursor formal lacks paired proof"); return; }
-        auto t = leftCursor ? mlir::Type(ir::VaListArgumentType::get(&context))
-                            : type(a->getArg(i)->getType(), b->getArg(i)->getType());
-        if (!t)
-          return;
-        parameters.push_back(t);
+      for (auto &argument : native.args()) {
+        auto parameter = leftVarargs.forwardedParameters.lookup(&native).contains(argument.getArgNo())
+            ? mlir::Type(ir::VaListArgumentType::get(&context)) : type(argument.getType(), argument.getType());
+        if (!parameter) return;
+        parameters.push_back(parameter);
       }
-      auto rt = type(a->getReturnType(), b->getReturnType());
-      if (!rt)
-        return;
-      if (!mlir::isa<mlir::NoneType>(rt))
-        returns.push_back(rt);
-      auto attrs = attributeList(a->getAttributes(), b->getAttributes(), a->arg_size());
-      if (!error.empty())
-        return;
-      auto *function = op("sela.func", {}, {},
-          {attr("id", builder.getStringAttr(symbols.lookup(a))),
-           attr("type", mlir::TypeAttr::get(builder.getFunctionType(parameters, returns))),
-           attr("declaration", builder.getBoolAttr(a->isDeclaration())),
-           attr("variadic", builder.getBoolAttr(a->isVarArg())),
-           attr("internal", builder.getBoolAttr(a->hasInternalLinkage())),
-           attr("weak", builder.getBoolAttr(a->hasWeakAnyLinkage())),
-           attr("available_externally", builder.getBoolAttr(a->hasAvailableExternallyLinkage())),
-           attr("dso_local", builder.getBoolAttr(a->isDSOLocal())),
-           attr("visibility", builder.getStringAttr(a->getVisibility() == llvm::GlobalValue::HiddenVisibility ? "hidden" :
-               a->getVisibility() == llvm::GlobalValue::ProtectedVisibility ? "protected" : "default")),
-           attr("attributes", attrs)}, true);
-      if (memoryIntrinsic(*a))
-        function->setAttr("intrinsic", builder.getStringAttr(
-            a->getIntrinsicID() == llvm::Intrinsic::memcpy ? "memcpy" :
-            a->getIntrinsicID() == llvm::Intrinsic::memmove ? "memmove" : "memset"));
-      nativeABI(function, leftNativeABIs.lookup(a), rightNativeABIs.lookup(b));
+      auto result = type(native.getReturnType(), native.getReturnType());
+      if (!result) return;
+      if (!mlir::isa<mlir::NoneType>(result)) returns.push_back(result);
+      auto attributes = attributeList(native.getAttributes(), native.getAttributes(), native.arg_size());
       if (!error.empty()) return;
-      if (a->isDeclaration())
-        continue;
-      conditionalCFG.reset();
-      llvm::SmallVector<detail::ConditionalCFGBlockPair, 16> bodyBlocks;
-      if (a->size() != b->size()) {
-        auto graph = detail::pairConditionalCFG(*a, *b);
-        if (!graph) { fail(a->getName() + " (" + leftTarget.id + "/" + rightTarget.id + "): " + llvm::toString(graph.takeError())); return; }
-        conditionalCFG = std::move(*graph);
-        bodyBlocks = conditionalCFG->blocks;
-        llvm::SmallVector<Attribute> domains;
-        for (const auto &pair : bodyBlocks) domains.push_back(domain(pair.domain));
-        function->setAttr("block_domains", builder.getArrayAttr(domains));
-      } else {
-        auto right = b->begin();
-        for (const auto &left : *a) bodyBlocks.push_back({&left, &*right++, 3});
+      auto *function = op("sela.func", {}, {}, {
+          attr("id", builder.getStringAttr(symbols.lookup(&native))),
+          attr("type", mlir::TypeAttr::get(builder.getFunctionType(parameters, returns))),
+          attr("declaration", builder.getBoolAttr(native.isDeclaration())), attr("variadic", builder.getBoolAttr(native.isVarArg())),
+          attr("internal", builder.getBoolAttr(native.hasInternalLinkage())), attr("weak", builder.getBoolAttr(native.hasWeakAnyLinkage())),
+          attr("available_externally", builder.getBoolAttr(native.hasAvailableExternallyLinkage())),
+          attr("dso_local", builder.getBoolAttr(native.isDSOLocal())), attr("visibility", visibility(native)),
+          attr("attributes", attributes)}, true);
+      llvm::SmallVector<mlir::NamedAttribute> codegen;
+      for (const auto &[nativeName, publicName, baseline] : std::vector<std::tuple<StringRef, StringRef, StringRef>>{
+             {"target-cpu", "cpu", leftTarget.cpu}, {"target-features", "features", leftTarget.features},
+             {"tune-cpu", "tune", "generic"}, {"min-legal-vector-width", "min_vector_bits", "0"}}) {
+        auto value = native.getFnAttribute(nativeName);
+        if (!value.isStringAttribute() || value.getValueAsString() == baseline) continue;
+        if (publicName == "min_vector_bits") {
+          unsigned width;
+          if (value.getValueAsString().getAsInteger(10, width) || width > 65536) { fail("invalid minimum vector width"); return; }
+          codegen.push_back(attr(publicName, builder.getI32IntegerAttr(width)));
+        } else codegen.push_back(attr(publicName, builder.getStringAttr(value.getValueAsString())));
       }
-      values.clear();
-      domainValues.clear();
-      conditionalValues.clear();
-      blocks.clear();
-      blockPairs.clear();
-      for (const auto &pair : bodyBlocks) {
-        auto *block = new mlir::Block();
-        function->getRegion(0).push_back(block);
-        if (pair.left) blocks[pair.left] = block;
-        if (pair.right) blocks[pair.right] = block;
-        if (pair.left && pair.right) blockPairs[pair.left] = pair.right;
+      if (!codegen.empty()) function->setAttr("codegen", builder.getDictionaryAttr(codegen));
+      if (memoryIntrinsic(native))
+        function->setAttr("intrinsic", builder.getStringAttr(native.getIntrinsicID() == llvm::Intrinsic::memcpy ? "memcpy" :
+            native.getIntrinsicID() == llvm::Intrinsic::memmove ? "memmove" : "memset"));
+      nativeABI(function, leftNativeABIs.lookup(&native), leftNativeABIs.lookup(&native));
+      if (!error.empty()) return;
+      if (native.isDeclaration()) continue;
+      values.clear(); domainValues.clear(); conditionalValues.clear(); blocks.clear(); blockPairs.clear();
+      for (auto &block : native) {
+        auto *body = new mlir::Block();
+        function->getRegion(0).push_back(body);
+        blocks[&block] = body; blockPairs[&block] = &block;
       }
-      auto *block = blocks.lookup(&a->getEntryBlock());
-      for (unsigned i = 0; i < parameters.size(); ++i) {
-        auto argument = block->addArgument(parameters[i], builder.getUnknownLoc());
-        values[a->getArg(i)] = argument;
-        domainValues[a->getArg(i)] = argument;
-        domainValues[b->getArg(i)] = argument;
-        pairs[a->getArg(i)] = b->getArg(i);
+      auto *entry = blocks.lookup(&native.getEntryBlock());
+      for (auto &argument : native.args()) {
+        auto value = entry->addArgument(parameters[argument.getArgNo()], builder.getUnknownLoc());
+        values[&argument] = value; domainValues[&argument] = value; pairs[&argument] = &argument;
       }
-      for (const auto &pair : bodyBlocks) {
-        if (!pair.left || !pair.right) continue;
-        const auto &leftBlock = *pair.left;
-        const auto *rightBlock = pair.right;
-        auto ai = leftBlock.phis();
-        auto bi = rightBlock->phis();
-        if (std::distance(ai.begin(), ai.end()) != std::distance(bi.begin(), bi.end())) {
-          fail("profile phi inventories differ"); return;
-        }
-        auto rightPhi = bi.begin();
-        for (auto &phi : ai) {
-          auto &other = *rightPhi++;
-          if (leftBlock.isEntryBlock() || phi.getNumIncomingValues() != other.getNumIncomingValues() ||
-              !permittedMetadata(phi) || !permittedMetadata(other)) {
-            fail("unsupported phi correspondence"); return;
-          }
-          auto mergedType = type(phi.getType(), other.getType());
-          if (!mergedType) return;
-          values[&phi] = blocks.lookup(&leftBlock)->addArgument(mergedType, builder.getUnknownLoc());
-          domainValues[&phi] = values.lookup(&phi);
-          domainValues[&other] = values.lookup(&phi);
-          pairs[&phi] = &other;
-        }
+      for (auto &block : native) for (auto &phi : block.phis()) {
+        if (block.isEntryBlock() || !permittedMetadata(phi)) { fail("unsupported native phi metadata"); return; }
+        auto phiType = type(phi.getType(), phi.getType());
+        if (!phiType) return;
+        auto value = blocks.lookup(&block)->addArgument(phiType, builder.getUnknownLoc());
+        values[&phi] = value; domainValues[&phi] = value; pairs[&phi] = &phi;
       }
-      for (const auto &pair : bodyBlocks) {
-        if (!pair.left || !pair.right) {
-          const auto *native = pair.left ? pair.left : pair.right;
-          builder.setInsertionPointToEnd(blocks.lookup(native));
-          singleDomain = pair.domain;
-          for (const auto &instruction : *native) {
-            if (debugInstruction(instruction)) continue;
-            mergeInstruction(instruction, instruction);
-            if (!error.empty()) {
-              error = "conditional arm in " + a->getName().str() + ": " + error;
-              return;
-            }
-          }
-          singleDomain = 0;
-          continue;
-        }
-        const auto &leftBlock = *pair.left;
-        const auto *rightBlock = pair.right;
-        llvm::SmallVector<const llvm::Instruction *> ai, bi;
-        for (auto &instruction : leftBlock)
-          if (!debugInstruction(instruction) && !llvm::isa<llvm::PHINode>(instruction) &&
-              !leftVarargs.forwardingScaffolding.contains(&instruction)) ai.push_back(&instruction);
-        for (auto &instruction : *rightBlock)
-          if (!debugInstruction(instruction) && !llvm::isa<llvm::PHINode>(instruction) &&
-              !rightVarargs.forwardingScaffolding.contains(&instruction)) bi.push_back(&instruction);
-        builder.setInsertionPointToEnd(blocks.lookup(&leftBlock));
-        size_t i = 0, j = 0;
-        while (i < ai.size() || j < bi.size()) {
-          const auto *leftInstruction = i < ai.size() ? ai[i] : nullptr;
-          const auto *rightInstruction = j < bi.size() ? bi[j] : nullptr;
-          if (!leftInstruction || !rightInstruction || !correspondingInstructionKind(*leftInstruction, *rightInstruction)) {
-            if (normalizeOneSidedCast(leftInstruction, rightInstruction, true)) { ++i; continue; }
-            if (normalizeOneSidedCast(leftInstruction, rightInstruction, false)) { ++j; continue; }
-            fail("profile instruction sequences need additional normalization in " + a->getName() +
-                " (" + llvm::Twine(leftInstruction ? leftInstruction->getOpcodeName() : "end") + " versus " +
-                llvm::Twine(rightInstruction ? rightInstruction->getOpcodeName() : "end") +
-                ", instruction " + llvm::Twine(i) + "/" + llvm::Twine(j) + ")"); return;
-          }
-          mergeInstruction(*leftInstruction, *rightInstruction);
-          if (!error.empty()) {
-            error = "function " + a->getName().str() + ", instruction " + std::to_string(i) +
-                " (" + leftInstruction->getOpcodeName() + "): " + error;
-            return;
-          }
-          ++i; ++j;
+      for (auto &block : native) {
+        builder.setInsertionPointToEnd(blocks.lookup(&block));
+        for (auto &nativeInstruction : block) {
+          if (debugInstruction(nativeInstruction) || llvm::isa<llvm::PHINode>(nativeInstruction) ||
+              leftVarargs.forwardingScaffolding.contains(&nativeInstruction)) continue;
+          mergeInstruction(nativeInstruction, nativeInstruction);
+          if (!error.empty()) return;
         }
       }
     }
   }
+
 };
 
 } // namespace
@@ -1507,6 +1522,7 @@ llvm::Error mergeProfiles(llvm::ArrayRef<CaptureObservation> observations,
     detail::NativeOverlaps overlaps;
     detail::NativeVarargs varargs;
     detail::NormalizedAggregateModule aggregates;
+    bool normalizedSemantics = true;
   };
   std::vector<Prepared> inputs;
   std::set<std::string> seen;
@@ -1525,72 +1541,80 @@ llvm::Error mergeProfiles(llvm::ArrayRef<CaptureObservation> observations,
     // Normalization is a proved private transformation, never replacement of
     // missing observations with a previously synthesized target's output.
     auto normalized = llvm::CloneModule(*original);
-    auto overlaps = detail::discoverNativeOverlaps(*normalized);
-    if (!overlaps) return overlaps.takeError();
-    auto varargs = detail::normalizeNativeVarargs(*normalized, target->id);
-    if (!varargs) return varargs.takeError();
-    auto aggregates = detail::normalizeNativeAggregates(*normalized, target->id, nullptr, &*varargs);
-    if (!aggregates) return aggregates.takeError();
+    detail::NativeOverlaps overlaps;
+    detail::NativeVarargs varargs;
+    detail::NormalizedAggregateModule aggregates;
+    auto recover = [&]() -> llvm::Error {
+      auto storage = detail::discoverNativeOverlaps(*normalized);
+      if (!storage) return storage.takeError();
+      overlaps = std::move(*storage);
+      auto cursors = detail::normalizeNativeVarargs(*normalized, target->id);
+      if (!cursors) return cursors.takeError();
+      varargs = std::move(*cursors);
+      auto boundaries = detail::normalizeNativeAggregates(*normalized, target->id, nullptr, &varargs);
+      if (!boundaries) return boundaries.takeError();
+      aggregates = std::move(*boundaries);
+      return llvm::Error::success();
+    };
+    bool normalizedSemantics = true;
+    if (auto error = recover()) {
+      // Recovering a language-neutral ABI/layout abstraction is optional.
+      // The native signature and every coercion remain expressible in Sela.
+      // Restart from the untouched observation; never keep a partial proof.
+      llvm::consumeError(std::move(error));
+      normalized = llvm::CloneModule(*original);
+      overlaps.clear(); varargs = detail::NativeVarargs(); aggregates = detail::NormalizedAggregateModule();
+      normalizedSemantics = false;
+    }
     auto byteSwaps = detail::normalizeNativeByteSwaps(*normalized);
     if (!byteSwaps) return byteSwaps.takeError();
     if (llvm::verifyModule(*normalized)) return failure("private native normalization produced invalid LLVM IR");
     inputs.push_back({target, std::move(context), std::move(original), std::move(normalized),
-                      std::move(*overlaps), std::move(*varargs), std::move(*aggregates)});
+                      std::move(overlaps), std::move(varargs), std::move(aggregates), normalizedSemantics});
     targetIDs.push_back(target->id);
   }
-  auto makePair = [&](size_t left, size_t right) {
-    auto &a = inputs[left]; auto &b = inputs[right];
-    auto merger = std::make_unique<Merger>(a.varargs, b.varargs, a.overlaps, b.overlaps, a.aggregates, b.aggregates,
-                                         *a.target, *b.target);
-    merger->merge(*a.normalized, *b.normalized);
-    return merger;
-  };
-  // The pair prover remains a reusable correspondence primitive. Public
-  // domains and the N-observation result are not defined by that primitive.
-  auto seed = makePair(0, inputs.size() == 1 ? 0 : 1);
-  if (!seed->error.empty()) return failure(seed->error);
-  std::vector<std::unique_ptr<Merger>> additional;
+  std::vector<std::unique_ptr<LLVMImporter>> importers;
+  std::vector<mlir::OwningOpRef<mlir::ModuleOp>> projections;
+  llvm::SmallVector<mlir::ModuleOp> views;
+  for (auto &input : inputs) {
+    auto importer = std::make_unique<LLVMImporter>(input.varargs, input.overlaps, input.aggregates, *input.target);
+    importer->importModule(*input.normalized);
+    if (!importer->error.empty()) return failure(input.target->id + ": " + importer->error);
+    importers.push_back(std::move(importer));
+    std::string text;
+    llvm::raw_string_ostream stream(text);
+    importers.back()->module->print(stream);
+    auto imported = mlir::parseSourceString<mlir::ModuleOp>(text, &importers.front()->context);
+    if (!imported) return failure("cannot construct shared-context Sela projection");
+    // Text parsing introduces locations in this private serialization buffer;
+    // the emitter's public operations had unknown locations before transport.
+    imported->walk([&](Operation *operation) {
+      operation->setLoc(mlir::UnknownLoc::get(&importers.front()->context));
+      for (auto &region : operation->getRegions()) for (auto &block : region)
+        for (auto argument : block.getArguments()) argument.setLoc(operation->getLoc());
+    });
+    projections.push_back(std::move(imported));
+    views.push_back(*projections.back());
+  }
   mlir::OwningOpRef<mlir::ModuleOp> merged;
   std::vector<std::map<std::string, std::string>> sharedStorageIdentities;
-  if (inputs.size() <= 2) merged = mlir::OwningOpRef<mlir::ModuleOp>((*seed->module).clone());
-  else {
-    std::vector<mlir::OwningOpRef<mlir::ModuleOp>> projections;
-    llvm::SmallVector<mlir::ModuleOp> views;
-    for (size_t i = 0; i < inputs.size(); ++i) {
-      mlir::ModuleOp source = *seed->module;
-      if (i >= 2) {
-        additional.push_back(makePair(i, i));
-        if (!additional.back()->error.empty()) return failure(additional.back()->error);
-        std::string text;
-        llvm::raw_string_ostream stream(text);
-        additional.back()->module->print(stream);
-        auto imported = mlir::parseSourceString<mlir::ModuleOp>(text, &seed->context);
-        if (!imported) return failure("cannot construct private shared-context semantic projection");
-        projections.push_back(std::move(imported));
-        source = *projections.back();
-      }
-      auto projection = ir::specializeDomains(source, *inputs[i].target);
-      if (!projection) return projection.takeError();
-      // An optional native-width cast specializes either to its exact integer
-      // cast or to identity. Remove only these explicit identity operations.
-      llvm::SmallVector<Operation *> casts;
-      (*projection)->walk([&](Operation *operation) {
-        if (operation->getName().getStringRef() == "sela.cast") casts.push_back(operation);
-      });
-      for (auto *operation : casts) {
-        auto opcode = operation->getAttrOfType<mlir::StringAttr>("opcode");
-        if (!opcode || !opcode.getValue().starts_with("native_")) continue;
-        if (operation->getOperand(0).getType() == operation->getResult(0).getType()) {
-          operation->getResult(0).replaceAllUsesWith(operation->getOperand(0)); operation->erase();
-        } else operation->setAttr("opcode", mlir::StringAttr::get(&seed->context, opcode.getValue().drop_front(7)));
-      }
-      projections.push_back(std::move(*projection)); views.push_back(*projections.back());
-    }
-    auto common = detail::mergeCommonModules(views, targetIDs);
-    if (!common) return common.takeError();
+  auto common = detail::mergeCommonModules(views, targetIDs);
+  bool scoped = !common;
+  auto retainScoped = [&]() -> llvm::Error {
+    auto literal = detail::factorScopedModules(views, targetIDs);
+    if (!literal) return literal.takeError();
+    merged = std::move(literal->module);
+    sharedStorageIdentities.clear();
+    return llvm::Error::success();
+  };
+  if (common) {
     merged = std::move(common->module);
     sharedStorageIdentities = std::move(common->storageIdentities);
+  } else {
+    llvm::consumeError(common.takeError());
+    if (auto error = retainScoped()) return error;
   }
+  auto prove = [&]() -> llvm::Error {
   if (auto error = verifyModuleStructure(*merged)) return error;
   for (size_t i = 0; i < inputs.size(); ++i) {
     auto &input = inputs[i];
@@ -1598,13 +1622,16 @@ llvm::Error mergeProfiles(llvm::ArrayRef<CaptureObservation> observations,
     detail::NativeABIInverseHints inverseHints;
     auto lowered = detail::lowerModule(*merged, loweredContext, input.target->id, &inverseHints);
     if (!lowered) return lowered.takeError();
-    auto varargs = detail::normalizeNativeVarargs(**lowered, input.target->id);
-    if (!varargs) return varargs.takeError();
-    auto inverse = detail::normalizeNativeAggregates(**lowered, input.target->id, &inverseHints, &*varargs);
-    if (!inverse) return inverse.takeError();
+    if (input.normalizedSemantics) {
+      auto varargs = detail::normalizeNativeVarargs(**lowered, input.target->id);
+      if (!varargs) return varargs.takeError();
+      auto inverse = detail::normalizeNativeAggregates(**lowered, input.target->id, &inverseHints, &*varargs);
+      if (!inverse) return inverse.takeError();
+    }
     if (llvm::verifyModule(**lowered)) return failure("native aggregate inverse normalization produced invalid LLVM IR");
-    auto &reference = *input.normalized;
-    const auto &recordIDs = i == 0 ? seed->leftRecordIDs : i == 1 ? seed->rightRecordIDs : additional[i - 2]->leftRecordIDs;
+    auto referenceCopy = llvm::CloneModule(*input.normalized);
+    auto &reference = *referenceCopy;
+    const auto &recordIDs = importers[i]->leftRecordIDs;
     for (auto *record : reference.getIdentifiedStructTypes()) record->setName("");
     for (const auto &entry : recordIDs) {
       std::string identity = entry.second;
@@ -1633,6 +1660,17 @@ llvm::Error mergeProfiles(llvm::ArrayRef<CaptureObservation> observations,
       return failure(llvm::Twine(input.target->id) + " semantic round-trip comparison failed; expected `" +
           line(expected) + "`, reconstructed `" + line(actual) + "`");
     }
+  }
+  return llvm::Error::success();
+  };
+  if (auto error = prove()) {
+    if (scoped) return error;
+    // Factoring is optional, native equivalence is not. A failed factoring
+    // proof retries only the already-imported Sela definitions, never LLVM or
+    // native payloads. The final scoped graph must pass the identical proof.
+    llvm::consumeError(std::move(error));
+    if (auto error = retainScoped()) return error;
+    if (auto error = prove()) return error;
   }
   std::error_code ec;
   llvm::raw_fd_ostream output(bytecodeOutput, ec, llvm::sys::fs::OF_None);

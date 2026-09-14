@@ -64,6 +64,29 @@ For native-width behavior, the existing independent fixture adds a function retu
 `!sela.word` remains unresolved until a target is selected.
 By contrast, an `i32` constant eight remains fixed. This distinction is the representation's meaning, not a convention based on the spelling of `%width`.
 
+## Target-specific behavior is still part of the public contract
+
+An architecture-neutral format need not give every architecture an identical function body.
+A top-level function or global may carry an explicit `targets` attribute restricting where that definition exists.
+Two definitions can use the same `id` when their target sets do not overlap.
+For example, one definition of `answer` may apply to `x86_64` and another to `armv7`; specialization keeps exactly the definition for the selected target.
+Overlapping definitions and references that are missing in an active target remain errors.
+These are ordinary checked Sela operations, not embedded target LLVM modules.
+
+The archive also records each module's availability and each target's native compilation-unit plan.
+This lets different native build graphs share an artifact without inventing missing source files or combining originally separate optimization units.
+The producer can share definitions where their relationship is proved, but sharing is an optimization rather than a publication requirement.
+Chapter 16 explains that producer choice; the consumer only needs the resulting explicit contract.
+
+The current vocabulary includes fixed vectors, integer widths from 1 through 128, aggregate/vector SSA operations, registered intrinsics, and inline assembly with explicit effects and constraints.
+For example, the Sela intrinsic `population_count` has its own checked signature and lowers to the corresponding LLVM operation.
+The registry does not accept an arbitrary LLVM intrinsic name and hope the device understands it.
+Architecture-specific entries also have a backend domain, preventing an x86 operation from being admitted as ARM behavior.
+
+This is not complete Clang-level coverage.
+Scalable vectors, standalone/file-scope assembly and further C facilities still need work, and preserving a function's CPU attributes does not implement minimum-CPU admission.
+The [target-specific C guide](../02-toolchain-users/target-specific-c.md) describes the currently usable producer path and its limits.
+
 ## Validation happens at several levels
 
 Parsing checks whether bytes or text can form an MLIR structure. MLIR's structural verifier checks framework invariants.
@@ -213,5 +236,7 @@ The public boundary is usable without Clang, but every producer must obey the cu
 Read `include/sela/IR/Dialect.h` and `src/ir/Dialect.cpp` together.
 Follow `verifyModule`, `writeModule`, and `readModule` in `src/ir/Compiler.cpp`.
 Native lowering is implemented separately in `src/ir/NativeLowering.cpp`; the destination build links only its selected target specialization.
+`src/ir/InstructionContracts.cpp` validates the extended operations, while `include/sela/IR/Intrinsics.h` and `src/ir/Intrinsics.cpp` define the closed intrinsic registry.
 Compare `include/sela/IR/Compiler.h` and `include/sela/Artifact/Artifact.h` to the complete independent producer (`tests/independent.cpp`).
 `tests/ir.cpp` contains valid and invalid contract examples; `tests/package.cpp` checks the archive layer independently.
+`tests/definition-domains.cpp` and `tests/instruction-contracts.cpp` cover target-scoped definitions and malformed extended operations.

@@ -147,6 +147,52 @@ llvm::Expected<PackageFiles> readPackage(const fs::path &input) {
   if (status != ARCHIVE_EOF) return fail(archiveError(reader.get()));
   return files;
 }
+namespace {
+llvm::Error validateLinkRecord(const llvm::json::Object &object, llvm::StringRef kind,
+    llvm::StringRef scriptPath, const PackageFiles &files, std::set<std::string> &expected) {
+  auto *libraries = object.getArray("libraries");
+  if (!libraries) return fail("missing library declarations");
+  for (auto &library : *libraries)
+    if (!library.getAsString() || !validLibrary(*library.getAsString())) return fail("invalid native library contract");
+  if (kind == "static" && !libraries->empty())
+    return fail("static archive dependency linkage must be declared by its consuming native link");
+  auto *options = object.getArray("link_options");
+  if (!options) return fail("missing link options");
+  for (auto &option : *options) {
+    auto text = option.getAsString();
+    if (!text || kind == "object" || kind == "static") return fail("unqualified native link option");
+    if (*text == "--export-dynamic" || *text == "--hash-style=both" || *text == "--undefined-version") continue;
+    if (kind != "shared" || !text->starts_with("-soname=") || !validLibrary(":" + text->drop_front(8).str()))
+      return fail("unqualified native link option");
+  }
+  if (auto *value = object.get("version_script")) {
+    auto *script = value->getAsObject();
+    if (kind != "shared" || !script || script->size() != 2 || script->getString("path") != scriptPath)
+      return fail("invalid symbol version script record");
+    auto contents = files.find(scriptPath.str());
+    if (contents == files.end() || script->getString("sha256") != digest(contents->second))
+      return fail("missing or corrupt symbol version script");
+    auto normalized = normalizeVersionScript(contents->second);
+    if (!normalized) return normalized.takeError();
+    if (*normalized != contents->second) return fail("private comments in published symbol version script");
+    expected.insert(contents->first);
+  }
+  return llvm::Error::success();
+}
+}
+LinkPlan readLinkPlan(const llvm::json::Object &manifest, const PackageFiles &files) {
+  LinkPlan plan;
+  for (const auto &value : *manifest.getArray("targets")) {
+    auto target = *value.getAsString();
+    auto *byTarget = manifest.getObject("target_links");
+    const auto &record = byTarget ? *byTarget->getObject(target) : manifest;
+    auto &link = plan[target.str()];
+    for (const auto &item : *record.getArray("libraries")) link.libraries.push_back(item.getAsString()->str());
+    for (const auto &item : *record.getArray("link_options")) link.options.push_back(item.getAsString()->str());
+    if (auto *script = record.getObject("version_script")) link.versionScript = files.at(script->getString("path")->str());
+  }
+  return plan;
+}
 llvm::Expected<llvm::json::Value> validatePackage(const PackageFiles &files) {
   auto manifest = files.find("manifest.json");
   if (manifest == files.end() || manifest->second.size() > 1024 * 1024) return fail("missing or oversized manifest");
@@ -156,11 +202,11 @@ llvm::Expected<llvm::json::Value> validatePackage(const PackageFiles &files) {
   // deterministic public encoding so discarded values cannot hide inputs.
   if (jsonText(*parsed) != manifest->second) return fail("manifest must use canonical Sela JSON encoding (no duplicate keys)");
   auto *object = parsed->getAsObject();
-  if (!object || object->getInteger("format_version") != 1 || object->getString("contract") != Contract)
+  if (!object || object->getInteger("format_version") != ArtifactFormatVersion || object->getString("contract") != Contract)
     return fail("unsupported experimental format/compiler contract");
   for (auto &entry : *object)
     if (entry.first != "format_version" && entry.first != "contract" && entry.first != "kind" &&
-        entry.first != "runtime" && entry.first != "targets" && entry.first != "libraries" && entry.first != "modules" && entry.first != "link_options" && entry.first != "version_script" && entry.first != "compilation_units")
+        entry.first != "runtime" && entry.first != "targets" && entry.first != "libraries" && entry.first != "modules" && entry.first != "link_options" && entry.first != "version_script" && entry.first != "compilation_units" && entry.first != "target_links")
       return fail("unknown public manifest field: " + entry.first.str());
   auto kind = object->getString("kind");
   if (!kind || (*kind != "object" && *kind != "executable" && *kind != "shared" && *kind != "static")) return fail("invalid artifact kind");
@@ -173,44 +219,38 @@ llvm::Expected<llvm::json::Value> validatePackage(const PackageFiles &files) {
     if (!name || !sela::targets::find(*name) || !seenTargets.insert(name->str()).second)
       return fail("unsupported or duplicate target constraint");
   }
-  auto *libraries = object->getArray("libraries");
-  if (!libraries) return fail("missing library declarations");
-  for (auto &library : *libraries)
-    if (!library.getAsString() || !validLibrary(*library.getAsString())) return fail("invalid native library contract");
-  if (*kind == "static" && !libraries->empty())
-    return fail("static archive dependency linkage must be declared by its consuming native link");
-  auto *linkOptions = object->getArray("link_options");
-  if (!linkOptions) return fail("missing link options");
-  for (auto &option : *linkOptions) {
-    auto text = option.getAsString();
-    if (!text || *kind == "object" || *kind == "static") return fail("unqualified native link option");
-    if (*text == "--export-dynamic" || *text == "--hash-style=both" ||
-        *text == "--undefined-version") continue;
-    if (*kind != "shared" || !text->starts_with("-soname=") ||
-        !validLibrary(":" + text->drop_front(8).str()))
-      return fail("unqualified native link option");
-  }
   auto *modules = object->getArray("modules");
   if (!modules || (modules->empty() && *kind != "static")) return fail("package has no common IR modules");
   std::set<std::string> expected{"manifest.json"};
-  if (auto *scriptValue = object->get("version_script")) {
-    auto *script = scriptValue->getAsObject();
-    if (*kind != "shared" || !script || script->size() != 2 ||
-        script->getString("path") != "link/version.script") return fail("invalid symbol version script record");
-    auto contents = files.find("link/version.script");
-    if (contents == files.end() || script->getString("sha256") != digest(contents->second))
-      return fail("missing or corrupt symbol version script");
-    auto normalized = normalizeVersionScript(contents->second);
-    if (!normalized) return normalized.takeError();
-    if (*normalized != contents->second) return fail("private comments in published symbol version script");
-    expected.insert(contents->first);
+  if (auto error = validateLinkRecord(*object, *kind, "link/version.script", files, expected)) return error;
+  if (auto *raw = object->get("target_links")) {
+    auto *links = raw->getAsObject();
+    if (!links || links->size() != seenTargets.size() || !object->getArray("libraries")->empty() ||
+        !object->getArray("link_options")->empty() || object->get("version_script"))
+      return fail("target links require complete records and empty common link settings");
+    for (const auto &target : seenTargets) {
+      auto *record = links->getObject(target);
+      if (!record) return fail("missing target link record");
+      for (const auto &field : *record)
+        if (field.first != "libraries" && field.first != "link_options" && field.first != "version_script")
+          return fail("unknown target link field");
+      if (auto error = validateLinkRecord(*record, *kind, "link/" + target + ".version.script", files, expected)) return error;
+    }
   }
   for (size_t index = 0; index < modules->size(); ++index) {
     auto *module = (*modules)[index].getAsObject();
     if (!module) return fail("invalid module record");
     for (auto &entry : *module)
-      if (entry.first != "path" && entry.first != "sha256")
+      if (entry.first != "path" && entry.first != "sha256" && entry.first != "targets")
         return fail("unknown public module field: " + entry.first.str());
+    const auto *domain = module->getArray("targets");
+    if (!domain || domain->empty()) return fail("module requires a nonempty target domain");
+    std::set<std::string> moduleTargets;
+    for (const auto &entry : *domain) {
+      auto target = entry.getAsString();
+      if (!target || !seenTargets.count(target->str()) || !moduleTargets.insert(target->str()).second)
+        return fail("module target domain is outside the artifact or contains duplicates");
+    }
     std::string path = "modules/" + std::to_string(index) + ".selabc";
     if (module->getString("path") != path) return fail("invalid module path");
     auto found = files.find(path);
@@ -230,6 +270,18 @@ llvm::Expected<CompilationPlan> readCompilationPlan(const llvm::json::Object &ma
   if (!plans || !targets || !modules || !kind || plans->size() != targets->size())
     return fail("missing or inconsistent native compilation-unit plan");
   CompilationPlan result;
+  std::vector<std::set<std::string>> domains;
+  for (const auto &entry : *modules) {
+    const auto *record = entry.getAsObject();
+    const auto *domain = record ? record->getArray("targets") : nullptr;
+    if (!domain || domain->empty()) return fail("missing module target domain");
+    std::set<std::string> ids;
+    for (const auto &value : *domain) {
+      auto id = value.getAsString();
+      if (!id || !ids.insert(id->str()).second) return fail("invalid module target domain");
+    }
+    domains.push_back(std::move(ids));
+  }
   for (const auto &target : *targets) {
     auto name = target.getAsString();
     if (!name) return fail("invalid compilation target");
@@ -260,13 +312,16 @@ llvm::Expected<CompilationPlan> readCompilationPlan(const llvm::json::Object &ma
         auto index = member.getAsInteger();
         if (!index || *index < 0 || uint64_t(*index) >= modules->size() || seen[*index])
           return fail("compilation-unit plan duplicates or misreferences a common fragment");
+        if (!domains[*index].count(name->str()))
+          return fail("compilation-unit plan includes an inactive target fragment");
         seen[*index] = true;
         record.modules.push_back(size_t(*index));
       }
       destination.push_back(std::move(record));
     }
-    if (std::find(seen.begin(), seen.end(), false) != seen.end())
-      return fail("compilation-unit plan drops a common fragment");
+    for (size_t index = 0; index < seen.size(); ++index)
+      if (domains[index].count(name->str()) && !seen[index])
+        return fail("compilation-unit plan drops an active target fragment");
   }
   return result;
 }
@@ -275,13 +330,17 @@ llvm::Expected<PackageFiles> createArtifact(
     const std::vector<std::string> &libraries,
     const std::vector<std::string> &linkOptions,
     const std::vector<std::string> &targets, llvm::StringRef versionScript,
-    const CompilationPlan &compilationPlan) {
+    const CompilationPlan &compilationPlan, const LinkPlan &linkPlan) {
   PackageFiles files;
   llvm::json::Array records, targetList, libraryList, options;
   for (size_t i = 0; i < modules.size(); ++i) {
     auto path = "modules/" + std::to_string(i) + ".selabc";
     files.emplace(path, modules[i].bytecode);
     llvm::json::Object record{{"path", path}, {"sha256", digest(modules[i].bytecode)}};
+    llvm::json::Array domain;
+    for (const auto &target : modules[i].targets.empty() ? targets : modules[i].targets)
+      domain.push_back(target);
+    record["targets"] = std::move(domain);
     records.push_back(std::move(record));
   }
   for (auto &target : targets) targetList.push_back(target);
@@ -291,7 +350,8 @@ llvm::Expected<PackageFiles> createArtifact(
   if (plan.empty())
     for (const auto &target : targets)
       for (size_t i = 0; i < modules.size(); ++i)
-        plan[target].push_back({{i}, modules[i].optimization, modules[i].archiveMember});
+        if (modules[i].targets.empty() || llvm::is_contained(modules[i].targets, target))
+          plan[target].push_back({{i}, modules[i].optimization, modules[i].archiveMember});
   // Empty static archives still have an explicit empty plan for every target.
   if (compilationPlan.empty()) for (const auto &target : targets) plan.try_emplace(target);
   llvm::json::Object unitPlans;
@@ -306,7 +366,7 @@ llvm::Expected<PackageFiles> createArtifact(
     }
     unitPlans[target] = std::move(records);
   }
-  llvm::json::Object manifest{{"format_version", 1}, {"contract", Contract},
+  llvm::json::Object manifest{{"format_version", ArtifactFormatVersion}, {"contract", Contract},
       {"kind", kind}, {"targets", std::move(targetList)}, {"runtime", "glibc-2.39-0ubuntu8.8"},
       {"libraries", std::move(libraryList)}, {"link_options", std::move(options)}, {"modules", std::move(records)},
       {"compilation_units", std::move(unitPlans)}};
@@ -315,6 +375,26 @@ llvm::Expected<PackageFiles> createArtifact(
     if (!normalized) return normalized.takeError();
     manifest["version_script"] = llvm::json::Object{{"path", "link/version.script"}, {"sha256", digest(*normalized)}};
     files["link/version.script"] = std::move(*normalized);
+  }
+  if (!linkPlan.empty()) {
+    if (!libraries.empty() || !linkOptions.empty() || !versionScript.empty())
+      return fail("cannot combine common and target-dependent link settings");
+    llvm::json::Object links;
+    for (const auto &[target, link] : linkPlan) {
+      llvm::json::Array dependencies, options;
+      for (const auto &library : link.libraries) dependencies.push_back(library);
+      for (const auto &option : link.options) options.push_back(option);
+      llvm::json::Object record{{"libraries", std::move(dependencies)}, {"link_options", std::move(options)}};
+      if (!link.versionScript.empty()) {
+        auto normalized = normalizeVersionScript(link.versionScript);
+        if (!normalized) return normalized.takeError();
+        auto path = "link/" + target + ".version.script";
+        record["version_script"] = llvm::json::Object{{"path", path}, {"sha256", digest(*normalized)}};
+        files[path] = std::move(*normalized);
+      }
+      links[target] = std::move(record);
+    }
+    manifest["target_links"] = std::move(links);
   }
   files["manifest.json"] = jsonText(std::move(manifest));
   auto checked = validatePackage(files);
